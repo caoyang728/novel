@@ -1,0 +1,189 @@
+body {
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    min-height: 100vh;
+    margin: 0;
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+}
+.sidebar {
+    width: 220px;
+    background: white;
+    min-height: 100vh;
+    border-right: 1px solid #e2e8f0;
+    padding: 1rem 1.25rem;
+    position: fixed;
+    left: 0;
+    top: 0;
+}
+.sidebar-header {
+    margin-bottom: 1rem;
+}
+.sidebar-header h2 {
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 1.25rem;
+}
+.nav-links {
+    list-style: none;
+    padding: 0;
+}
+.nav-links li {
+    margin-bottom: 0.5rem;
+}
+.nav-links a {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #64748b;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+}
+.nav-links a:hover {
+    background: rgba(14, 165, 233, 0.05);
+    color: #0ea5e9;
+}
+.nav-links a.active {
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.1) 0%, rgba(56, 189, 248, 0.1) 100%);
+    color: #0ea5e9;
+    font-weight: 600;
+}
+.nav-links i {
+    margin-right: 0.75rem;
+}
+.user-info {
+    position: absolute;
+    bottom: 1rem;
+    left: 1.25rem;
+    right: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e2e8f0;
+}
+.user-info .username {
+    font-weight: 600;
+    color: #1e293b;
+}
+.user-info .token-usage {
+    font-size: 0.875rem;
+    color: #64748b;
+}
+.user-info .btn-logout {
+    width: 100%;
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    border: 1px solid #fecaca;
+    background: rgba(239, 68, 68, 0.05);
+    color: #dc2626;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+.user-info .btn-logout:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: #fca5a5;
+}
+.main-content {
+    margin-left: 220px;
+    padding: 1.5rem;
+}
+.page-header {
+    margin-bottom: 2rem;
+}
+.page-header h1 {
+    font-weight: 700;
+    color: #0f172a;
+}
+.page-header p {
+    color: #64748b;
+}
+.btn-primary {
+    background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%);
+    border: none;
+    border-radius: 12px;
+    padding: 0.875rem 1.5rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+.btn-primary:hover {
+    background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(14, 165, 233, 0.35);
+}
+.custom-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+}
+.custom-modal-overlay.show {
+    display: flex;
+}
+.custom-modal {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    min-width: 360px;
+    max-width: 480px;
+    animation: slideIn 0.3s ease;
+}
+@keyframes slideIn {
+    from { transform: translateY(-30px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+.custom-modal-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-radius: 16px 16px 0 0;
+}
+.custom-modal-header h5 {
+    margin: 0;
+    color: #1e293b;
+    font-weight: 600;
+}
+.custom-modal-body {
+    padding: 1.5rem;
+}
+.custom-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+.empty-state {
+    text-align: center;
+    padding: 4rem;
+}
+.empty-state i {
+    font-size: 4rem;
+    color: #cbd5e1;
+    margin-bottom: 1rem;
+}
+.empty-state p {
+    color: #64748b;
+    margin: 0;
+}
+.badge-success {
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+}
+.badge-info {
+    background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+}
+.badge-warning {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+.badge-danger {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}

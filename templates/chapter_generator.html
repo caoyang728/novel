@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>章节编辑器 - 小说创作助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --purple: #8b5cf6;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+        body {
+            background: #f0f4f8;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d0d5dd;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #b0b5bd;
+        }
+        .main-content-full {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .content-header {
+            padding: 0.6rem 1.5rem;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+            background: #fff;
+        }
+        .content-header h5 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .btn-back {
+            border-radius: 10px;
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+        }
+        .split-view {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        /* 左侧：章节列表 */
+        .chapter-list-panel {
+            width: 360px;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            margin: 1rem 0 1rem 1rem;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+        }
+        .panel-header {
+            padding: 0.875rem 1rem;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #334155;
+        }
+        .panel-toolbar {
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid #f1f5f9;
+            background: #fff;
+        }
+        .chapter-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+        .chapter-item {
+            padding: 0.75rem;
+            border-radius: 10px;
+            margin-bottom: 0.4rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        .chapter-item:hover {
+            background: #f8fafc;
+            border-color: #e2e8f0;
+        }
+        .chapter-item.active {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.08) 0%, rgba(56, 189, 248, 0.06) 100%);
+            border-color: rgba(14, 165, 233, 0.2);
+        }
+        .chapter-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chapter-number {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #1e293b;
+        }
+        .chapter-title {
+            font-weight: 500;
+            color: #334155;
+            font-size: 0.9rem;
+        }
+        .chapter-meta {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+        .badge {
+            padding: 0.15rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .badge-draft {
+            background: #fef3c7;
+            color: #d97706;
+        }
+        .badge-published {
+            background: #d1fae5;
+            color: #16a34a;
+        }
+        .badge-archived {
+            background: #e5e7eb;
+            color: #6b7280;
+        }
+        /* 右侧：编辑器 */
+        .editor-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            margin: 1rem;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            overflow: hidden;
+        }
+        .editor-header {
+            padding: 0.875rem 1.25rem;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+        .editor-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 1.25rem;
+            overflow: hidden;
+        }
+        .editor-form-group {
+            margin-bottom: 0.75rem;
+        }
+        .form-label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #475569;
+            margin-bottom: 0.25rem;
+        }
+        .form-control {
+            border-radius: 10px;
+            border-color: #e2e8f0;
+            font-size: 0.9rem;
+            padding: 0.6rem 0.85rem;
+        }
+        .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+        }
+        .editor-textarea {
+            flex: 1;
+            resize: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.7;
+            font-size: 0.95rem;
+            padding: 0.85rem;
+        }
+        .btn-toolbar {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .btn-gradient {
+            border: none;
+            border-radius: 10px;
+            padding: 0.5rem 0.9rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+        }
+        .btn-gradient:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-gradient-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: #fff;
+        }
+        .btn-gradient-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+        }
+        .btn-gradient-success {
+            background: linear-gradient(135deg, var(--success) 0%, #16a34a 100%);
+            color: #fff;
+        }
+        .btn-outline-gradient {
+            border-radius: 10px;
+            padding: 0.5rem 0.9rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+        }
+        .btn-outline-gradient:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-outline-primary {
+            border: 1.5px solid var(--primary);
+            color: var(--primary);
+            background: transparent;
+        }
+        .btn-outline-primary:hover:not(:disabled) {
+            background: rgba(14, 165, 233, 0.08);
+        }
+        .btn-outline-warning {
+            border: 1.5px solid var(--warning);
+            color: var(--warning);
+            background: transparent;
+        }
+        .btn-outline-warning:hover:not(:disabled) {
+            background: rgba(245, 158, 11, 0.08);
+        }
+        .btn-outline-danger {
+            border: 1.5px solid var(--danger);
+            color: var(--danger);
+            background: transparent;
+        }
+        .btn-outline-danger:hover:not(:disabled) {
+            background: rgba(239, 68, 68, 0.08);
+        }
+        /* 模态框 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show {
+            display: flex;
+        }
+        .modal-content {
+            background: #fff;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 520px;
+            overflow: hidden;
+            animation: modalFadeIn 0.2s ease;
+        }
+        .modal-lg {
+            max-width: 700px;
+        }
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .modal-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h5 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .modal-body {
+            padding: 1.25rem;
+        }
+        .modal-body pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background: #f8fafc;
+            padding: 1rem;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            max-height: 450px;
+            overflow-y: auto;
+        }
+        .modal-footer {
+            padding: 1rem 1.25rem;
+            border-top: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+        .modal-footer .btn {
+            padding: 0.5rem 1.25rem;
+            border-radius: 10px;
+        }
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .toast-item {
+            background: #fff;
+            color: #1e293b;
+            padding: 0.875rem 1.25rem;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            animation: toastSlideIn 0.3s ease;
+            font-size: 0.9rem;
+            font-weight: 500;
+            min-width: 280px;
+        }
+        .toast-item.toast-success {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            color: #fff;
+        }
+        .toast-item.toast-error {
+            background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
+            color: #fff;
+        }
+        @keyframes toastSlideIn {
+            from { opacity: 0; transform: translateX(100%); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .select-form {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .select-form .form-select {
+            border-radius: 10px;
+            border-color: #e2e8f0;
+        }
+        .stats-bar {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+        .ai-chat-panel {
+            margin-top: 1rem;
+            border-top: 1px dashed #e2e8f0;
+            padding-top: 1rem;
+        }
+        .ai-chat-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--primary);
+        }
+        .ai-chat-messages {
+            max-height: 150px;
+            overflow-y: auto;
+            margin-bottom: 0.5rem;
+        }
+        .ai-message {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+        .ai-message.user {
+            justify-content: flex-end;
+        }
+        .ai-message-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            flex-shrink: 0;
+        }
+        .ai-message.user .ai-message-avatar {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+        }
+        .ai-message.assistant .ai-message-avatar {
+            background: linear-gradient(135deg, rgba(14,165,233,0.15), rgba(56,189,248,0.15));
+            color: var(--primary);
+        }
+        .ai-message-bubble {
+            padding: 0.5rem 0.75rem;
+            border-radius: 10px;
+            max-width: 85%;
+            line-height: 1.5;
+        }
+        .ai-message.user .ai-message-bubble {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+        }
+        .ai-message.assistant .ai-message-bubble {
+            background: #f1f5f9;
+            color: #334155;
+        }
+        .ai-input-row {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-end;
+        }
+        .ai-input-row textarea {
+            flex: 1;
+            border-radius: 10px;
+            border-color: #e2e8f0;
+            padding: 0.6rem 0.85rem;
+            font-size: 0.875rem;
+            resize: none;
+            min-height: 42px;
+            max-height: 120px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .ai-input-row textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(14,165,233,0.15);
+        }
+        .btn-ai-send {
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            border: none;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+        .btn-ai-send:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(14,165,233,0.35);
+        }
+        .btn-ai-send:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .quick-prompts {
+            display: flex;
+            gap: 0.375rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.5rem;
+        }
+        .quick-prompt-btn {
+            padding: 0.25rem 0.625rem;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            background: white;
+            font-size: 0.75rem;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .quick-prompt-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: rgba(14,165,233,0.05);
+        }
+    </style>
+</head>
+<body>
+    <div class="main-content-full">
+        <div class="content-header">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-outline-secondary btn-back" onclick="goBack()">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <div>
+                    <h5>章节编辑器</h5>
+                    <span class="badge bg-info text-white" id="project-title">请选择项目</span>
+                </div>
+            </div>
+            <div class="d-flex gap-2 align-items-center select-form">
+                <select class="form-select" id="volume-version-select" style="width: 180px;">
+                    <option value="">请选择卷版本</option>
+                </select>
+                <select class="form-select" id="volume-select" style="width: 180px;" disabled>
+                    <option value="">请选择卷</option>
+                </select>
+                <button class="btn btn-gradient-primary" id="generate-chapters-btn" onclick="generateChapterSummaries()" disabled>
+                    <i class="fas fa-magic"></i>
+                    <span>生成章节</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="split-view">
+            <!-- 左侧：章节列表 -->
+            <div class="chapter-list-panel">
+                <div class="panel-header">
+                    <i class="fas fa-book-open me-2"></i>
+                    章节列表
+                </div>
+                <div class="panel-toolbar">
+                    <div class="btn-toolbar justify-content-between">
+                        <select class="form-select form-select-sm" id="chapter-version-select" style="width: auto; min-width: 150px;">
+                            <option value="">版本选择</option>
+                        </select>
+                        <span class="badge bg-secondary text-white" id="total-chapters-count">-章</span>
+                    </div>
+                </div>
+                <div class="chapter-list" id="chapter-list">
+                    <div class="empty-state py-4 px-3 text-center">
+                        <i class="fas fa-file-alt text-muted mb-2" style="font-size: 2rem;"></i>
+                        <p class="text-muted mb-0" style="font-size: 0.85rem;">请选择卷版本和卷</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：编辑器 -->
+            <div class="editor-panel">
+                <div class="editor-header">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="fw-bold" id="current-chapter-label">请选择章节</span>
+                        <span class="stats-bar" id="current-chapter-stats"></span>
+                    </div>
+                    <div class="btn-toolbar">
+                        <button class="btn btn-outline-gradient btn-outline-primary" id="btn-generate-content" onclick="generateChapterContent()" disabled>
+                            <i class="fas fa-sparkles"></i> 生成内容
+                        </button>
+                        <button class="btn btn-outline-gradient btn-outline-primary" id="btn-verify" onclick="verifyChapter()" disabled>
+                            <i class="fas fa-check-double"></i> 校验
+                        </button>
+                        <button class="btn btn-outline-gradient btn-outline-warning" id="btn-split" onclick="splitChapter()" disabled>
+                            <i class="fas fa-cut"></i> 拆分
+                        </button>
+                        <button class="btn btn-outline-gradient btn-outline-warning" id="btn-continue" onclick="continueChapter()" disabled>
+                            <i class="fas fa-share"></i> 延续
+                        </button>
+                        <button class="btn btn-outline-gradient btn-outline-primary" id="btn-optimize" onclick="optimizeChapter()" disabled>
+                            <i class="fas fa-wand-magic-sparkles"></i> 优化
+                        </button>
+                        <button class="btn btn-gradient-primary" id="btn-save" onclick="saveChapter()" disabled>
+                            <i class="fas fa-save"></i> 保存
+                        </button>
+                        <button class="btn btn-gradient-success" id="btn-publish" onclick="publishChapter()" disabled>
+                            <i class="fas fa-rocket"></i> 发布
+                        </button>
+                    </div>
+                </div>
+                <div class="editor-body">
+                    <div class="editor-form-group">
+                        <label class="form-label">章节标题</label>
+                        <input type="text" class="form-control" id="chapter-title-input" placeholder="章节标题">
+                    </div>
+                    <div class="editor-form-group">
+                        <label class="form-label">章节摘要</label>
+                        <textarea class="form-control" id="chapter-summary-input" rows="2" placeholder="章节摘要"></textarea>
+                    </div>
+                    <div class="editor-form-group flex-grow-1 d-flex flex-column">
+                        <label class="form-label">章节内容</label>
+                        <textarea class="form-control editor-textarea" id="chapter-content-input" placeholder="开始创作..."></textarea>
+                    </div>
+
+                    <!-- AI对话面板 -->
+                    <div class="ai-chat-panel" id="ai-chat-panel">
+                        <div class="ai-chat-header">
+                            <i class="fas fa-robot"></i>
+                            <span>AI 写作助手</span>
+                        </div>
+                        <div class="quick-prompts" id="quick-prompts">
+                            <button class="quick-prompt-btn" onclick="insertPrompt('继续写下去，保持风格一致')">继续写</button>
+                            <button class="quick-prompt-btn" onclick="insertPrompt('补充更多细节描写')">补充细节</button>
+                            <button class="quick-prompt-btn" onclick="insertPrompt('增加人物对话')">增加对话</button>
+                            <button class="quick-prompt-btn" onclick="insertPrompt('加强情感描写')">情感描写</button>
+                            <button class="quick-prompt-btn" onclick="insertPrompt('过渡到下一场景')">场景过渡</button>
+                        </div>
+                        <div class="ai-chat-messages" id="ai-chat-messages"></div>
+                        <div class="ai-input-row">
+                            <textarea id="ai-chat-input" rows="1" placeholder="输入指令让AI帮你写作... (Enter发送, Shift+Enter换行)"></textarea>
+                            <button class="btn-ai-send" id="btn-ai-send" onclick="sendAiMessage()">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 校验结果模态框 -->
+    <div class="modal-overlay" id="verify-modal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h5><i class="fas fa-clipboard-check me-2"></i> 章节校验结果</h5>
+                <button class="btn-close" onclick="closeModal('verify-modal')"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="verify-result"></pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModal('verify-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 确认操作模态框 -->
+    <div class="modal-overlay" id="confirm-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 id="confirm-title">确认</h5>
+                <button class="btn-close" onclick="closeModal('confirm-modal')"></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-message">确定执行此操作？</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModal('confirm-modal')">取消</button>
+                <button class="btn btn-gradient-primary" id="confirm-btn" onclick="executeConfirm()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 全局变量
+        let projectId = null;
+        let currentVolumeVersionId = null;
+        let currentVolumeId = null;
+        let currentChapterVersionId = null;
+        let currentChapterId = null;
+        let volumes = [];
+        let allChapters = [];
+        let confirmCallback = null;
+        let aiChatHistory = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const params = new URLSearchParams(window.location.search);
+            projectId = params.get('project_id');
+
+            if (projectId) {
+                console.log('projectId:', projectId);
+                loadProjectInfo();
+                loadVolumeVersions();
+            }
+
+            document.getElementById('volume-version-select').addEventListener('change', function() {
+                currentVolumeVersionId = this.value;
+                document.getElementById('volume-select').disabled = !currentVolumeVersionId;
+                if (currentVolumeVersionId) {
+                    loadVolumes(currentVolumeVersionId);
+                    loadChapterVersions(currentVolumeVersionId);
+                } else {
+                    document.getElementById('volume-select').innerHTML = '<option value="">请选择卷</option>';
+                    clearChapterList();
+                }
+            });
+
+            document.getElementById('volume-select').addEventListener('change', function() {
+                console.log('volume-select changed, this.value:', this.value, 'typeof:', typeof this.value);
+                currentVolumeId = this.value;
+                console.log('currentVolumeId after change:', currentVolumeId);
+                document.getElementById('generate-chapters-btn').disabled = !currentVolumeId;
+            });
+
+            document.getElementById('chapter-version-select').addEventListener('change', function() {
+                if (this.value) {
+                    setCurrentChapterVersion(this.value);
+                }
+            });
+        });
+
+        async function loadProjectInfo() {
+            const response = await fetch(`/api/projects/${projectId}/`, {
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            });
+            const data = await response.json();
+            if (data.success) {
+                document.getElementById('project-title').textContent = data.project.title;
+            }
+        }
+
+        async function loadVolumeVersions() {
+            const response = await fetch(`/api/projects/${projectId}/volume-versions/`, {
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            });
+            const data = await response.json();
+            if (data.success) {
+                const select = document.getElementById('volume-version-select');
+                select.innerHTML = '<option value="">请选择卷版本</option>';
+
+                let finalizedVersion = null;
+                data.versions.forEach(v => {
+                    const option = document.createElement('option');
+                    option.value = v.id;
+                    option.textContent = `v${v.version_number} (${v.volume_count}卷)${v.is_finalized ? ' ✓' : ''}`;
+                    select.appendChild(option);
+                    if (v.is_finalized) finalizedVersion = v;
+                });
+
+                if (finalizedVersion) {
+                    console.log('Found finalized version:', finalizedVersion);
+                    select.value = finalizedVersion.id;
+                    currentVolumeVersionId = finalizedVersion.id;
+                    document.getElementById('volume-select').disabled = false;
+                    console.log('Calling loadVolumes with versionId:', finalizedVersion.id);
+                    loadVolumes(finalizedVersion.id);
+                    loadChapterVersions(finalizedVersion.id);
+                }
+            }
+        }
+
+        async function loadVolumes(versionId) {
+            if (!versionId) return;
+
+            const response = await fetch(`/api/volume/version/${versionId}/load/`, {
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            });
+            const data = await response.json();
+            console.log('loadVolumes API response:', data);
+            if (data.success) {
+                volumes = data.volumes;
+                console.log('volumes array:', volumes);
+                const select = document.getElementById('volume-select');
+                select.innerHTML = '<option value="">请选择卷</option>';
+
+                volumes.forEach((vol, index) => {
+                    console.log(`vol[${index}]:`, vol, 'vol.id:', vol.id, 'typeof:', typeof vol.id);
+                    const option = document.createElement('option');
+                    option.value = vol.id;
+                    option.textContent = `第${vol.volume_number}卷: ${vol.title}`;
+                    select.appendChild(option);
+                });
+
+                if (volumes.length > 0 && !currentVolumeId) {
+                    console.log('auto-selecting first volume, volumes[0].id:', volumes[0].id, 'typeof:', typeof volumes[0].id);
+                    select.value = volumes[0].id;
+                    currentVolumeId = volumes[0].id;
+                    console.log('currentVolumeId after auto-select:', currentVolumeId);
+                    document.getElementById('generate-chapters-btn').disabled = false;
+                }
+            }
+        }
+
+        async function loadChapterVersions(versionId) {
+            if (!versionId) return;
+
+            const response = await fetch(`/api/chapter/versions/${versionId}/load/`, {
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            });
+            const data = await response.json();
+            console.log('loadChapterVersions API response:', data);
+            if (data.success) {
+                const select = document.getElementById('chapter-version-select');
+                select.innerHTML = '<option value="">版本选择</option>';
+
+                if (data.versions.length > 0) {
+                    data.versions.forEach(cv => {
+                        const option = document.createElement('option');
+                        option.value = cv.id;
+                        option.textContent = `v${cv.version_number} (${cv.chapters.length}章)`;
+                        select.appendChild(option);
+                    });
+
+                    select.value = data.versions[0].id;
+                    currentChapterVersionId = data.versions[0].id;
+                    allChapters = data.versions[0].chapters;
+                    renderChapterList();
+                } else {
+                    clearChapterList();
+                }
+            }
+        }
+
+        async function setCurrentChapterVersion(versionId) {
+            const response = await fetch('/api/chapter/version/current/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: `chapter_version_id=${versionId}`
+            });
+            const data = await response.json();
+            if (data.success) {
+                currentChapterVersionId = versionId;
+                allChapters = data.chapters;
+                renderChapterList();
+            }
+        }
+
+        function renderChapterList() {
+            const container = document.getElementById('chapter-list');
+
+            if (!allChapters || allChapters.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state py-4 px-3 text-center">
+                        <i class="fas fa-file-alt text-muted mb-2" style="font-size: 2rem;"></i>
+                        <p class="text-muted mb-0" style="font-size: 0.85rem;">暂无章节，请先生成</p>
+                    </div>
+                `;
+                document.getElementById('total-chapters-count').textContent = '-章';
+                return;
+            }
+
+            // 按章节号排序
+            allChapters.sort((a, b) => a.chapter_number - b.chapter_number);
+
+            container.innerHTML = allChapters.map(chap => `
+                <div class="chapter-item ${currentChapterId === chap.id ? 'active' : ''}"
+                     onclick="selectChapter(${chap.id})" data-chapter-id="${chap.id}">
+                    <div class="chapter-top">
+                        <span class="chapter-number">第${chap.chapter_number}章</span>
+                        <span class="badge ${getStatusBadgeClass(chap.status)}">${getStatusLabel(chap.status)}</span>
+                    </div>
+                    <div class="chapter-title">${chap.title}</div>
+                    <div class="chapter-meta">
+                        <span><i class="fas fa-font"></i> ${chap.word_count || 0}字</span>
+                        ${chap.published_at ? `<span><i class="fas fa-calendar-check"></i> ${new Date(chap.published_at).toLocaleDateString()}</span>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById('total-chapters-count').textContent = `${allChapters.length}章`;
+        }
+
+        function clearChapterList() {
+            const container = document.getElementById('chapter-list');
+            container.innerHTML = `
+                <div class="empty-state py-4 px-3 text-center">
+                    <i class="fas fa-file-alt text-muted mb-2" style="font-size: 2rem;"></i>
+                    <p class="text-muted mb-0" style="font-size: 0.85rem;">请先生成章节</p>
+                </div>
+            `;
+            document.getElementById('total-chapters-count').textContent = '-章';
+            allChapters = [];
+            currentChapterId = null;
+        }
+
+        function selectChapter(chapterId) {
+            const chapter = allChapters.find(c => c.id === chapterId);
+            if (!chapter) return;
+
+            currentChapterId = chapterId;
+            document.getElementById('current-chapter-label').textContent = `第${chapter.chapter_number}章: ${chapter.title}`;
+            document.getElementById('current-chapter-stats').innerHTML = `
+                <span><i class="fas fa-font"></i> ${chapter.word_count || 0}字</span>
+                <span><i class="fas fa-circle ${chapter.status === 'published' ? 'text-success' : 'text-warning'}"></i> ${getStatusLabel(chapter.status)}</span>
+            `;
+
+            document.getElementById('chapter-title-input').value = chapter.title || '';
+            document.getElementById('chapter-summary-input').value = chapter.summary || '';
+            document.getElementById('chapter-content-input').value = chapter.content || '';
+
+            aiChatHistory = [];
+            document.getElementById('ai-chat-messages').innerHTML = '';
+
+            // 更新高亮
+            document.querySelectorAll('.chapter-item').forEach(item => {
+                item.classList.remove('active');
+                if (parseInt(item.dataset.chapterId) === chapterId) {
+                    item.classList.add('active');
+                }
+            });
+
+            // 启用按钮
+            const isPublished = chapter.status === 'published';
+            document.getElementById('btn-generate-content').disabled = isPublished;
+            document.getElementById('btn-verify').disabled = !chapter.content;
+            document.getElementById('btn-split').disabled = isPublished || (chapter.word_count || 0) < 3000;
+            document.getElementById('btn-continue').disabled = isPublished || (chapter.word_count || 0) < 3000;
+            document.getElementById('btn-optimize').disabled = isPublished || !chapter.content;
+            document.getElementById('btn-save').disabled = isPublished;
+            document.getElementById('btn-publish').disabled = isPublished;
+        }
+
+        async function generateChapterSummaries() {
+            console.log('currentVolumeId:', currentVolumeId, 'typeof:', typeof currentVolumeId);
+            const volumeId = parseInt(currentVolumeId);
+            console.log('parsed volumeId:', volumeId);
+            if (!volumeId || isNaN(volumeId)) {
+                showToast('请先选择卷', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('generate-chapters-btn');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<span class="loading-spinner"></span> 生成中...';
+            btn.disabled = true;
+
+            const progressDiv = document.createElement('div');
+            progressDiv.className = 'progress-container mt-2 p-2 bg-gray-50 rounded border';
+            progressDiv.innerHTML = `
+                <div class="progress-text text-sm text-gray-600 mb-2">正在生成章节...</div>
+                <div class="progress-bar-wrapper mt-1 mb-2"><div class="progress-bar" style="width: 0%;"></div></div>
+                <div class="output-preview text-xs text-gray-500 bg-white p-2 rounded max-h-32 overflow-auto border" id="stream-output-preview"></div>
+            `;
+            btn.parentNode.appendChild(progressDiv);
+
+            try {
+                const response = await fetch('/api/chapter/summaries/generate/stream/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: `volume_id=${volumeId}`
+                });
+
+                if (!response.ok) {
+                    throw new Error('网络请求失败: ' + response.statusText);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let progress = 0;
+                const progressBar = progressDiv.querySelector('.progress-bar');
+                const progressText = progressDiv.querySelector('.progress-text');
+                const outputPreview = document.getElementById('stream-output-preview');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(5));
+                                if (data.type === 'chunk') {
+                                    progress = Math.min(progress + 2, 90);
+                                    progressBar.style.width = `${progress}%`;
+                                    progressText.textContent = '正在生成章节...';
+                                    if (outputPreview && data.content) {
+                                        outputPreview.textContent += data.content;
+                                        outputPreview.scrollTop = outputPreview.scrollHeight;
+                                    }
+                                } else if (data.type === 'complete') {
+                                    progress = 100;
+                                    progressBar.style.width = `${progress}%`;
+                                    progressText.textContent = `生成完成！共 ${data.chapters_count} 章`;
+                                    showToast(`章节概要生成成功！共 ${data.chapters_count} 章`, 'success');
+                                    if (currentVolumeVersionId) {
+                                        await loadChapterVersions(currentVolumeVersionId);
+                                    } else {
+                                        console.error('currentVolumeVersionId is not set');
+                                    }
+                                } else if (data.type === 'error') {
+                                    throw new Error(data.message);
+                                }
+                            } catch (e) {
+                                console.error('解析SSE数据失败:', e);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('生成章节失败:', e);
+                showToast('生成失败: ' + e.message, 'error');
+            } finally {
+                btn.innerHTML = originalHTML;
+                btn.disabled = !currentVolumeId;
+                if (progressDiv) {
+                    progressDiv.remove();
+                }
+                const existingPreview = document.getElementById('stream-output-preview');
+                if (existingPreview) {
+                    existingPreview.remove();
+                }
+            }
+        }
+
+        async function generateChapterContent() {
+            if (!currentChapterId) return;
+
+            const btn = document.getElementById('btn-generate-content');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<span class="loading-spinner"></span> 生成中...';
+            btn.disabled = true;
+
+            const contentInput = document.getElementById('chapter-content-input');
+            const originalContent = contentInput.value;
+            contentInput.value = '';
+
+            try {
+                const response = await fetch('/api/chapter/content/stream/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: `chapter_id=${currentChapterId}`
+                });
+
+                if (!response.ok) {
+                    throw new Error('网络请求失败: ' + response.statusText);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let fullContent = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(5));
+                                if (data.type === 'chunk' && data.content) {
+                                    fullContent += data.content;
+                                    contentInput.value = fullContent;
+                                    contentInput.scrollTop = contentInput.scrollHeight;
+                                } else if (data.type === 'complete') {
+                                    updateLocalChapter(currentChapterId, { content: fullContent });
+                                    showToast('内容生成成功！', 'success');
+                                    document.getElementById('btn-verify').disabled = false;
+                                    document.getElementById('btn-optimize').disabled = false;
+                                    document.getElementById('btn-split').disabled = fullContent.length < 3000;
+                                    document.getElementById('btn-continue').disabled = fullContent.length < 3000;
+                                } else if (data.type === 'error') {
+                                    throw new Error(data.message);
+                                }
+                            } catch (e) {
+                                console.error('解析SSE数据失败:', e);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('生成内容失败:', e);
+                contentInput.value = originalContent;
+                showToast('生成失败: ' + e.message, 'error');
+            }
+
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+
+        async function saveChapter() {
+            if (!currentChapterId) return;
+
+            const btn = document.getElementById('btn-save');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<span class="loading-spinner"></span> 保存中...';
+            btn.disabled = true;
+
+            try {
+                const title = document.getElementById('chapter-title-input').value;
+                const summary = document.getElementById('chapter-summary-input').value;
+                const content = document.getElementById('chapter-content-input').value;
+
+                const response = await fetch('/api/chapter/save/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: `chapter_id=${currentChapterId}&title=${encodeURIComponent(title)}&summary=${encodeURIComponent(summary)}&content=${encodeURIComponent(content)}`
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    updateLocalChapter(currentChapterId, { title, summary, content, word_count: data.chapter.word_count });
+                    showToast('保存成功！', 'success');
+                    renderChapterList();
+                    selectChapter(currentChapterId);
+                } else {
+                    showToast('保存失败: ' + (data.message || ''), 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+
+        async function verifyChapter() {
+            if (!currentChapterId) return;
+
+            const btn = document.getElementById('btn-verify');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<span class="loading-spinner"></span> 校验中...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/chapter/verify/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: `chapter_id=${currentChapterId}`
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('verify-result').textContent = data.verification;
+                    openModal('verify-modal');
+                } else {
+                    showToast('校验失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+
+        async function splitChapter() {
+            if (!currentChapterId) return;
+
+            showConfirm('拆分章节', '确定要拆分此章节吗？会保留约前3000-3200字，剩余内容成为新章节。', async () => {
+                const btn = document.getElementById('btn-split');
+                const originalHTML = btn.innerHTML;
+                btn.innerHTML = '<span class="loading-spinner"></span> 拆分中...';
+                btn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/chapter/split/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: `chapter_id=${currentChapterId}`
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        showToast('拆分成功！', 'success');
+                        await loadChapterVersions();
+                        currentChapterId = null;
+                    } else {
+                        showToast('拆分失败: ' + (data.message || ''), 'error');
+                    }
+                } catch (e) {
+                    showToast('网络错误', 'error');
+                }
+
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
+            });
+        }
+
+        async function continueChapter() {
+            if (!currentChapterId) return;
+
+            showConfirm('延续章节', '确定要延续此章节吗？会保留约前3100字，续写内容成为新章节。', async () => {
+                const btn = document.getElementById('btn-continue');
+                const originalHTML = btn.innerHTML;
+                btn.innerHTML = '<span class="loading-spinner"></span> 延续中...';
+                btn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/chapter/continue/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: `chapter_id=${currentChapterId}`
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        showToast('延续成功！', 'success');
+                        await loadChapterVersions();
+                        currentChapterId = null;
+                    } else {
+                        showToast('延续失败: ' + (data.message || ''), 'error');
+                    }
+                } catch (e) {
+                    showToast('网络错误', 'error');
+                }
+
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
+            });
+        }
+
+        async function optimizeChapter() {
+            if (!currentChapterId) return;
+
+            const btn = document.getElementById('btn-optimize');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<span class="loading-spinner"></span> 优化中...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/chapter/content/optimize/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: `chapter_id=${currentChapterId}`
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('chapter-content-input').value = data.content;
+                    updateLocalChapter(currentChapterId, { content: data.content });
+                    showToast('优化成功！', 'success');
+                } else {
+                    showToast('优化失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+
+        function insertPrompt(text) {
+            document.getElementById('ai-chat-input').value = text;
+            document.getElementById('ai-chat-input').focus();
+        }
+
+        async function sendAiMessage() {
+            const input = document.getElementById('ai-chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            if (!currentChapterId) {
+                showToast('请先选择章节', 'error');
+                return;
+            }
+
+            const chapter = allChapters.find(c => c.id === currentChapterId);
+            if (!chapter) return;
+
+            input.value = '';
+            input.style.height = 'auto';
+
+            addAiMessage('user', message);
+            aiChatHistory.push({ role: 'user', content: message });
+
+            const sendBtn = document.getElementById('btn-ai-send');
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<span class="loading-spinner"></span>';
+
+            try {
+                const response = await fetch('/api/ai/chat/chapter/write/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: `chapter_id=${currentChapterId}&message=${encodeURIComponent(message)}&outline=${encodeURIComponent(chapter.chapter_version?.volume?.volume_version?.outline_version?.content || '')}&volume_title=${encodeURIComponent(chapter.chapter_version?.volume?.title || '')}&volume_summary=${encodeURIComponent(chapter.chapter_version?.volume?.summary || '')}&chapter_number=${chapter.chapter_number}&chapter_title=${encodeURIComponent(chapter.title)}&chapter_content=${encodeURIComponent(chapter.content || '')}&chat_history=${encodeURIComponent(JSON.stringify(aiChatHistory))}`
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    addAiMessage('assistant', data.response);
+                    aiChatHistory.push({ role: 'assistant', content: data.response });
+
+                    if (data.content) {
+                        document.getElementById('chapter-content-input').value = data.content;
+                        updateLocalChapter(currentChapterId, { content: data.content });
+                    }
+                    if (data.title) {
+                        document.getElementById('chapter-title-input').value = data.title;
+                        updateLocalChapter(currentChapterId, { title: data.title });
+                    }
+                    showToast('AI 创作完成！', 'success');
+                    renderChapterList();
+                } else {
+                    addAiMessage('assistant', '抱歉，创作失败：' + (data.message || '未知错误'));
+                }
+            } catch (e) {
+                addAiMessage('assistant', '网络错误，请重试');
+            }
+
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
+        }
+
+        function addAiMessage(role, content) {
+            const container = document.getElementById('ai-chat-messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `ai-message ${role}`;
+            msgDiv.innerHTML = `
+                <div class="ai-message-avatar">${role === 'user' ? '我' : 'AI'}</div>
+                <div class="ai-message-bubble">${content}</div>
+            `;
+            container.appendChild(msgDiv);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function publishChapter() {
+            if (!currentChapterId) return;
+
+            showConfirm('发布章节', '确定要发布此章节吗？发布后将无法编辑。', async () => {
+                try {
+                    const response = await fetch('/api/chapter/publish/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: `chapter_id=${currentChapterId}`
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        showToast('发布成功！', 'success');
+                        updateLocalChapter(currentChapterId, { status: 'published' });
+                        renderChapterList();
+                        selectChapter(currentChapterId);
+                    } else {
+                        showToast('发布失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('网络错误', 'error');
+                }
+            });
+        }
+
+        function updateLocalChapter(id, fields) {
+            const idx = allChapters.findIndex(c => c.id === id);
+            if (idx >= 0) {
+                allChapters[idx] = { ...allChapters[idx], ...fields };
+            }
+        }
+
+        function getStatusBadgeClass(status) {
+            if (status === 'published') return 'badge-published';
+            if (status === 'archived') return 'badge-archived';
+            return 'badge-draft';
+        }
+
+        function getStatusLabel(status) {
+            if (status === 'published') return '已发布';
+            if (status === 'archived') return '已归档';
+            return '草稿';
+        }
+
+        function openModal(id) {
+            document.getElementById(id).classList.add('show');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('show');
+        }
+
+        function showConfirm(title, message, callback) {
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            confirmCallback = callback;
+            openModal('confirm-modal');
+        }
+
+        async function executeConfirm() {
+            closeModal('confirm-modal');
+            if (confirmCallback) {
+                await confirmCallback();
+            }
+        }
+
+        function showToast(message, type) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast-item toast-${type}`;
+            toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>${message}`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        function goBack() {
+            window.location.href = `project.html?id=${projectId}`;
+        }
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const aiInput = document.getElementById('ai-chat-input');
+            if (aiInput) {
+                aiInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendAiMessage();
+                    }
+                });
+                aiInput.addEventListener('input', function() {
+                    this.style.height = 'auto';
+                    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+                });
+            }
+        });
+    </script>
+</body>
+</html>

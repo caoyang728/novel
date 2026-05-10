@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novel Agent - LLM配置</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/layout.css" rel="stylesheet">
+    <link href="/static/css/llm_config.css" rel="stylesheet">
+</head>
+<body>
+    <div class="custom-modal-overlay" id="configModal">
+        <div class="custom-modal">
+            <div class="custom-modal-header">
+                <h5 id="configModalTitle"><i class="fas fa-plus-circle me-2"></i>添加LLM配置</h5>
+            </div>
+            <div class="custom-modal-body">
+                <input type="hidden" id="config-id">
+                <div class="mb-3">
+                    <label class="form-label">配置名称</label>
+                    <input type="text" id="config-name" class="form-control" placeholder="输入配置名称">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">LLM提供商</label>
+                    <select id="config-provider" class="form-control">
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="qwen">Qwen</option>
+                        <option value="gemini">Gemini</option>
+                        <option value="custom">自定义</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">API密钥</label>
+                    <input type="password" id="config-api-key" class="form-control" placeholder="输入API密钥">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">API地址 (可选)</label>
+                    <input type="url" id="config-base-url" class="form-control" placeholder="输入自定义API地址">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">模型名称</label>
+                    <input type="text" id="config-model" class="form-control" placeholder="输入模型名称">
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col">
+                        <label class="form-label">温度</label>
+                        <input type="number" id="config-temperature" class="form-control" value="0.7" min="0" max="2" step="0.1">
+                    </div>
+                    <div class="col">
+                        <label class="form-label">最大Token数</label>
+                        <input type="number" id="config-max-tokens" class="form-control" value="4096" min="100" max="32000">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <input type="checkbox" id="config-default">
+                    <label class="form-label ms-2">设为默认配置</label>
+                </div>
+            </div>
+            <div class="custom-modal-footer">
+                <button class="btn btn-secondary" onclick="closeConfigModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="custom-modal-overlay" id="taskConfigModal">
+        <div class="custom-modal">
+            <div class="custom-modal-header">
+                <h5 id="taskConfigModalTitle"><i class="fas fa-cog me-2"></i>配置任务模型</h5>
+            </div>
+            <div class="custom-modal-body">
+                <input type="hidden" id="task-config-id">
+                <div class="mb-3">
+                    <label class="form-label">任务类型</label>
+                    <select id="task-type" class="form-control">
+                        <option value="outline">大纲生成</option>
+                        <option value="volume">卷结构生成</option>
+                        <option value="chapter">章节概要生成</option>
+                        <option value="content">章节内容生成</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">选择配置</label>
+                    <select id="task-config" class="form-control">
+                    </select>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col">
+                        <label class="form-label">自定义温度 (可选)</label>
+                        <input type="number" id="task-temperature" class="form-control" placeholder="留空使用配置默认值" min="0" max="2" step="0.1">
+                    </div>
+                    <div class="col">
+                        <label class="form-label">自定义最大Token (可选)</label>
+                        <input type="number" id="task-max-tokens" class="form-control" placeholder="留空使用配置默认值" min="100" max="32000">
+                    </div>
+                </div>
+            </div>
+            <div class="custom-modal-footer">
+                <button class="btn btn-secondary" onclick="closeTaskConfigModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveTaskConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2><i class="fas fa-feather-alt me-2"></i>Novel Agent</h2>
+        </div>
+        
+        <ul class="nav-links">
+            <li><a href="/index.html"><i class="fas fa-book"></i>我的书架</a></li>
+            <li><a href="token_usage.html"><i class="fas fa-chart-line"></i>Token统计</a></li>
+            <li><a href="llm_config.html" class="active"><i class="fas fa-cog"></i>LLM配置</a></li>
+        </ul>
+        
+        <div class="user-info">
+            <div class="username" id="username">-</div>
+            <div class="token-usage" id="token-usage">今日 Token: -</div>
+            <button class="btn-logout" onclick="logout()">
+                <i class="fas fa-sign-out-alt"></i> 退出登录
+            </button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="page-header">
+            <h1><i class="fas fa-cog me-3"></i>LLM配置</h1>
+            <p>管理您的LLM模型配置和任务设置</p>
+        </div>
+
+        <ul class="nav nav-tabs mb-4" id="configTabs">
+            <li class="nav-item">
+                <a class="nav-link active" id="configs-tab" data-bs-toggle="tab" href="#configs-panel">
+                    <i class="fas fa-server me-2"></i>模型配置
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="tasks-tab" data-bs-toggle="tab" href="#tasks-panel">
+                    <i class="fas fa-tasks me-2"></i>任务配置
+                </a>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="configs-panel">
+                <div class="content-card">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h5><i class="fas fa-server me-2"></i>LLM配置列表</h5>
+                        <button class="btn btn-primary" onclick="openConfigModal()">
+                            <i class="fas fa-plus"></i> 添加配置
+                        </button>
+                    </div>
+                    <div id="configs-container">
+                        <p class="text-center text-muted py-4">加载中...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="tasks-panel">
+                <div class="content-card">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h5><i class="fas fa-tasks me-2"></i>任务配置</h5>
+                        <button class="btn btn-primary" onclick="openTaskConfigModal()">
+                            <i class="fas fa-plus"></i> 添加配置
+                        </button>
+                    </div>
+                    <div id="task-configs-container">
+                        <p class="text-center text-muted py-4">加载中...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/llm_config.js"></script>
+</body>
+</html>

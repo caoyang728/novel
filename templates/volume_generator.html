@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生成卷 - 小说创作助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --purple: #8b5cf6;
+            --success: #22c55e;
+            --danger: #ef4444;
+        }
+        body {
+            background: #f0f4f8;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d0d5dd;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #b0b5bd;
+        }
+        .main-content-full {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .content-header {
+            padding: 0.5rem 1.5rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        }
+        .content-header h5 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .outline-select-wrapper {
+            display: flex;
+            align-items: center;
+        }
+        .outline-select-wrapper .form-select {
+            padding-left: 0.75rem;
+            border-radius: 10px;
+            border-color: #e2e8f0;
+            background: white;
+            font-size: 0.875rem;
+        }
+        .outline-select-wrapper .form-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+        }
+        .btn-group-custom {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .btn-gradient {
+            border: none;
+            border-radius: 10px;
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+        }
+        .btn-gradient:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+        .btn-gradient-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+        .btn-gradient-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+        }
+        .btn-gradient-success {
+            background: linear-gradient(135deg, var(--success) 0%, #16a34a 100%);
+            color: white;
+        }
+        .btn-gradient-success:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+        }
+        .btn-outline-gradient {
+            border-radius: 10px;
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+        }
+        .btn-outline-gradient:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-outline-success {
+            border: 1.5px solid var(--success);
+            color: var(--success);
+            background: transparent;
+        }
+        .btn-outline-success:hover:not(:disabled) {
+            background: rgba(34, 197, 94, 0.08);
+        }
+        .btn-outline-secondary {
+            border-radius: 10px;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+        }
+        .split-view {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        .sidebar-panel {
+            width: 260px;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            margin: 0 0 1rem 1rem;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            transition: box-shadow 0.25s ease;
+        }
+        .sidebar-panel:hover {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        }
+        .sidebar-section-header {
+            padding: 0.875rem 1rem;
+            background: #e2e8f0;
+            font-weight: 600;
+            font-size: 0.875rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #475569;
+        }
+        .volume-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.625rem;
+        }
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem 1rem;
+            color: #94a3b8;
+        }
+        .empty-state i {
+            font-size: 2.5rem;
+            margin-bottom: 0.75rem;
+            opacity: 0.6;
+        }
+        .empty-state p {
+            font-size: 0.85rem;
+            margin: 0;
+        }
+        .volume-item {
+            padding: 0.75rem;
+            border-radius: 10px;
+            margin-bottom: 0.375rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        .volume-item:hover {
+            background: #f8fafc;
+            border-color: #edf2f7;
+        }
+        .volume-item.active {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.08) 0%, rgba(56, 189, 248, 0.06) 100%);
+            border-color: rgba(14, 165, 233, 0.2);
+        }
+        .volume-item.active .version-number {
+            color: var(--primary);
+        }
+        .volume-item-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .volume-item .version-number {
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+        .volume-item .version-meta {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-top: 0.125rem;
+        }
+        .volume-item-actions {
+            display: flex;
+            gap: 0.25rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .volume-item:hover .volume-item-actions {
+            opacity: 1;
+        }
+        .btn-icon {
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+        }
+        .btn-icon.delete {
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+        .btn-icon.delete:hover {
+            background: rgba(239, 68, 68, 0.1);
+        }
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            margin: 0 1rem 1rem 1rem;
+            overflow: hidden;
+        }
+        .content-wrapper {
+            display: flex;
+            flex: 1;
+            gap: 1rem;
+            overflow: hidden;
+        }
+        .chat-section {
+            width: 42%;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            overflow: hidden;
+            transition: box-shadow 0.25s ease;
+        }
+        .chat-section:hover {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        }
+        .chat-header {
+            padding: 0.875rem 1rem;
+            background: #e2e8f0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .chat-header h5 {
+            margin: 0;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+        .chat-body {
+            flex: 1;
+            padding: 0.875rem;
+            overflow-y: auto;
+        }
+        .chat-footer {
+            padding: 0.75rem;
+            border-top: 1px solid #f1f5f9;
+        }
+        .chat-input-wrap {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-end;
+        }
+        .chat-input-wrap textarea {
+            flex: 1;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.875rem;
+            resize: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            min-height: 44px;
+            max-height: 160px;
+        }
+        .chat-input-wrap textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
+        }
+        .btn-send {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            border: none;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .btn-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(14, 165, 233, 0.35);
+        }
+        .btn-send:active {
+            transform: translateY(0);
+        }
+        .chat-message {
+            display: flex;
+            margin-bottom: 0.625rem;
+        }
+        .chat-message.user {
+            justify-content: flex-end;
+        }
+        .chat-message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .avatar-user {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+        .avatar-ai {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(56, 189, 248, 0.12) 100%);
+            color: var(--primary);
+        }
+        .chat-bubble {
+            max-width: 85%;
+            padding: 0.875rem 1.125rem;
+            border-radius: 16px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+        .chat-bubble-user {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .chat-bubble-assistant {
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            color: #334155;
+            border-bottom-left-radius: 4px;
+        }
+        .volumes-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            overflow: hidden;
+            transition: box-shadow 0.25s ease;
+        }
+        .volumes-section:hover {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        }
+        .volumes-header {
+            padding: 0.875rem 1rem;
+            background: #e2e8f0;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .volumes-header h5 {
+            margin: 0;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+        .volumes-body {
+            flex: 1;
+            padding: 0.875rem;
+            overflow-y: auto;
+        }
+        .volume-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem 1.125rem;
+            margin-bottom: 0.75rem;
+            border: 1px solid #f1f5f9;
+            transition: all 0.2s;
+        }
+        .volume-card:hover {
+            border-color: #d0dce8;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+        }
+        .volume-card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        .volume-badge {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: #f1f5f9;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .volume-title {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 0.925rem;
+        }
+        .volume-summary {
+            color: #64748b;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            padding-left: 2.5rem;
+        }
+        .badge-info {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(56, 189, 248, 0.12) 100%);
+            color: var(--primary);
+            border: none;
+        }
+        .badge-success {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.12) 0%, rgba(22, 163, 74, 0.12) 100%);
+            color: var(--success);
+            border: none;
+        }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show {
+            display: flex;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 420px;
+            overflow: hidden;
+            animation: modalFadeIn 0.2s ease;
+        }
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .modal-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h5 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .modal-body {
+            padding: 1.25rem;
+        }
+        .modal-body p {
+            margin: 0;
+            color: #64748b;
+        }
+        .modal-body input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 0.9rem;
+        }
+        .modal-body input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+        }
+        .modal-footer {
+            padding: 1rem 1.25rem;
+            border-top: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+        .modal-footer .btn {
+            padding: 0.5rem 1.25rem;
+            border-radius: 10px;
+        }
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .toast-item {
+            background: white;
+            color: #1e293b;
+            padding: 0.875rem 1.25rem;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            animation: toastSlideIn 0.3s ease;
+            font-size: 0.9rem;
+            font-weight: 500;
+            min-width: 280px;
+        }
+        .toast-item.toast-success {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            color: white;
+        }
+        .toast-item.toast-error {
+            background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
+            color: white;
+        }
+        @keyframes toastSlideIn {
+            from { opacity: 0; transform: translateX(100%); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes toastSlideOut {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(100%); }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-content-full">
+        <div class="content-header">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-outline-secondary" onclick="goBack()">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <div>
+                    <h5>生成卷</h5>
+                    <span class="badge badge-info" id="project-title">-</span>
+                </div>
+            </div>
+            <div class="btn-group-custom">
+                <div class="outline-select-wrapper" style="margin-right: 0.5rem;">
+                    <select class="form-select form-select-sm" id="outline-select" style="width: 200px;">
+                        <option value="">请选择大纲版本</option>
+                    </select>
+                </div>
+                <button class="btn btn-gradient-success" onclick="generateVolumes()" id="generate-btn" disabled>
+                    <i class="fas fa-magic"></i> 生成卷
+                </button>
+                <button class="btn btn-gradient-primary" onclick="saveVersion()" id="save-btn" disabled>
+                    <i class="fas fa-save"></i> 保存版本
+                </button>
+                <button class="btn btn-outline-gradient btn-outline-success" onclick="finalizeVersion()" id="finalize-btn" disabled>
+                    <i class="fas fa-check-circle"></i> 定稿
+                </button>
+            </div>
+        </div>
+
+        <div class="split-view">
+            <div class="sidebar-panel">
+                <div class="sidebar-section-header">
+                    <i class="fas fa-layer-group"></i>
+                    <span>卷版本</span>
+                </div>
+                <div class="volume-list" id="volume-versions">
+                    <div class="empty-state">
+                        <i class="fas fa-folder-open"></i>
+                        <p>暂无卷版本</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="content-wrapper">
+                    <div class="chat-section">
+                        <div class="chat-header">
+                            <h5><i class="fas fa-robot me-2"></i> AI助手</h5>
+                        </div>
+                        <div class="chat-body" id="chat-messages">
+                            <div class="chat-message assistant">
+                                <div class="chat-message-avatar avatar-ai me-2">AI</div>
+                                <div class="chat-bubble chat-bubble-assistant">
+                                    您好！我是卷生成助手。请先选择大纲版本，然后点击"生成卷"按钮，我将根据大纲内容为您生成卷结构。
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chat-footer">
+                            <div class="chat-input-wrap">
+                                <textarea id="chat-input" rows="3" placeholder="输入您的想法...（Shift+Enter 换行，Enter 发送）"></textarea>
+                                <button class="btn-send" onclick="sendMessage()">
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="volumes-section">
+                        <div class="volumes-header">
+                            <div class="d-flex align-items-center gap-2">
+                                <h5><i class="fas fa-book me-2"></i> 卷结构</h5>
+                                <span class="badge badge-secondary text-sm" id="volume-count">-</span>
+                            </div>
+                        </div>
+                        <div class="volumes-body" id="volume-list">
+                            <div class="empty-state">
+                                <i class="fas fa-file-text"></i>
+                                <p>选择大纲版本并生成卷</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="confirm-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 id="modal-title">确认操作</h5>
+                <button class="btn btn-close" onclick="closeModal()"></button>
+            </div>
+            <div class="modal-body">
+                <p id="modal-message">确定要执行此操作吗？</p>
+                <input type="text" id="modal-input" placeholder="请输入确认内容" style="display: none;">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModal()">取消</button>
+                <button class="btn btn-gradient-primary" id="modal-confirm-btn" onclick="executeModalAction()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let projectId = null;
+        let currentVolumes = [];
+        let currentVolumeVersionId = null;
+        let selectedOutlineVersionId = null;
+        let modalAction = null;
+        let modalParams = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const params = new URLSearchParams(window.location.search);
+            projectId = params.get('project_id');
+            
+            if (projectId) {
+                loadProjectInfo();
+                loadOutlineVersions();
+                loadVolumeVersions();
+            }
+
+            document.getElementById('outline-select').addEventListener('change', function() {
+                selectedOutlineVersionId = this.value;
+                document.getElementById('generate-btn').disabled = !selectedOutlineVersionId;
+            });
+
+            document.getElementById('chat-input').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            const chatInput = document.getElementById('chat-input');
+            chatInput.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+            });
+        });
+
+        async function loadProjectInfo() {
+            const response = await fetch(`/api/projects/${projectId}/`, {
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            });
+            const data = await response.json();
+            if (data.success) {
+                document.getElementById('project-title').textContent = data.project.title;
+            }
+        }
+
+        async function loadOutlineVersions() {
+            const response = await fetch(`/api/projects/${projectId}/outline/versions/`, {
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            });
+            const data = await response.json();
+            if (data.success) {
+                const select = document.getElementById('outline-select');
+                select.innerHTML = '<option value="">请选择大纲版本</option>';
+                
+                let finalizedVersion = null;
+                data.versions.forEach(v => {
+                    const option = document.createElement('option');
+                    option.value = v.id;
+                    option.textContent = v.is_finalized 
+                        ? `v${v.version_number} <span style="color: #22c55e;">(定稿)</span>` 
+                        : `v${v.version_number}`;
+                    option.innerHTML = option.textContent;
+                    select.appendChild(option);
+                    if (v.is_finalized) finalizedVersion = v;
+                });
+                
+                if (finalizedVersion) {
+                    select.value = finalizedVersion.id;
+                    selectedOutlineVersionId = finalizedVersion.id;
+                    document.getElementById('generate-btn').disabled = false;
+                }
+            }
+        }
+
+        async function loadVolumeVersions() {
+            const response = await fetch(`/api/projects/${projectId}/volume-versions/`, {
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            });
+            const data = await response.json();
+            if (data.success) {
+                renderVolumeVersions(data.versions);
+                if (data.versions && data.versions.length > 0) {
+                    let defaultVersion = data.versions.find(v => v.is_finalized);
+                    if (!defaultVersion) {
+                        defaultVersion = data.versions[0];
+                    }
+                    if (defaultVersion) {
+                        loadVolumeVersion(defaultVersion.id);
+                    }
+                }
+            }
+        }
+
+        function renderVolumeVersions(versions) {
+            const container = document.getElementById('volume-versions');
+            if (!versions || versions.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-folder-open"></i>
+                        <p>暂无卷版本</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = versions.map(v => `
+                <div class="volume-item ${currentVolumeVersionId === v.id ? 'active' : ''}" onclick="loadVolumeVersion(${v.id})" data-version-id="${v.id}">
+                    <div class="volume-item-content">
+                        <div class="version-number">
+                            v${v.version_number}
+                            ${v.is_finalized ? '<span class="badge badge-success ms-1" style="font-size: 0.65rem;">定稿</span>' : ''}
+                        </div>
+                        <div class="version-meta">
+                            基于大纲 v${v.outline_version_number || '-'} · ${v.volume_count}卷 · ${v.created_at}
+                        </div>
+                    </div>
+                    <div class="volume-item-actions">
+                        ${!v.is_finalized ? `<button class="btn btn-outline-danger btn-icon delete" onclick="event.stopPropagation(); deleteVolumeVersion(${v.id})" title="删除版本"><i class="fas fa-trash"></i></button>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function loadVolumeVersion(versionId) {
+            currentVolumeVersionId = versionId;
+            const response = await fetch(`/api/volume/version/${versionId}/`, {
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            });
+            const data = await response.json();
+            if (data.success) {
+                currentVolumes = data.volumes;
+                renderVolumes(data.volumes);
+                
+                document.querySelectorAll('.volume-item').forEach(item => {
+                    item.classList.remove('active');
+                    if (parseInt(item.dataset.versionId) === versionId) {
+                        item.classList.add('active');
+                    }
+                });
+
+                if (data.outline_version_id) {
+                    document.getElementById('outline-select').value = data.outline_version_id;
+                    selectedOutlineVersionId = data.outline_version_id;
+                }
+
+                document.getElementById('save-btn').disabled = false;
+                document.getElementById('finalize-btn').disabled = data.is_finalized;
+            }
+        }
+
+        async function generateVolumes() {
+            const outlineVersionId = document.getElementById('outline-select').value;
+            if (!outlineVersionId) {
+                showToast('请先选择大纲版本', 'error');
+                return;
+            }
+
+            addMessage('assistant', '正在根据大纲内容生成卷结构，请稍候...');
+            document.getElementById('generate-btn').disabled = true;
+            
+            try {
+                const response = await fetch('/api/volume/generate/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: `project_id=${projectId}&outline_version_id=${outlineVersionId}`
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    currentVolumes = data.volumes;
+                    renderVolumes(data.volumes);
+                    addMessage('assistant', `已为您生成 ${data.volumes.length} 卷！您可以继续对话调整卷结构，或点击保存按钮保存为版本。`);
+                    document.getElementById('save-btn').disabled = false;
+                    document.getElementById('finalize-btn').disabled = false;
+                } else {
+                    addMessage('assistant', `生成失败：${data.message || '未知错误'}`);
+                }
+            } catch (e) {
+                addMessage('assistant', '生成过程出错，请重试');
+            }
+            
+            document.getElementById('generate-btn').disabled = false;
+        }
+
+        function renderVolumes(volumes) {
+            const container = document.getElementById('volume-list');
+            if (!volumes || volumes.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-file-text"></i>
+                        <p>暂无卷内容</p>
+                    </div>
+                `;
+                document.getElementById('volume-count').textContent = '-';
+                return;
+            }
+
+            container.innerHTML = volumes.map((v, idx) => `
+                <div class="volume-card">
+                    <div class="volume-card-header">
+                        <span class="volume-badge">${idx + 1}</span>
+                        <span class="volume-title">${v.title}</span>
+                    </div>
+                    <div class="volume-summary">${v.summary}</div>
+                </div>
+            `).join('');
+            
+            document.getElementById('volume-count').textContent = `${volumes.length}卷`;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            input.value = '';
+            input.style.height = 'auto';
+            addMessage('user', message);
+            
+            addMessage('assistant', '正在处理您的请求...');
+            
+            try {
+                const versionInfo = currentVolumeVersionId ? `&volume_version_id=${currentVolumeVersionId}` : '';
+                const response = await fetch('/api/volume/chat/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: `project_id=${projectId}&message=${encodeURIComponent(message)}${versionInfo}`
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    const chatBody = document.getElementById('chat-messages');
+                    const lastMessage = chatBody.lastElementChild;
+                    if (lastMessage) {
+                        lastMessage.remove();
+                    }
+                    
+                    addMessage('assistant', data.response);
+                    
+                    if (data.volumes) {
+                        currentVolumes = data.volumes;
+                        renderVolumes(data.volumes);
+                        document.getElementById('save-btn').disabled = false;
+                        document.getElementById('finalize-btn').disabled = false;
+                    }
+                } else {
+                    addMessage('assistant', `抱歉，处理失败：${data.message || '未知错误'}`);
+                }
+            } catch (e) {
+                addMessage('assistant', '处理失败，请重试');
+            }
+        }
+
+        function addMessage(role, content) {
+            const container = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${role}`;
+            
+            messageDiv.innerHTML = role === 'user' ? `
+                <div class="chat-bubble chat-bubble-user">${content}</div>
+                <div class="chat-message-avatar avatar-user ms-2">我</div>
+            ` : `
+                <div class="chat-message-avatar avatar-ai me-2">AI</div>
+                <div class="chat-bubble chat-bubble-assistant">${content}</div>
+            `;
+            
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function saveVersion() {
+            if (!currentVolumes || currentVolumes.length === 0) {
+                showToast('请先生成卷内容', 'error');
+                return;
+            }
+
+            showModal('保存版本', `确定要将当前 ${currentVolumes.length} 卷结构保存为新版本吗？`, function() {
+                doSaveVersion();
+            });
+        }
+
+        async function doSaveVersion() {
+            const volumesJson = JSON.stringify(currentVolumes);
+            const response = await fetch('/api/volume/save/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: `project_id=${projectId}&outline_version_id=${selectedOutlineVersionId || ''}&volumes=${encodeURIComponent(volumesJson)}`
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                showToast(`保存成功！版本号：v${data.version_number}`, 'success');
+                currentVolumeVersionId = data.version_id;
+                loadVolumeVersions();
+                loadVolumeVersion(data.version_id);
+            } else {
+                showToast(`保存失败：${data.message}`, 'error');
+            }
+            closeModal();
+        }
+
+        function finalizeVersion() {
+            const versionNum = currentVolumeVersionId ? document.querySelector(`.volume-item[data-version-id="${currentVolumeVersionId}"] .version-number`)?.textContent?.trim() || '当前版本' : '当前版本';
+            showModal('定稿版本', `确定要将 ${versionNum} 标记为定稿吗？定稿后其他版本将自动取消定稿状态。`, function() {
+                doFinalizeVersion();
+            });
+        }
+
+        async function doFinalizeVersion() {
+            const response = await fetch('/api/volume/finalize/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: `project_id=${projectId}&version_id=${currentVolumeVersionId || ''}`
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                showToast('定稿成功！', 'success');
+                loadVolumeVersions();
+                if (currentVolumeVersionId) {
+                    loadVolumeVersion(currentVolumeVersionId);
+                }
+            } else {
+                showToast(`定稿失败：${data.message}`, 'error');
+            }
+            closeModal();
+        }
+
+        function deleteVolumeVersion(versionId) {
+            const versionNum = document.querySelector(`.volume-item[data-version-id="${versionId}"] .version-number`)?.textContent?.trim() || '此版本';
+            showModal('删除版本', `确定要删除 ${versionNum} 吗？此操作不可恢复。`, function() {
+                doDeleteVolumeVersion(versionId);
+            });
+        }
+
+        async function doDeleteVolumeVersion(versionId) {
+            const response = await fetch('/api/volume/delete/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: `project_id=${projectId}&version_id=${versionId}`
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                showToast('删除成功！', 'success');
+                if (currentVolumeVersionId === versionId) {
+                    currentVolumeVersionId = null;
+                    renderVolumes([]);
+                }
+                loadVolumeVersions();
+            } else {
+                showToast(`删除失败：${data.message}`, 'error');
+            }
+            closeModal();
+        }
+
+        function showModal(title, message, action) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            document.getElementById('modal-input').style.display = 'none';
+            document.getElementById('confirm-modal').classList.add('show');
+            modalAction = action;
+        }
+
+        function closeModal() {
+            document.getElementById('confirm-modal').classList.remove('show');
+            modalAction = null;
+            modalParams = null;
+        }
+
+        function executeModalAction() {
+            if (modalAction) {
+                modalAction();
+            }
+        }
+
+        function showToast(message, type) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast-item toast-${type}`;
+            toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>${message}`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function goBack() {
+            window.location.href = `project.html?id=${projectId}`;
+        }
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+</html>

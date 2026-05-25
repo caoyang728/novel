@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>世界观管理 - AI 小说创作工作台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/common.css" rel="stylesheet">
+    <link href="/static/css/worldview.css" rel="stylesheet">
+</head>
+<body>
+    <div class="page-header-wrapper">
+        <div class="container">
+            <div class="page-header-content">
+                <button class="back-btn" onclick="goBack()">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <div class="header-main">
+                    <h1 id="pageTitle">
+                        <i class="fas fa-globe-americas me-2"></i>世界观管理
+                        <span id="projectNameDisplay" class="header-subtitle"></span>
+                    </h1>
+                    <p id="pageSubtitle">版本: <span id="worldVersionDisplay">v1</span></p>
+                </div>
+                <div class="header-actions">
+                    <a href="#" id="chatBuildBtn" class="btn-secondary me-2">
+                        <i class="fas fa-comments me-1"></i> 通过聊天构建
+                    </a>
+                    <!-- <button class="btn-primary" onclick="saveSetting()">
+                        <i class="fas fa-save me-1"></i> 保存基本信息 待实现
+                    </button> -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container main-container">
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <p id="loadingText" class="text-sm font-medium">处理中...</p>
+            </div>
+        </div>
+
+        <div id="mainContent" class="workspace-layout">
+            <div class="workspace-sidebar">
+                <div class="sidebar-tabs">
+                    <button class="sidebar-tab active" onclick="showTab('overview')">
+                        <i class="fas fa-home"></i>
+                        <span>故事设定</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('foundation')">
+                        <i class="fas fa-globe"></i>
+                        <span>世界基础</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('power')">
+                        <i class="fas fa-bolt"></i>
+                        <span>力量体系</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('races')">
+                        <i class="fas fa-users"></i>
+                        <span>种族族群</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('society')">
+                        <i class="fas fa-building"></i>
+                        <span>社会结构</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('culture')">
+                        <i class="fas fa-palette"></i>
+                        <span>文化人文</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('history')">
+                        <i class="fas fa-history"></i>
+                        <span>历史进程</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('special')">
+                        <i class="fas fa-star"></i>
+                        <span>特殊规则</span>
+                    </button>
+                    <hr class="sidebar-divider">
+                    <button class="sidebar-tab" onclick="showTab('deepening')">
+                        <i class="fas fa-comments"></i>
+                        <span>问答深化</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('consistency')">
+                        <i class="fas fa-check-double"></i>
+                        <span>一致性</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('references')">
+                        <i class="fas fa-book"></i>
+                        <span>参考资料</span>
+                    </button>
+                    <button class="sidebar-tab" onclick="showTab('assets')">
+                        <i class="fas fa-folder-open"></i>
+                        <span>素材/版本</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="workspace-main">
+                <div id="tab-overview" class="tab-content active">
+                    <div class="card-section card-section-with-actions">
+                        <div class="d-flex gap-4 card-section-body">
+                            <div class="section-sidebar">
+                                <button class="section-nav-btn active" onclick="showSettingSection('identity')">世界标识</button>
+                                <button class="section-nav-btn" onclick="showSettingSection('position')">核心定位</button>
+                                <button class="section-nav-btn" onclick="showSettingSection('overview')">世界概述</button>
+                                <button class="section-nav-btn" onclick="showSettingSection('conflict')">核心冲突</button>
+                            </div>
+
+                            <div class="section-content flex-fill">
+                                <h4 id="setting-title" class="section-title">世界标识</h4>
+                                <div id="setting-identity" class="setting-section">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">世界名称</label>
+                                            <input type="text" class="form-control" id="worldName" placeholder="输入世界名称" oninput="updateExpandBtn()">
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">小说类型</label>
+                                            <input type="hidden" id="genreSelect" value="">
+                                            <div class="dropdown genre-dropdown">
+                                                <button class="form-select dropdown-toggle text-start" type="button" id="genreDropdownBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <span id="genreDropdownLabel">请选择小说类型</span>
+                                                </button>
+                                                <ul class="dropdown-menu" aria-labelledby="genreDropdownBtn" id="genreDropdownMenu">
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="setting-position" class="setting-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">世界身份 / 类型气质</label>
+                                            <textarea class="form-control" rows="10" id="worldIdentity" placeholder="如：高武世界、修仙文明、蒸汽朋克" oninput="updateExpandBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">整体调性</label>
+                                            <textarea class="form-control" rows="10" id="worldTone" placeholder="如：严肃、轻松、黑暗、光明" oninput="updateExpandBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="setting-overview" class="setting-section hidden">
+                                    <div class="form-group">
+                                        <textarea class="form-control" id="worldOverview" rows="10" placeholder="详细描述这个世界的背景、特征和核心设定（输入内容后可使用AI完善）" oninput="updateExpandBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="setting-conflict" class="setting-section hidden">
+                                    <div class="form-group">
+                                        <textarea class="form-control" id="worldCoreConflict" rows="10" placeholder="这个世界的主要矛盾是什么？例如：人族与妖族的对立、正道与魔道的纷争、资源枯竭的危机..." oninput="updateExpandBtn()"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-section-actions">
+                            <button class="btn-secondary" onclick="aiFillSetting()" id="expandSectionBtn">
+                                <i class="fas fa-magic me-1"></i> AI 完善
+                            </button>
+                            <button class="btn-primary" onclick="saveSetting()">
+                                <i class="fas fa-save me-1"></i> 保存设定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-foundation" class="tab-content hidden">
+                    <div class="card-section card-section-with-actions">
+                        <div class="d-flex gap-4 card-section-body">
+                            <div class="section-sidebar">
+                                <button class="section-nav-btn active" onclick="showFoundationSection('geography')">世界地理</button>
+                                <button class="section-nav-btn" onclick="showFoundationSection('calendar')">时间历法</button>
+                                <button class="section-nav-btn" onclick="showFoundationSection('rules')">天地规则</button>
+                                <button class="section-nav-btn" onclick="showFoundationSection('balance')">平衡机制</button>
+                            </div>
+
+                            <div class="section-content flex-fill">
+                                <h4 id="foundation-title" class="section-title">世界地理</h4>
+                                <div id="foundation-geography" class="foundation-section">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">大陆分布</label>
+                                            <textarea class="form-control" rows="10" id="foundationContinent" placeholder="描述世界的大陆、海洋、岛屿分布" oninput="updateFoundationBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">特殊地形</label>
+                                            <textarea class="form-control" rows="10" id="foundationTerrain" placeholder="山脉、森林、沙漠、秘境等特殊地理特征" oninput="updateFoundationBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="foundation-calendar" class="foundation-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">纪年方式</label>
+                                            <input type="text" class="form-control" id="foundationEra" placeholder="如：神武纪年" oninput="updateFoundationBtn()">
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">一年天数</label>
+                                            <input type="text" class="form-control" id="foundationDays" placeholder="如：365天" oninput="updateFoundationBtn()">
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">季节划分</label>
+                                            <input type="text" class="form-control" id="foundationSeasons" placeholder="如：春夏秋冬" oninput="updateFoundationBtn()">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">特殊节气/节日</label>
+                                        <textarea class="form-control" rows="6" id="foundationFestivals" placeholder="重要的节气、节日及其意义" oninput="updateFoundationBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="foundation-rules" class="foundation-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">自然法则</label>
+                                            <textarea class="form-control" rows="6" id="foundationLaws" placeholder="物理定律、元素规则等" oninput="updateFoundationBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">世界边界</label>
+                                            <textarea class="form-control" rows="6" id="foundationBoundary" placeholder="世界的边界、极限在哪里" oninput="updateFoundationBtn()"></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-4 g-4 ">
+                                        <label class="form-label">核心公理</label>
+                                        <p class="text-muted small mb-2">公理是这个世界绝对不能打破的底层规则（如："魔法必须消耗能量"），后面的自动生成、一致性检查都会严格参考公理设定。</p>
+                                        <div id="axiomsList">
+                                            <input type="text" class="form-control mb-2" placeholder="核心规则 1" oninput="updateFoundationBtn()">
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn-secondary btn-sm" onclick="addAxiom()">
+                                                <i class="fas fa-plus me-1"></i> 新增一条
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="foundation-balance" class="foundation-section hidden">
+                                    <div class="form-group">
+                                        <label class="form-label">平衡机制</label>
+                                        <textarea class="form-control" rows="12" id="foundationBalance" placeholder="维持世界稳定的制衡力量、法则平衡等" oninput="updateFoundationBtn()"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-section-actions">
+                            <button class="btn-secondary" onclick="aiFillFoundation()" id="expandFoundationBtn">
+                                <i class="fas fa-magic me-1"></i> AI 完善
+                            </button>
+                            <button class="btn-primary" onclick="saveFoundation()">
+                                <i class="fas fa-save me-1"></i> 保存设定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-power" class="tab-content hidden">
+                    <div class="card-section card-section-with-actions">
+                        <div class="d-flex gap-4 card-section-body">
+                            <div class="section-sidebar">
+                                <button class="section-nav-btn active" onclick="showPowerSection('energy')">能量来源</button>
+                                <button class="section-nav-btn" onclick="showPowerSection('level')">修炼等级</button>
+                                <button class="section-nav-btn" onclick="showPowerSection('martial')">功法武学</button>
+                                <button class="section-nav-btn" onclick="showPowerSection('treasure')">法宝丹药</button>
+                                <button class="section-nav-btn" onclick="showPowerSection('beast')">妖兽神兽</button>
+                            </div>
+
+                            <div class="section-content flex-fill">
+                                <h4 id="power-title" class="section-title">能量来源</h4>
+                                <div id="power-energy" class="power-section">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">主要能量类型</label>
+                                            <textarea class="form-control" rows="4" id="powerEnergyType" placeholder="如：灵气、魔力、斗气" oninput="updatePowerBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">能量分布</label>
+                                            <textarea class="form-control" rows="4" id="powerEnergyDistribution" placeholder="如：山川灵脉、地火精华" oninput="updatePowerBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">能量特性</label>
+                                        <textarea class="form-control" rows="6" id="powerEnergyTraits" placeholder="能量的属性、相生相克等" oninput="updatePowerBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="power-level" class="power-section hidden">
+                                    <div class="form-group">
+                                        <label class="form-label">修炼等级</label>
+                                        <textarea class="form-control" rows="12" id="powerLevels" placeholder="列出修炼境界及其描述，如：炼气、筑基、金丹、元婴..." oninput="updatePowerBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="power-martial" class="power-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">功法分类</label>
+                                            <textarea class="form-control" rows="10" id="powerMartialCategory" placeholder="如：内功心法、身法、剑法、秘术" oninput="updatePowerBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">传承方式</label>
+                                            <textarea class="form-control" rows="10" id="powerMartialHeritage" placeholder="如何获取功法、传承条件" oninput="updatePowerBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="power-treasure" class="power-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">法宝分类</label>
+                                            <textarea class="form-control" rows="10" id="powerTreasureCategory" placeholder="如：法器、灵宝、仙器、神器" oninput="updatePowerBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">丹药体系</label>
+                                            <textarea class="form-control" rows="10" id="powerTreasurePill" placeholder="丹药等级、炼制方法等" oninput="updatePowerBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="power-beast" class="power-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">妖兽等级</label>
+                                            <textarea class="form-control" rows="10" id="powerBeastLevel" placeholder="妖兽的实力划分" oninput="updatePowerBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">神兽传说</label>
+                                            <textarea class="form-control" rows="10" id="powerBeastLegend" placeholder="传说中的神兽、圣兽" oninput="updatePowerBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-section-actions">
+                            <button class="btn-secondary" onclick="aiFillPower()" id="expandPowerBtn">
+                                <i class="fas fa-magic me-1"></i> AI 完善
+                            </button>
+                            <button class="btn-primary" onclick="savePower()">
+                                <i class="fas fa-save me-1"></i> 保存设定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-races" class="tab-content hidden">
+                    <div class="card-section card-section-with-actions">
+                        <div class="d-flex gap-4 card-section-body">
+                            <div class="section-sidebar">
+                                <button class="section-nav-btn active" onclick="showRacesSection('category')">种族分类</button>
+                                <button class="section-nav-btn" onclick="showRacesSection('value')">价值观</button>
+                                <button class="section-nav-btn" onclick="showRacesSection('trait')">繁衍特性</button>
+                                <button class="section-nav-btn" onclick="showRacesSection('relation')">族群关系</button>
+                            </div>
+
+                            <div class="section-content flex-fill">
+                                <h4 id="races-title" class="section-title">种族分类</h4>
+                                <div id="races-category" class="races-section">
+                                    <div class="form-group">
+                                        <textarea class="form-control" rows="12" id="racesCategory" placeholder="列出主要种族：人类、妖族、魔族、精灵、海族等" oninput="updateRacesBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="races-value" class="races-section hidden">
+                                    <div class="form-group">
+                                        <textarea class="form-control" rows="12" id="racesValue" placeholder="种族的核心价值观、处世哲学" oninput="updateRacesBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="races-trait" class="races-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">寿命</label>
+                                            <textarea class="form-control" rows="6" id="racesLifespan" placeholder="如：人类百年、精灵千年" oninput="updateRacesBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">繁衍方式</label>
+                                            <textarea class="form-control" rows="6" id="racesReproduction" placeholder="自然繁衍/特殊方式" oninput="updateRacesBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">特殊体质</label>
+                                            <textarea class="form-control" rows="6" id="racesConstitution" placeholder="如：天生灵体、魔躯" oninput="updateRacesBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="races-relation" class="races-section hidden">
+                                    <div class="form-group">
+                                        <label class="form-label">族群关系</label>
+                                        <textarea class="form-control" rows="12" id="racesRelation" placeholder="种族间的对立、融合、冲突历史" oninput="updateRacesBtn()"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-section-actions">
+                            <button class="btn-secondary" onclick="aiFillRaces()">
+                                <i class="fas fa-magic me-1"></i> AI 补全
+                            </button>
+                            <button class="btn-primary" onclick="saveRaces()">
+                                <i class="fas fa-save me-1"></i> 保存设定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-society" class="tab-content hidden">
+                    <div class="card-section card-section-with-actions">
+                        <div class="d-flex gap-4 card-section-body">
+                            <div class="section-sidebar">
+                                <button class="section-nav-btn active" onclick="showSocietySection('court')">朝堂皇权</button>
+                                <button class="section-nav-btn" onclick="showSocietySection('sect')">宗门门派</button>
+                                <button class="section-nav-btn" onclick="showSocietySection('martial')">江湖势力</button>
+                                <button class="section-nav-btn" onclick="showSocietySection('external')">域外势力</button>
+                                <button class="section-nav-btn" onclick="showSocietySection('class')">阶层划分</button>
+                                <button class="section-nav-btn" onclick="showSocietySection('currency')">货币体系</button>
+                                <button class="section-nav-btn" onclick="showSocietySection('resource')">核心资源</button>
+                            </div>
+
+                            <div class="section-content flex-fill">
+                                <h4 id="society-title" class="section-title">朝廷势力</h4>
+                                <div id="society-court" class="society-section">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">国家体制</label>
+                                            <textarea class="form-control" rows="10" id="societyGovernment" placeholder="王朝、帝国、联邦等政治体制" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">官僚体系</label>
+                                            <textarea class="form-control" rows="10" id="societyBureaucracy" placeholder="官职设置、权力结构" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="society-sect" class="society-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">门派等级</label>
+                                            <textarea class="form-control" rows="10" id="societySectLevel" placeholder="如：大宗、名门、小派" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">传承关系</label>
+                                            <textarea class="form-control" rows="10" id="societySectHeritage" placeholder="门派间的师承、联盟、敌对关系" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="society-martial" class="society-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">武林帮派</label>
+                                            <textarea class="form-control" rows="10" id="societyMartialFaction" placeholder="各大帮派及其特点" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">商会联盟</label>
+                                            <textarea class="form-control" rows="10" id="societyMartialGuild" placeholder="商业组织、地下势力" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="society-external" class="society-section hidden">
+                                    <div class="form-group">
+                                        <label class="form-label">域外势力</label>
+                                        <textarea class="form-control" rows="12" id="societyExternal" placeholder="异界来客、上古传承、隐秘组织" oninput="updateSocietyBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="society-class" class="society-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">社会等级</label>
+                                            <textarea class="form-control" rows="10" id="societyClassLevel" placeholder="贵族、平民、奴隶等阶层" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">流动规则</label>
+                                            <textarea class="form-control" rows="10" id="societyClassMobility" placeholder="阶层间的流动方式" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="society-currency" class="society-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">货币类型</label>
+                                            <textarea class="form-control" rows="10" id="societyCurrencyType" placeholder="如：金币、银币、铜币" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">经济规则</label>
+                                            <textarea class="form-control" rows="10" id="societyCurrencyRule" placeholder="货币兑换比例、经济政策" oninput="updateSocietyBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="society-resource" class="society-section hidden">
+                                    <div class="form-group">
+                                        <label class="form-label">核心资源</label>
+                                        <textarea class="form-control" rows="10" id="societyResource" placeholder="战略资源、稀有材料、垄断物资" oninput="updateSocietyBtn()"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-section-actions">
+                            <button class="btn-secondary" onclick="aiFillSociety()">
+                                <i class="fas fa-magic me-1"></i> AI 补全
+                            </button>
+                            <button class="btn-primary" onclick="saveSociety()">
+                                <i class="fas fa-save me-1"></i> 保存设定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-culture" class="tab-content hidden">
+                    <div class="card-section card-section-with-actions">
+                        <div class="d-flex gap-4 card-section-body">
+                            <div class="section-sidebar">
+                                <button class="section-nav-btn active" onclick="showCultureSection('custom')">人文习俗</button>
+                                <button class="section-nav-btn" onclick="showCultureSection('language')">语言文字</button>
+                                <button class="section-nav-btn" onclick="showCultureSection('daily')">衣食住行</button>
+                                <button class="section-nav-btn" onclick="showCultureSection('religion')">宗教信仰</button>
+                            </div>
+
+                            <div class="section-content flex-fill">
+                                <h4 id="culture-title" class="section-title">风俗习惯</h4>
+                                <div id="culture-custom" class="culture-section">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">节日庆典</label>
+                                            <textarea class="form-control" rows="10" id="cultureFestival" placeholder="重要节日及其庆祝方式" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">婚丧嫁娶</label>
+                                            <textarea class="form-control" rows="10" id="cultureRitual" placeholder="婚俗、葬礼等仪式" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="culture-language" class="culture-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">语言种类</label>
+                                            <textarea class="form-control" rows="10" id="cultureLanguage" placeholder="通用语、种族语言、古语" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">文字体系</label>
+                                            <textarea class="form-control" rows="10" id="cultureScript" placeholder="文字起源、书写方式" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="culture-daily" class="culture-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">服饰风格</label>
+                                            <textarea class="form-control" rows="5" id="cultureClothing" placeholder="不同阶层的服饰特点" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">饮食文化</label>
+                                            <textarea class="form-control" rows="5" id="cultureFood" placeholder="特色美食、饮食习惯" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">建筑特色</label>
+                                            <textarea class="form-control" rows="5" id="cultureArchitecture" placeholder="建筑风格、材料" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">交通方式</label>
+                                            <textarea class="form-control" rows="5" id="cultureTransport" placeholder="交通工具、道路网络" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="culture-religion" class="culture-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">神祇体系</label>
+                                            <textarea class="form-control" rows="6" id="cultureDeity" placeholder="信仰的神祇、神话传说" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">宗教组织</label>
+                                            <textarea class="form-control" rows="6" id="cultureReligionOrg" placeholder="教会、祭祀仪式" oninput="updateCultureBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">种族信仰差异</label>
+                                        <textarea class="form-control" rows="4" id="cultureFaithDiff" placeholder="不同种族的信仰差异、冲突与融合" oninput="updateCultureBtn()"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-section-actions">
+                            <button class="btn-secondary" onclick="aiFillCulture()">
+                                <i class="fas fa-magic me-1"></i> AI 补全
+                            </button>
+                            <button class="btn-primary" onclick="saveCulture()">
+                                <i class="fas fa-save me-1"></i> 保存设定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-history" class="tab-content hidden">
+                    <div class="card-section card-section-with-actions">
+                        <div class="d-flex gap-4 card-section-body">
+                            <div class="section-sidebar">
+                                <button class="section-nav-btn active" onclick="showHistorySection('ancient')">上古往事</button>
+                                <button class="section-nav-btn" onclick="showHistorySection('modern')">近代变故</button>
+                                <button class="section-nav-btn" onclick="showHistorySection('crisis')">世界隐患</button>
+                                <button class="section-nav-btn" onclick="showHistorySection('destiny')">宿命轨迹</button>
+                                <button class="section-nav-btn" onclick="showHistorySection('future')">未来走向</button>
+                            </div>
+
+                            <div class="section-content flex-fill">
+                                <h4 id="history-title" class="section-title">远古历史</h4>
+                                <div id="history-ancient" class="history-section">
+                                    <textarea class="form-control" rows="10" id="historyAncient" placeholder="神话时代、创世传说、远古秘辛" oninput="updateHistoryBtn()"></textarea>
+                                </div>
+
+                                <div id="history-modern" class="history-section hidden">
+                                    <textarea class="form-control" rows="10" id="historyModern" placeholder="历史转折点、战争、灾难、变革" oninput="updateHistoryBtn()"></textarea>
+                                </div>
+
+                                <div id="history-crisis" class="history-section hidden">
+                                    <textarea class="form-control" rows="10" id="historyCrisis" placeholder="当前危机、潜在威胁、未来风险" oninput="updateHistoryBtn()"></textarea>
+                                </div>
+
+                                <div id="history-destiny" class="history-section hidden">
+                                    <textarea class="form-control" rows="10" id="historyDestiny" placeholder="预言、命运线、关键节点" oninput="updateHistoryBtn()"></textarea>
+                                </div>
+
+                                <div id="history-future" class="history-section hidden">
+                                    <textarea class="form-control" rows="10" id="historyFuture" placeholder="发展趋势、可能结局" oninput="updateHistoryBtn()"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-section-actions">
+                            <button class="btn-secondary" onclick="aiFillHistory()">
+                                <i class="fas fa-magic me-1"></i> AI 补全
+                            </button>
+                            <button class="btn-primary" onclick="saveHistory()">
+                                <i class="fas fa-save me-1"></i> 保存设定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-special" class="tab-content hidden">
+                    <div class="card-section card-section-with-actions">
+                        <div class="d-flex gap-4 card-section-body">
+                            <div class="section-sidebar">
+                                <button class="section-nav-btn active" onclick="showSpecialSection('taboo')">世界禁忌</button>
+                                <button class="section-nav-btn" onclick="showSpecialSection('secret')">隐藏秘密</button>
+                                <button class="section-nav-btn" onclick="showSpecialSection('fate')">气运命格</button>
+                                <button class="section-nav-btn" onclick="showSpecialSection('reincarnation')">魂体转世</button>
+                                <button class="section-nav-btn" onclick="showSpecialSection('transmigration')">穿越规则</button>
+                                <button class="section-nav-btn" onclick="showSpecialSection('system')">系统规则</button>
+                                <button class="section-nav-btn" onclick="showSpecialSection('rules')">穿越者规矩</button>
+                            </div>
+
+                            <div class="section-content flex-fill">
+                                <h4 id="special-title" class="section-title">世界禁忌</h4>
+                                <div id="special-taboo" class="special-section">
+                                    <div class="form-group">
+                                        <textarea class="form-control" rows="10" id="specialTaboo" placeholder="不可触碰的规则、禁忌知识" oninput="updateSpecialBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="special-secret" class="special-section hidden">
+                                    <div class="form-group">
+                                        <textarea class="form-control" rows="10" id="specialSecret" placeholder="不为人知的真相、阴谋" oninput="updateSpecialBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="special-fate" class="special-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">气运规则</label>
+                                            <textarea class="form-control" rows="10" id="specialFortune" placeholder="气运的概念、获取与消耗" oninput="updateSpecialBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">命格设定</label>
+                                            <textarea class="form-control" rows="10" id="specialDestiny" placeholder="命格种类、影响" oninput="updateSpecialBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="special-reincarnation" class="special-section hidden">
+                                    <div class="overview-grid">
+                                        <div class="form-group">
+                                            <label class="form-label">灵魂规则</label>
+                                            <textarea class="form-control" rows="10" id="specialSoul" placeholder="灵魂的本质、存在形式" oninput="updateSpecialBtn()"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">转世机制</label>
+                                            <textarea class="form-control" rows="10" id="specialReincarnation" placeholder="转世条件、记忆保留" oninput="updateSpecialBtn()"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="special-transmigration" class="special-section hidden">
+                                    <div class="form-group">
+                                        <textarea class="form-control" rows="10" id="specialTransmigration" placeholder="穿越者、重生者的规则限制" oninput="updateSpecialBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="special-system" class="special-section hidden">
+                                    <div class="form-group">
+                                        <textarea class="form-control" rows="10" id="specialSystem" placeholder="金手指、游戏化系统的设定" oninput="updateSpecialBtn()"></textarea>
+                                    </div>
+                                </div>
+
+                                <div id="special-rules" class="special-section hidden">
+                                    <div class="form-group">
+                                        <textarea class="form-control" rows="10" id="specialRules" placeholder="穿越者之间的约定、限制" oninput="updateSpecialBtn()"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-section-actions">
+                            <button class="btn-secondary" onclick="aiFillSpecial()">
+                                <i class="fas fa-magic me-1"></i> AI 补全
+                            </button>
+                            <button class="btn-primary" onclick="saveSpecial()">
+                                <i class="fas fa-save me-1"></i> 保存设定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-deepening" class="tab-content hidden">
+                    <div class="dc-panel-container">
+                        <h3 class="dc-panel-header">
+                            <i class="fas fa-comments"></i> 问答深化
+                        </h3>
+                        <div class="d-flex gap-2 mb-3 dc-panel-actions">
+                            <div class="d-flex gap-2" id="deepeningPrimaryButtons">
+                                <button class="btn-primary" onclick="generateQuestions()">
+                                    <i class="fas fa-magic me-1"></i> 生成深化问题
+                                </button>
+                            </div>
+                            <div class="d-flex gap-2 dc-hidden" id="deepeningAnswerButtons">
+                                <button class="btn-primary" onclick="generateQuestions()">
+                                    <i class="fas fa-magic me-1"></i> 生成深化问题
+                                </button>
+                                <button class="btn-accent" id="submitAnswersBtn" onclick="submitAnswers()">
+                                    <i class="fas fa-paper-plane me-1"></i> 提交并整合回答
+                                </button>
+                            </div>
+                            <div class="ml-auto d-flex gap-2 dc-hidden" id="deepeningActionButtons">
+                                <button class="btn-secondary" onclick="clearSuggestions()">
+                                    <i class="fas fa-times me-1"></i> 清除建议
+                                </button>
+                                <button class="btn-primary" id="applyChangesBtn" onclick="applyChanges()">
+                                    <i class="fas fa-check me-1"></i> 应用选中的修改
+                                </button>
+                            </div>
+                        </div>
+                        <div class="dc-panel-content">
+                            <div class="border rounded p-4 dc-report-box" id="questionsList">
+                                <p class="text-muted mb-0">点击上方按钮生成深化问题</p>
+                            </div>
+                            <div id="suggestionsContainer" class="dc-hidden"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-consistency" class="tab-content hidden">
+                    <div class="dc-panel-container">
+                        <h3 class="dc-panel-header">
+                            <i class="fas fa-check-double"></i> 一致性检查
+                        </h3>
+                        <div class="d-flex gap-2 mb-3 dc-panel-actions">
+                            <div class="d-flex gap-2" id="consistencyPrimaryButtons">
+                                <button class="btn-primary" onclick="checkConsistency()">
+                                    <i class="fas fa-search me-1"></i> 检查一致性
+                                </button>
+                            </div>
+                            <div class="d-flex gap-2 dc-hidden" id="consistencyFixButtons">
+                                <button class="btn-primary" onclick="checkConsistency()">
+                                    <i class="fas fa-search me-1"></i> 检查一致性
+                                </button>
+                                <button class="btn-accent" id="aiFixConsistencyBtn" onclick="fixConsistency()">
+                                    <i class="fas fa-wand-magic-sparkles me-1"></i> AI 修复
+                                </button>
+                            </div>
+                            <div class="ml-auto d-flex gap-2 dc-hidden" id="consistencyActionButtons">
+                                <button class="btn-secondary" onclick="clearConsistencySuggestions()">
+                                    <i class="fas fa-times me-1"></i> 清除建议
+                                </button>
+                                <button class="btn-primary" id="applyConsistencyChangesBtn" onclick="applyConsistencyChanges()">
+                                    <i class="fas fa-check me-1"></i> 应用选中的修改
+                                </button>
+                            </div>
+                        </div>
+                        <div class="dc-panel-content">
+                            <div class="border rounded p-4 dc-report-box" id="consistencyReport">
+                                <p class="text-muted mb-0">点击上方按钮检查设定一致性</p>
+                            </div>
+                            <div id="consistencySuggestionsContainer" class="dc-hidden"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-references" class="tab-content hidden">
+                    <div class="refs-container">
+                        <h3 class="refs-header"><i class="fas fa-book me-2"></i>参考资料</h3>
+                        <div class="refs-content">
+                            <div class="refs-section">
+                                <label class="form-label">已绑定的参考资料</label>
+                                <p class="text-muted small">绑定后会成为该实体的默认知识文档来源。</p>
+                                <input type="text" class="refs-search" placeholder="搜索知识文档">
+                                <div class="refs-list">
+                                    <p class="text-muted small mb-0">没有可选文档。</p>
+                                </div>
+                                <p class="text-muted small mt-2">已选择 0 个文档。保持为空会显式关闭知识库检索。</p>
+                            </div>
+                            <button class="btn-primary refs-save-btn" onclick="showToast('功能开发中')">
+                                <i class="fas fa-save me-1"></i> 保存绑定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-assets" class="tab-content hidden">
+                    <div class="assets-container">
+                        <h3 class="assets-header"><i class="fas fa-folder-open me-2"></i>素材/版本/导入导出</h3>
+                        <div class="assets-content">
+                            <div class="assets-grid">
+                                <div class="assets-card">
+                                    <h5 class="assets-card-title">素材库</h5>
+                                    <input type="text" class="assets-search" id="librarySearch" placeholder="搜索素材...">
+                                    <div class="assets-list" id="libraryItems">
+                                        <p class="text-muted small mb-0">素材列表</p>
+                                    </div>
+                                </div>
+                                <div class="assets-card">
+                                    <h5 class="assets-card-title">版本快照</h5>
+                                    <div class="assets-snapshot-header">
+                                        <input type="text" class="assets-search" id="snapshotLabel" placeholder="快照标签...">
+                                        <button class="btn-primary btn-sm" onclick="createSnapshot()">
+                                            <i class="fas fa-camera me-1"></i> 创建快照
+                                        </button>
+                                    </div>
+                                    <div class="assets-list" id="snapshotList">
+                                        <p class="text-muted small mb-0">快照列表</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="assets-export">
+                                <button class="btn-secondary" onclick="exportWorld('json')">
+                                    <i class="fas fa-download me-1"></i> 导出 JSON
+                                </button>
+                                <button class="btn-secondary" onclick="exportWorld('markdown')">
+                                    <i class="fas fa-download me-1"></i> 导出 Markdown
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- <div class="modal-overlay" id="addFactionModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="fas fa-users me-2"></i>新增势力</h5>
+                <button class="btn-close-modal" onclick="hideAddFactionModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">阵营名称</label>
+                    <input type="text" class="form-control" id="factionNameInput" placeholder="请输入阵营名称">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">立场 / 世界站队</label>
+                    <input type="text" class="form-control" id="factionPositionInput" placeholder="请输入立场">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">阵营理念</label>
+                    <textarea class="form-control doctrine-textarea" id="factionDoctrineInput" rows="3" placeholder="请输入阵营理念（可使用AI生成）"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="generateFactionByAI()">
+                    <i class="fas fa-magic me-1"></i> AI 生成
+                </button>
+                <button class="btn-secondary" onclick="hideAddFactionModal()">取消</button>
+                <button class="btn-primary" onclick="saveNewFaction()">
+                    <i class="fas fa-check me-1"></i> 保存势力
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="addLocationModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="fas fa-map-marker-alt me-2"></i>新增地点</h5>
+                <button class="btn-close-modal" onclick="hideAddLocationModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">地点名称</label>
+                    <input type="text" class="form-control" id="locationNameInput" placeholder="请输入地点名称">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">地形 / 地貌</label>
+                    <input type="text" class="form-control" id="locationTerrainInput" placeholder="请输入地形地貌">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">地点概述</label>
+                    <textarea class="form-control doctrine-textarea" id="locationSummaryInput" rows="3" placeholder="请输入地点概述（可使用AI生成）"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="generateLocationByAI()">
+                    <i class="fas fa-magic me-1"></i> AI 生成
+                </button>
+                <button class="btn-secondary" onclick="hideAddLocationModal()">取消</button>
+                <button class="btn-primary" onclick="saveNewLocation()">
+                    <i class="fas fa-check me-1"></i> 保存地点
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="addRelationModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="fas fa-link me-2"></i>新增关系</h5>
+                <button class="btn-close-modal" onclick="hideAddRelationModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">源势力</label>
+                    <select class="form-control" id="relationSourceInput">
+                        <option value="">请选择源势力</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">关系类型</label>
+                    <select class="form-control" id="relationTypeInput">
+                        <option value="alliance">同盟</option>
+                        <option value="enemy">敌对</option>
+                        <option value="neutral">中立</option>
+                        <option value="subordinate">从属</option>
+                        <option value="trade">贸易</option>
+                        <option value="conflict">冲突</option>
+                        <option value="allied">友好</option>
+                        <option value="rivalry">竞争</option>
+                        <option value="ancestor">渊源</option>
+                        <option value="other">其他</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">目标势力</label>
+                    <select class="form-control" id="relationTargetInput">
+                        <option value="">请选择目标势力</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">关系描述</label>
+                    <textarea class="form-control doctrine-textarea" id="relationDescriptionInput" rows="3" placeholder="详细描述这种关系的背景、现状和影响"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="aiGenerateRelationBtn" onclick="generateRelationByAI()" disabled>
+                    <i class="fas fa-magic me-1"></i> AI 生成
+                </button>
+                <button class="btn-secondary" onclick="hideAddRelationModal()">取消</button>
+                <button class="btn-primary" onclick="saveNewRelation()">
+                    <i class="fas fa-check me-1"></i> 保存关系
+                </button>
+            </div>
+        </div>
+    </div> -->
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        let INITIAL_PROJECT_ID = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            INITIAL_PROJECT_ID = urlParams.get('project_id');
+            const chatBuildBtn = document.getElementById('chatBuildBtn');
+            if (chatBuildBtn && INITIAL_PROJECT_ID) {
+                chatBuildBtn.href = '/worldview_chat.html?project_id=' + INITIAL_PROJECT_ID;
+            }
+        });
+    </script>
+    <script src="/static/js/worldview.js"></script>
+</body>
+</html>

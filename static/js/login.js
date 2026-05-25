@@ -3,31 +3,42 @@ document.addEventListener('DOMContentLoaded', function() {
     const errorMessage = document.getElementById('error-message');
     const errorText = document.getElementById('error-text');
     const loginBtn = document.getElementById('login-btn');
-    
+
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
-        
+
         const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
-        
+
         loginBtn.disabled = true;
         loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 登录中...';
         errorMessage.classList.add('d-none');
-        
+
         try {
-            const response = await fetch('/api/auth/login/', {
+            const response = await fetch('/login/', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken')
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ username, password })
             });
-            
+
             const data = await response.json();
             
             if (data.success) {
-                window.location.href = '/index.html';
+                // 保存 token 到 localStorage
+                localStorage.setItem('access_token', data.access);
+                localStorage.setItem('refresh_token', data.refresh);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                
+                // 检查是否有 next 参数
+                const params = new URLSearchParams(window.location.search);
+                const nextUrl = params.get('next');
+                if (nextUrl) {
+                    window.location.href = decodeURIComponent(nextUrl);
+                } else {
+                    window.location.href = '/';
+                }
             } else {
                 errorText.textContent = data.message || '登录失败';
                 errorMessage.classList.remove('d-none');
@@ -41,18 +52,3 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
-
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
-        }
-    }
-    return cookieValue;
-}

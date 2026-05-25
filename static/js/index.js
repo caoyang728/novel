@@ -5,23 +5,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadUserInfo() {
     try {
-        const response = await fetch('/api/auth/user/', {
-            headers: { 'X-CSRFToken': getCookie('csrftoken') }
-        });
-        const data = await response.json();
+        const data = await api.get('/api/auth/user/');
         if (data.success) {
             document.getElementById('username').textContent = data.user.username;
         }
     } catch (error) {
         console.error('Failed to load user info:', error);
-        window.location.href = 'login.html';
+        // 重定向交给 common.js 中的 request 函数处理
     }
-    
+
     try {
-        const response = await fetch('/api/token-usage/today/', {
-            headers: { 'X-CSRFToken': getCookie('csrftoken') }
-        });
-        const data = await response.json();
+        const data = await api.get('/api/token-usage/today/');
         if (data.success) {
             const total = data.usage.total_tokens || 0;
             const formatted = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : total;
@@ -34,10 +28,7 @@ async function loadUserInfo() {
 
 async function loadProjects() {
     try {
-        const response = await fetch('/api/projects/', {
-            headers: { 'X-CSRFToken': getCookie('csrftoken') }
-        });
-        const data = await response.json();
+        const data = await api.get('/api/projects/');
         renderProjects(data.projects || []);
     } catch (error) {
         console.error('Failed to load projects:', error);
@@ -54,7 +45,7 @@ async function loadProjects() {
 
 function renderProjects(projects) {
     const container = document.getElementById('projects-container');
-    
+
     if (projects.length === 0) {
         container.innerHTML = `
             <div class="col-md-12">
@@ -69,7 +60,7 @@ function renderProjects(projects) {
 
     container.innerHTML = projects.map(project => `
         <div class="col-md-4">
-            <div class="project-card" onclick="openProject(${project.id})" data-project='${JSON.stringify(project)}'>
+            <div class="project-card" onclick="openProjectByVersion(${project.id}, ${project.version_count || 0}, ${project.latest_version_number || 0})" data-project='${JSON.stringify(project)}'>
                 <div class="project-card-header">
                     <div class="d-flex justify-content-between align-items-center">
                         <h3>${project.title}</h3>
@@ -97,7 +88,8 @@ function renderProjects(projects) {
 
 function getStatusBadgeClass(status) {
     const classes = {
-        'draft': 'badge-info',
+        'outline_building': 'badge-primary',
+        'outline_built': 'badge-info',
         'writing': 'badge-warning',
         'completed': 'badge-success'
     };
@@ -106,7 +98,8 @@ function getStatusBadgeClass(status) {
 
 function getStatusText(status) {
     const texts = {
-        'draft': '构思中',
+        'outline_building': '大纲构建中',
+        'outline_built': '大纲已构建',
         'writing': '创作中',
         'completed': '已完成'
     };
@@ -119,48 +112,19 @@ function formatDate(dateStr) {
 }
 
 function openProject(projectId) {
-    window.location.href = `project.html?id=${projectId}`;
+    window.location.href = `project.html?project_id=${projectId}`;
 }
 
-function openAddProjectModal() {
-    document.getElementById('addProjectModal').classList.add('show');
-    document.getElementById('project-title').value = '';
-    document.getElementById('project-description').value = '';
+// 根据版本数量决定跳转页面
+function openProjectByVersion(projectId, versionCount, latestVersionNumber) {
+    // 如果最新版本号为0（尚未构建大纲），进入project.html显示"大纲构建"
+    // 其他情况进入project.html显示"大纲优化"
+    window.location.href = `project.html?project_id=${projectId}`;
 }
 
-function closeAddProjectModal() {
-    document.getElementById('addProjectModal').classList.remove('show');
-}
-
-async function createProject() {
-    const title = document.getElementById('project-title').value.trim();
-    const description = document.getElementById('project-description').value.trim();
-    
-    if (!title) {
-        alert('请输入项目名称');
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/projects/create/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({ title, description })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            closeAddProjectModal();
-            loadProjects();
-        } else {
-            alert(data.message || '创建失败');
-        }
-    } catch (error) {
-        alert('网络错误，请重试');
-    }
+// 直接进入项目编辑页面（大纲构建）
+function openProjectToNewProject(projectId) {
+    window.location.href = `new_project.html?project_id=${projectId}`;
 }
 
 async function deleteProject(projectId) {
@@ -194,7 +158,7 @@ function closeDeleteConfirmModal() {
 
 function showDeleteConfirmStep2(projectId) {
     closeDeleteConfirmModal();
-    
+
     const confirmModal = document.createElement('div');
     confirmModal.className = 'custom-modal-overlay';
     confirmModal.id = 'deleteConfirmModal';
@@ -221,12 +185,7 @@ async function confirmDeleteProject(projectId) {
     const input = document.getElementById('delete-confirm-input');
     if (input && input.value.trim() === '确认删除') {
         try {
-            const response = await fetch(`/api/projects/${projectId}/delete/`, {
-                method: 'DELETE',
-                headers: { 'X-CSRFToken': getCookie('csrftoken') }
-            });
-            
-            const data = await response.json();
+            const data = await api.post(`/api/projects/${projectId}/delete/`, {});
             closeDeleteConfirmModal();
             if (data.success) {
                 loadProjects();
@@ -273,23 +232,14 @@ function closeEditProjectModal() {
 async function saveProjectEdit() {
     const title = document.getElementById('edit-project-title').value.trim();
     const description = document.getElementById('edit-project-description').value.trim();
-    
+
     if (!title) {
         alert('请输入项目名称');
         return;
     }
 
     try {
-        const response = await fetch(`/api/projects/${editingProjectId}/update/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({ title, description })
-        });
-        
-        const data = await response.json();
+        const data = await api.post(`/api/projects/${editingProjectId}/update/`, { title, description });
         if (data.success) {
             closeEditProjectModal();
             loadProjects();
@@ -303,28 +253,9 @@ async function saveProjectEdit() {
 
 async function logout() {
     try {
-        await fetch('/api/auth/logout/', {
-            method: 'POST',
-            headers: { 'X-CSRFToken': getCookie('csrftoken') }
-        });
-        window.location.href = 'login.html';
+        await api.post('/logout/', {});
     } catch (error) {
         console.error('Logout failed:', error);
-        window.location.href = 'login.html';
     }
-}
-
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
-        }
-    }
-    return cookieValue;
+    api.logout();
 }

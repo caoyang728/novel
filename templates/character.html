@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基础角色库 - AI 小说创作工作台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/common.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/characters.css">
+</head>
+<body>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text" id="loadingText">加载中...</div>
+        </div>
+    </div>
+
+    <div class="page-header">
+        <div class="header-left">
+            <button class="btn btn-back" onclick="window.location.href='/' + currentProjectId + '/'">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <h1 class="page-title">基础角色库</h1>
+            <div class="header-filter">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="搜索角色..." oninput="filterCharacters()">
+                </div>
+                <select id="roleFilter" onchange="filterCharacters()">
+                    <option value="">全部角色</option>
+                    <option value="protagonist">主角</option>
+                    <option value="antagonist">反派</option>
+                    <option value="supporting">配角</option>
+                    <option value="minor">路人</option>
+                </select>
+                <select id="factionFilter" onchange="filterCharacters()">
+                    <option value="">全部势力</option>
+                </select>
+            </div>
+        </div>
+        <div class="header-right">
+            <button class="btn btn-primary" onclick="openCreateDialog()">
+                <i class="fas fa-plus"></i> 创建角色
+            </button>
+        </div>
+    </div>
+
+    <div class="page-content">
+        <div id="loadingState" class="loading-state"><div class="loading-spinner"></div><p>加载中...</p></div>
+        <div id="characterList" class="char-list" style="display: none;"></div>
+        <div id="emptyState" class="empty-state" style="display: none;">
+            <div class="empty-state-icon"><i class="fas fa-user-friends"></i></div>
+            <h3>暂无角色</h3>
+            <p>点击右上角「创建角色」按钮开始添加</p>
+        </div>
+    </div>
+
+    <!-- 批量创建loading弹窗 -->
+    <div id="batchLoadingOverlay" class="batch-loading-overlay">
+        <div class="batch-loading-popup">
+            <div class="batch-loading-popup-content">
+                <div class="loading-spinner-large"></div>
+                <div class="loading-text-large">
+                    <p class="loading-status-text" id="popupLoadingStatus">正在生成角色...</p>
+                    <p class="loading-progress-text">已生成 <span id="popupGeneratedCount">0</span> 个角色</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建角色弹窗 -->
+    <div id="createDialog" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>创建角色</h3>
+                <button class="modal-close" onclick="closeCreateDialog(event)"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="create-tabs">
+                <button class="create-tab active" onclick="switchCreateTab('manual')"><i class="fas fa-edit"></i> 手动创建</button>
+                <button class="create-tab" onclick="switchCreateTab('ai')"><i class="fas fa-star"></i> AI 生成</button>
+                <button class="create-tab" onclick="switchCreateTab('batch')"><i class="fas fa-users"></i> 批量创建</button>
+            </div>
+            <div class="modal-body">
+                <!-- 手动创建 -->
+                <div id="manualCreateTab" class="tab-content active">
+                    <div class="form-row">
+                        <div class="form-group"><label>角色名称 *</label><input type="text" id="createName" placeholder="输入角色名称"></div>
+                        <div class="form-group"><label>角色定位</label>
+                            <select id="createRole">
+                                <option value="supporting" selected>配角</option>
+                                <option value="protagonist">主角</option>
+                                <option value="antagonist">反派</option>
+                                <option value="minor">路人</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>性别</label>
+                            <select id="createGender">
+                                <option value="unknown">未知</option>
+                                <option value="male">男</option>
+                                <option value="female">女</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label>年龄</label><input type="text" id="createAge" placeholder="如：25岁、青年、中年"></div>
+                    </div>
+                    <div class="form-group full-width"><label>身份</label><input type="text" id="createIdentity" placeholder="如：青云门弟子、魔教少主"></div>
+                    <div class="form-row">
+                        <div class="form-group"><label>性格特征</label><textarea id="createPersonality" placeholder="性格特征" style="min-height: 60px;"></textarea></div>
+                        <div class="form-group"><label>外貌/体态</label><textarea id="createAppearance" placeholder="外貌/体态" style="min-height: 60px;"></textarea></div>
+                    </div>
+                    <div class="form-group full-width"><label>势力/阵营</label><input type="text" id="createFaction" placeholder="势力/阵营（如：青云门、魔教等）" onblur="normalizeFactionInputField(this)"></div>
+                    <div class="form-row">
+                        <div class="form-group"><label>优点</label><textarea id="createStrengths" placeholder="如：武艺高强、足智多谋" style="min-height: 60px;"></textarea></div>
+                        <div class="form-group"><label>缺点</label><textarea id="createFlaws" placeholder="如：过于自负、优柔寡断" style="min-height: 60px;"></textarea></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>执念/软肋</label><textarea id="createObsession" placeholder="如：追求剑道极致" style="min-height: 60px;"></textarea></div>
+                        <div class="form-group"><label>核心动机</label><textarea id="createMotivation" placeholder="这辈子最想要什么" style="min-height: 60px;"></textarea></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>能力</label><textarea id="createAbilities" placeholder="如：青云剑诀、御剑术" style="min-height: 60px;"></textarea></div>
+                        <div class="form-group"><label>禁忌</label><textarea id="createTaboos" placeholder="如：不可动情" style="min-height: 60px;"></textarea></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>秘密</label><textarea id="createSecrets" placeholder="如：身怀上古血脉" style="min-height: 60px;"></textarea></div>
+                        <div class="form-group"><label>过往黑历史</label><textarea id="createDarkHistory" placeholder="如：曾误杀无辜" style="min-height: 60px;"></textarea></div>
+                    </div>
+                    <div class="form-group full-width"><label>背景故事</label><textarea id="createBackground" placeholder="背景故事" style="min-height: 80px;"></textarea></div>
+                    <div class="form-group full-width"><label>成长轨迹</label><textarea id="createDevelopment" placeholder="成长轨迹" style="min-height: 80px;"></textarea></div>
+                    <div class="form-group full-width"><label>弱点代价</label><textarea id="createWeaknesses" placeholder="弱点与代价" style="min-height: 60px;"></textarea></div>
+                    <div class="form-group full-width"><label>标签</label><input type="text" id="createTags" placeholder="标签（逗号分隔，如：正派,剑客,高冷）"></div>
+                    <div class="form-group full-width"><label>人际关系</label><textarea id="createRelationships" placeholder="如：师父-青云门掌门-亦师亦父,挚友-天魔教少主-生死之交" style="min-height: 60px;"></textarea></div>
+                </div>
+                <!-- AI生成 -->
+                <div id="aiCreateTab" class="tab-content">
+                    <div class="dialog-section">
+                        <div class="dialog-section-title"><i class="fas fa-magic"></i> 角色描述</div>
+                        <div class="form-group">
+                            <textarea id="aiDescription" placeholder="输入角色描述，例如：冷静理智但背负家仇的年轻剑士，性格复杂，内心矛盾..." style="min-height: 100px;"></textarea>
+                        </div>
+                        <div class="char-count">描述越详细，生成的角色越符合预期</div>
+                    </div>
+                    <div id="aiGeneratedContent" class="ai-generated-content" style="display: none;">
+                        <div class="ai-generated-title"><i class="fas fa-check-circle"></i> 生成结果（可编辑确认）</div>
+                        <div class="form-row">
+                            <div class="form-group"><label>角色名称</label><input type="text" id="aiGeneratedName"></div>
+                            <div class="form-group">
+                                <label>角色定位</label>
+                                <select id="aiGeneratedRole">
+                                    <option value="supporting">配角</option>
+                                    <option value="protagonist">主角</option>
+                                    <option value="antagonist">反派</option>
+                                    <option value="minor">路人</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>年龄</label><input type="text" id="aiGeneratedAge" placeholder="如：25岁、青年"></div>
+                            <div class="form-group"><label>身份</label><input type="text" id="aiGeneratedIdentity" placeholder="如：青云门弟子"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>势力/阵营</label><input type="text" id="aiGeneratedFaction" placeholder="如：青云门、魔教等"></div>
+                            <div class="form-group"><label>标签</label><input type="text" id="aiGeneratedTags" placeholder="逗号分隔的标签"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>优点</label><textarea id="aiGeneratedStrengths" placeholder="如：武艺高强、足智多谋" style="min-height: 60px;"></textarea></div>
+                            <div class="form-group"><label>缺点</label><textarea id="aiGeneratedFlaws" placeholder="如：过于自负、优柔寡断" style="min-height: 60px;"></textarea></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>执念/软肋</label><textarea id="aiGeneratedObsession" placeholder="如：追求剑道极致" style="min-height: 60px;"></textarea></div>
+                            <div class="form-group"><label>核心动机</label><textarea id="aiGeneratedMotivation" placeholder="这辈子最想要什么" style="min-height: 60px;"></textarea></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>性格特征</label><textarea id="aiGeneratedPersonality" style="min-height: 60px;"></textarea></div>
+                            <div class="form-group"><label>外貌/体态</label><textarea id="aiGeneratedAppearance" style="min-height: 60px;"></textarea></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>能力</label><textarea id="aiGeneratedAbilities" placeholder="如：青云剑诀、御剑术" style="min-height: 60px;"></textarea></div>
+                            <div class="form-group"><label>禁忌</label><textarea id="aiGeneratedTaboos" placeholder="如：不可动情" style="min-height: 60px;"></textarea></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>秘密</label><textarea id="aiGeneratedSecrets" placeholder="如：身怀上古血脉" style="min-height: 60px;"></textarea></div>
+                            <div class="form-group"><label>黑历史</label><textarea id="aiGeneratedDarkHistory" placeholder="如：曾误杀无辜" style="min-height: 60px;"></textarea></div>
+                        </div>
+                        <div class="form-group full-width"><label>背景故事</label><textarea id="aiGeneratedBackground" style="min-height: 80px;"></textarea></div>
+                        <div class="form-row">
+                            <div class="form-group"><label>成长轨迹</label><textarea id="aiGeneratedDevelopment" style="min-height: 60px;"></textarea></div>
+                            <div class="form-group"><label>弱点代价</label><textarea id="aiGeneratedWeaknesses" style="min-height: 60px;"></textarea></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- 批量创建 -->
+                <div id="batchCreateTab" class="tab-content">
+                    <div class="dialog-section">
+                        <div class="dialog-section-title"><i class="fas fa-users"></i> 批量角色描述</div>
+                        <div class="form-group">
+                            <textarea id="batchDescription" placeholder="输入角色群像描述，例如：一个武侠世界的门派，包含掌门、大师兄、小师妹、神秘黑衣人等角色..." style="min-height: 120px;"></textarea>
+                        </div>
+
+                        <div class="char-count">描述越详细，生成的角色越符合预期</div>
+                    </div>
+                    <div id="batchGeneratedContent" class="batch-generated-content" style="display: none;">
+                        <div class="ai-generated-title"><i class="fas fa-check-circle"></i> 生成结果（勾选要保存的角色）</div>
+                        <div id="batchCharactersList" class="batch-characters-list">
+                            <!-- 生成的角色列表将在这里显示 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <!-- AI操作按钮（根据标签页切换功能） -->
+                <button type="button" class="btn btn-primary" id="aiActionBtn" onclick="handleAiAction()">
+                    <i class="fas fa-star"></i> AI 润色
+                </button>
+                <button type="button" class="btn btn-outline" onclick="closeCreateDialog(event)">取消</button>
+                <!-- 右侧保存/创建按钮 -->
+                <button type="button" class="btn btn-primary" onclick="submitCharacter()" id="saveCreateBtn">
+                    创建角色
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑角色弹窗 -->
+    <div id="editDialog" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header"><h3>编辑角色</h3><button class="modal-close" onclick="closeEditDialog(event)"><i class="fas fa-times"></i></button></div>
+            <div class="edit-tabs">
+                <button class="edit-tab active" onclick="switchEditTab('basic')"><i class="fas fa-user"></i> 基础信息</button>
+                <button class="edit-tab" onclick="switchEditTab('social')"><i class="fas fa-users"></i> 人际关系</button>
+                <button class="edit-tab" onclick="switchEditTab('ability')"><i class="fas fa-magic"></i> 能力秘密</button>
+                <button class="edit-tab" onclick="switchEditTab('other')"><i class="fas fa-ellipsis-h"></i> 其他</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editCharacterId">
+
+                <!-- 基础信息 Tab -->
+                <div id="editBasicTab" class="tab-content active">
+                    <div class="form-row">
+                        <div class="form-group"><label>角色名称 *</label><input type="text" id="editName"></div>
+                        <div class="form-group">
+                            <label>角色定位</label>
+                            <select id="editRole">
+                                <option value="supporting">配角</option>
+                                <option value="protagonist">主角</option>
+                                <option value="antagonist">反派</option>
+                                <option value="minor">路人</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>性别</label>
+                            <select id="editGender">
+                                <option value="unknown">未知</option>
+                                <option value="male">男</option>
+                                <option value="female">女</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label>年龄</label><input type="text" id="editAge" placeholder="如：25岁、青年、中年"></div>
+                    </div>
+                    <div class="form-group full-width"><label>身份</label><input type="text" id="editIdentity" placeholder="如：青云门弟子、魔教少主"></div>
+                    <div class="form-group full-width"><label>势力/阵营</label><input type="text" id="editFaction" placeholder="势力/阵营（如：青云门、魔教等）" onblur="normalizeFactionInputField(this)"></div>
+                    <div class="form-group full-width"><label>外貌/体态</label><textarea id="editAppearance" style="min-height: 60px;"></textarea></div>
+                    <div class="form-group full-width"><label>性格特征</label><textarea id="editPersonality" style="min-height: 80px;"></textarea></div>
+                </div>
+
+                <!-- 人际关系 Tab -->
+                <div id="editSocialTab" class="tab-content">
+                    <!-- 人际关系表格 -->
+                    <div class="relationships-section">
+                        <h4 class="section-title" style="margin-bottom: 16px; font-size: 15px; font-weight: 600;">人物关系</h4>
+                        <div class="relationships-table-container">
+                            <table class="relationships-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 180px;">对方角色</th>
+                                        <th style="width: 140px;">关系类型</th>
+                                        <th>关系描述</th>
+                                        <th style="width: 40px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="relationshipsTableBody">
+                                    <!-- Relationships rows will be inserted here -->
+                                </tbody>
+                            </table>
+                            <button type="button" class="btn add-relationship-btn" onclick="addRelationship()">
+                                <i class="fas fa-plus"></i> 添加关系
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 能力秘密 Tab -->
+                <div id="editAbilityTab" class="tab-content">
+                    <div class="form-row">
+                        <div class="form-group"><label>优点</label><textarea id="editStrengths" placeholder="如：武艺高强、足智多谋" style="min-height: 60px;"></textarea></div>
+                        <div class="form-group"><label>缺点</label><textarea id="editFlaws" placeholder="如：过于自负、优柔寡断" style="min-height: 60px;"></textarea></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>执念/软肋</label><textarea id="editObsession" placeholder="如：追求剑道极致、放不下初恋" style="min-height: 60px;"></textarea></div>
+                        <div class="form-group"><label>禁忌</label><textarea id="editTaboos" placeholder="如：不可动情、不可丢剑" style="min-height: 60px;"></textarea></div>
+                    </div>
+                    <div class="form-group full-width"><label>能力</label><textarea id="editAbilities" placeholder="如：青云剑诀、御剑术、剑意" style="min-height: 60px;"></textarea></div>
+                    <div class="form-group full-width"><label>秘密</label><textarea id="editSecrets" placeholder="如：身怀上古剑灵血脉" style="min-height: 60px;"></textarea></div>
+                    <div class="form-group full-width"><label>过往黑历史</label><textarea id="editDarkHistory" placeholder="如：曾因误会亲手刺伤师妹" style="min-height: 60px;"></textarea></div>
+                </div>
+
+                <!-- 其他 Tab -->
+                <div id="editOtherTab" class="tab-content">
+                    <div class="form-group full-width"><label>背景故事</label><textarea id="editBackground" style="min-height: 120px;"></textarea></div>
+                    <div class="form-group full-width"><label>成长轨迹</label><textarea id="editDevelopment" placeholder="展示角色变化弧光" style="min-height: 100px;"></textarea></div>
+                    <div class="form-group full-width"><label>核心动机</label><textarea id="editMotivation" placeholder="这辈子最想要什么" style="min-height: 60px;"></textarea></div>
+                    <div class="form-group full-width"><label>标签</label><input type="text" id="editTags" placeholder="逗号分隔的标签（如：正派,剑客,高冷,天才）"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger" onclick="deleteCharacter()" id="deleteBtn">
+                    <i class="fas fa-trash"></i> 删除角色
+                </button>
+                <button type="button" class="btn btn-outline" onclick="polishEditCharacter()" id="polishEditBtn">
+                    <i class="fas fa-star"></i> AI 润色
+                </button>
+                <button type="button" class="btn btn-outline" onclick="closeEditDialog(event)">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveCharacter()" id="editSubmitBtn">保存修改</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/characters.js"></script>
+</body>
+</html>

@@ -25,29 +25,35 @@ document.addEventListener('DOMContentLoaded', function() {
         errorMessage.classList.add('d-none');
         successMessage.classList.add('d-none');
         
+        console.log('准备发送注册请求...');
+        console.log('api对象是否存在:', typeof api);
+        
         try {
+            // 使用普通fetch请求，避免api.postForm可能的问题
             const response = await fetch('/api/auth/register/', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken')
+                    'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: JSON.stringify({ username, email, password })
+                body: `username=${encodeURIComponent(username)}&email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
             });
             
+            console.log('收到响应:', response);
             const data = await response.json();
+            console.log('解析后的JSON:', data);
             
             if (data.success) {
-                successText.textContent = '注册成功，请登录';
+                successText.textContent = '注册成功，正在跳转...';
                 successMessage.classList.remove('d-none');
                 setTimeout(() => {
-                    window.location.href = 'login.html';
-                }, 2000);
+                    window.location.href = '/login.html';
+                }, 1500);
             } else {
                 errorText.textContent = data.message || '注册失败';
                 errorMessage.classList.remove('d-none');
             }
         } catch (error) {
+            console.error('注册错误:', error);
             errorText.textContent = '网络错误，请重试';
             errorMessage.classList.remove('d-none');
         } finally {

@@ -2,26 +2,41 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.static import serve
 from django.conf import settings
-from apps.core.views import LoginView, RegisterView, ChapterGeneratorView
 import os
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('apps.core.urls')),
-    
-    path('api/', include('apps.outline.urls')),
-    path('api/', include('apps.volume.urls')),
-    path('api/', include('apps.chapter.urls')),
-    
+
+    # 用户认证路由
+    path('', include('apps.user.urls')),
+
+    # 项目路由
+    path('', include('apps.project.urls')),
+
+    # 大纲路由
+    path('', include('apps.outline.urls')),
+
+    # 卷路由
+    path('', include('apps.volume.urls')),
+
+    # 章节路由
+    path('', include('apps.chapter.urls')),
+
+    # AI 路由
     path('api/', include('apps.ai.urls')),
-    path('api/ai/', include('apps.ai.urls')),
-    
-    path('login.html', LoginView.as_view(), name='login_html'),
-    path('register.html', RegisterView.as_view(), name='register_html'),
-    path('chapter_generator.html', ChapterGeneratorView.as_view(), name='chapter_generator_html'),
+
+    # 世界观路由
+    path('', include('apps.worldview.urls')),
+
+    # 随手记路由
+    path('', include('apps.note.urls')),
+
+    # 时间线路由
+    path('', include('apps.timeline.urls')),
 ]
 
-frontend_files = ['index.html', 'project.html', 'outline_builder.html', 'token_usage.html', 'llm_config.html', 'volume_generator.html', 'content_manager.html']
+# 静态页面路由
+frontend_files = ['index.html', 'project.html', 'outline.html', 'token.html', 'llm_config.html', 'volume.html', 'content.html', 'new_project.html', 'login.html', 'worldview_chat.html', 'character.html', 'character_library.html', 'chapter.html', 'register.html', 'reset_password.html', 'worldview.html', 'note.html', 'timeline.html']
 for file_name in frontend_files:
     urlpatterns.append(
         path(file_name, serve, {

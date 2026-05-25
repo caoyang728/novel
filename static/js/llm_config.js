@@ -7,10 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadUserInfo() {
     try {
-        const response = await fetch('/api/auth/user/', {
-            headers: { 'X-CSRFToken': getCookie('csrftoken') }
-        });
-        const data = await response.json();
+        const data = await api.get('/api/auth/user/');
         if (data.success) {
             document.getElementById('username').textContent = data.user.username;
         }
@@ -19,10 +16,7 @@ async function loadUserInfo() {
     }
     
     try {
-        const response = await fetch('/api/token-usage/today/', {
-            headers: { 'X-CSRFToken': getCookie('csrftoken') }
-        });
-        const data = await response.json();
+        const data = await api.get('/api/token-usage/today/');
         if (data.success) {
             const total = data.usage.total_tokens || 0;
             const formatted = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : total;
@@ -35,10 +29,7 @@ async function loadUserInfo() {
 
 async function loadConfigs() {
     try {
-        const response = await fetch('/api/llm-config/', {
-            headers: { 'X-CSRFToken': getCookie('csrftoken') }
-        });
-        const data = await response.json();
+        const data = await api.get('/api/llm-config/');
         if (data.success) {
             configs = data.configs;
             renderConfigs(data.configs);
@@ -175,12 +166,8 @@ async function saveConfig() {
     }
 
     try {
-        const response = await fetch('/api/llm-config/', {
+        const data = await api.request('/api/llm-config/', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
             body: JSON.stringify({
                 action: configId ? 'update' : 'create',
                 config_id: configId || undefined,
@@ -195,7 +182,6 @@ async function saveConfig() {
             })
         });
 
-        const data = await response.json();
         if (data.success) {
             closeConfigModal();
             loadConfigs();
@@ -241,12 +227,8 @@ async function saveTaskConfig() {
     const maxTokens = document.getElementById('task-max-tokens').value;
 
     try {
-        const response = await fetch('/api/llm-config/', {
+        const data = await api.request('/api/llm-config/', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
             body: JSON.stringify({
                 action: 'set_task',
                 task_type: taskType,
@@ -256,7 +238,6 @@ async function saveTaskConfig() {
             })
         });
 
-        const data = await response.json();
         if (data.success) {
             closeTaskConfigModal();
             loadConfigs();
@@ -272,12 +253,8 @@ async function toggleConfigActive(configId, checkbox) {
     const isActive = checkbox.checked;
     
     try {
-        const response = await fetch('/api/llm-config/', {
+        const data = await api.request('/api/llm-config/', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
             body: JSON.stringify({
                 action: 'toggle_active',
                 config_id: configId,
@@ -285,7 +262,6 @@ async function toggleConfigActive(configId, checkbox) {
             })
         });
 
-        const data = await response.json();
         if (!data.success) {
             checkbox.checked = !isActive;
             alert(data.message || '操作失败');
@@ -300,19 +276,14 @@ async function deleteConfig(configId) {
     if (!confirm('确定要删除这个配置吗？')) return;
 
     try {
-        const response = await fetch('/api/llm-config/', {
+        const data = await api.request('/api/llm-config/', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
             body: JSON.stringify({
                 action: 'delete',
                 config_id: configId
             })
         });
 
-        const data = await response.json();
         if (data.success) {
             loadConfigs();
         } else {
@@ -347,10 +318,7 @@ function getTaskTypeName(type) {
 
 async function logout() {
     try {
-        await fetch('/api/auth/logout/', {
-            method: 'POST',
-            headers: { 'X-CSRFToken': getCookie('csrftoken') }
-        });
+        await api.post('/logout/', {});
         window.location.href = 'login.html';
     } catch (error) {
         window.location.href = 'login.html';

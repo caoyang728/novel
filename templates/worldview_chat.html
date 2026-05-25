@@ -1,0 +1,1162 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>世界观聊天构建 - AI 小说创作工作台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+            --purple-dark: #7c3aed;
+        }
+        body {
+            background: #f0f4f8;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d0d5dd; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #b0b5bd; }
+
+        .main-content-full {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .content-header {
+            padding: 0.5rem 1.5rem;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+            background: white;
+        }
+        .content-header h5 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .btn-gradient {
+            border: none;
+            border-radius: 10px;
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+        .btn-group-toggle .btn {
+            border-radius: 8px;
+            padding: 0.375rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: #64748b;
+            background: transparent;
+            border: 1px solid #e2e8f0;
+        }
+        .btn-group-toggle .btn.active {
+            background: var(--purple);
+            color: white;
+            border-color: var(--purple);
+        }
+        .btn-group-toggle .btn:hover:not(.active) {
+            background: #f8fafc;
+        }
+        .btn-gradient {
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            cursor: pointer;
+        }
+        .btn-gradient-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+        .btn-gradient-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+        }
+        .btn-gradient-purple {
+            background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+            color: white;
+        }
+        .btn-gradient-purple:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.35);
+        }
+
+        .split-view {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        .left-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            margin: 1rem 1rem 1rem 1rem;
+            overflow: hidden;
+        }
+        .right-panel {
+            width: 42%;
+            min-width: 420px;
+            display: flex;
+            flex-direction: column;
+            margin: 1rem 1rem 1rem 0;
+            overflow: hidden;
+        }
+
+        /* 世界观内容区 */
+        .worldview-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex: 1;
+            transition: box-shadow 0.25s ease;
+        }
+        .worldview-card:hover {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        }
+        .worldview-card-header {
+            padding: 0.875rem 1rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .worldview-card-header h5 {
+            margin: 0;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+        .worldview-card-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.25rem;
+            line-height: 1.8;
+        }
+        .worldview-card-body h3 { font-size: 1.15rem; margin-top: 1.2rem; margin-bottom: 0.5rem; color: #1e293b; border-bottom: 2px solid var(--purple); padding-bottom: 0.3rem; display: inline-block;}
+        .worldview-card-body h3:first-child { margin-top: 0; }
+        .worldview-card-body p { margin-bottom: 0.75rem; color: #334155; }
+        .worldview-card-body ul { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+        .worldview-card-body li { margin-bottom: 0.25rem; color: #475569; }
+        .worldview-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #94a3b8;
+        }
+        .worldview-empty i { font-size: 3rem; margin-bottom: 1rem; opacity: 0.5; }
+        .worldview-empty p { font-size: 0.9rem; margin: 0; }
+        .category-badge {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .cat-worldview { background: rgba(139,92,246,0.12); color: var(--purple); }
+        .cat-setting { background: rgba(14,165,233,0.12); color: var(--primary); }
+        .cat-history { background: rgba(245,158,11,0.12); color: #d97706; }
+        .cat-culture { background: rgba(236,72,153,0.12); color: #db2777; }
+        .cat-location { background: rgba(34,197,94,0.12); color: #16a34a; }
+        .cat-rule { background: rgba(139,92,246,0.08); color: #7c3aed; }
+        .cat-other { background: rgba(148,163,184,0.12); color: #64748b; }
+
+        /* 聊天区域 */
+        .chat-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex: 1;
+            transition: box-shadow 0.25s ease;
+        }
+        .chat-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+        .chat-card-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.75rem 0.875rem;
+            background: #fafafa;
+        }
+        .chat-card-footer {
+            padding: 0.75rem;
+            border-top: 1px solid #e2e8f0;
+            background: white;
+        }
+        .chat-input-wrap {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-end;
+        }
+        .chat-input-wrap textarea {
+            flex: 1;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.875rem;
+            resize: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            min-height: 44px;
+            max-height: 160px;
+        }
+        .chat-input-wrap textarea:focus {
+            outline: none;
+            border-color: var(--purple);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+        }
+        .chat-input-wrap textarea:disabled {
+            background-color: #f1f5f9;
+            cursor: not-allowed;
+            color: #64748b;
+        }
+        .btn-send-purple {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            border: none;
+            background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .btn-send-purple:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);
+        }
+        .btn-send-purple:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .chat-message {
+            display: flex;
+            margin-bottom: 0.625rem;
+        }
+        .chat-message.user { justify-content: flex-end; }
+        .chat-message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .avatar-me {
+            background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+            color: white;
+        }
+        .avatar-wv {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(167, 139, 250, 0.12) 100%);
+            color: var(--purple);
+        }
+        .chat-bubble {
+            max-width: 85%;
+            padding: 0.875rem 1.125rem;
+            border-radius: 16px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+        .chat-bubble-user {
+            background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .chat-bubble-assistant {
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            color: #334155;
+            border-bottom-left-radius: 4px;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 520px;
+            overflow: hidden;
+            animation: modalFadeIn 0.2s ease;
+        }
+        @keyframes modalFadeIn { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+        .modal-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h5 { margin: 0; font-size: 1rem; font-weight: 600; }
+        .modal-body { padding: 1.25rem; }
+        .modal-footer {
+            padding: 1rem 1.25rem;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+
+        /* Toast */
+        .toast-container {
+            position: fixed; top: 20px; right: 20px; z-index: 2000;
+            display: flex; flex-direction: column; gap: 0.5rem;
+        }
+        .toast-item {
+            background: white; color: #1e293b;
+            padding: 0.875rem 1.25rem; border-radius: 12px;
+            display: flex; align-items: center; gap: 0.75rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            animation: toastSlideIn 0.3s ease;
+            font-size: 0.9rem; font-weight: 500; min-width: 280px;
+        }
+        .toast-item.toast-success { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; }
+        .toast-item.toast-error { background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%); color: white; }
+        @keyframes toastSlideIn { from{opacity:0;transform:translateX(100%)} to{opacity:1;transform:translateX(0)} }
+        @keyframes toastSlideOut { from{opacity:1;transform:translateX(0)} to{opacity:0;transform:translateX(100%)} }
+
+        .typing-dots::after {
+            content: '';
+            animation: typingDots 1.5s infinite;
+        }
+        @keyframes typingDots {
+            0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } 100% { content: ''; }
+        }
+
+        /* 编辑模式 */
+        #wv-textarea {
+            width: 100%; height: 100%;
+            border: none; resize: none;
+            padding: 1.25rem;
+            font-family: inherit;
+            font-size: 0.95rem;
+            line-height: 1.8;
+            outline: none;
+            background: white;
+        }
+        /* 多选工具栏 */
+        .multi-select-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 1rem;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .multi-select-toolbar .btn {
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+        }
+        .chat-message-checkbox {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            margin-right: 0.5rem;
+        }
+        .chat-message {
+            display: flex;
+            align-items: flex-start;
+        }
+        .chat-message .chat-message-content {
+            display: flex;
+            flex: 1;
+        }
+        .chat-message .chat-message-avatar {
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-content-full">
+        <div class="content-header">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-outline-secondary" onclick="goBack()">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <div>
+                    <h5 class="mb-0"><i class="fas fa-globe me-2 text-purple"></i>世界观构建</h5>
+                    <small class="text-muted">通过AI对话构建完整的世界观体系</small>
+                </div>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-gradient btn-gradient-purple" onclick="openSaveModal()" id="save-btn" disabled>
+                    <i class="fas fa-save"></i> 保存世界观
+                </button>
+            </div>
+        </div>
+
+        <div class="split-view">
+            <!-- 左侧：世界观内容 -->
+            <div class="left-panel">
+                <div class="worldview-card">
+                    <div class="worldview-card-header">
+                        <h5><i class="fas fa-book-open me-2"></i>世界观内容<span class="category-badge cat-worldview" id="current-category">未分类</span></h5>
+                        <div class="btn-group-toggle d-flex gap-1">
+                            <button class="btn" id="btn-edit" onclick="showEditMode()">编辑</button>
+                            <button class="btn active" id="btn-preview" onclick="showPreviewMode()">预览</button>
+                        </div>
+                    </div>
+                    <textarea id="wv-textarea" class="d-none" placeholder="输入或通过AI对话生成世界观内容..."></textarea>
+                    <div class="worldview-card-body" id="wv-preview">
+                        <div class="worldview-empty">
+                            <i class="fas fa-globe-americas"></i>
+                            <p>通过AI对话构建小说世界观</p>
+                            <p class="mt-2" style="font-size:0.8rem;">试试发送："帮我设定一个修仙世界的基本框架"</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：AI 聊天 -->
+            <div class="right-panel">
+                <div class="chat-card">
+                    <div class="worldview-card-header">
+                        <h5><i class="fas fa-magic me-2" style="color:var(--purple)"></i>世界观助手</h5>
+                        <div class="d-flex align-items-center gap-2">
+                            <button class="btn btn-sm btn-outline-primary" onclick="toggleMultiSelectMode()" id="multi-select-btn" title="多选删除">
+                                <i class="fas fa-check-square"></i> 多选
+                            </button>
+                            <span class="badge bg-light text-secondary" style="font-size:0.7rem;">引导式构建</span>
+                        </div>
+                    </div>
+                    <div id="multi-select-toolbar" class="multi-select-toolbar" style="display: none;">
+                        <span id="selected-count">已选择 0 条</span>
+                        <button class="btn btn-sm btn-danger" onclick="deleteSelectedMessages()">
+                            <i class="fas fa-trash"></i> 删除
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="toggleMultiSelectMode()">取消</button>
+                    </div>
+                    <div class="chat-card-body" id="chat-messages">
+                        <div class="chat-message assistant">
+                            <div class="chat-message-avatar avatar-wv me-2">WV</div>
+                            <div class="chat-bubble chat-bubble-assistant">
+                                您好！我是您的专业世界观构建助手，可以根据您的题材自动适配最佳的世界观结构。<br><br>
+                                请告诉我：<br>
+                                1. 您想创作什么类型的故事？（玄幻、科幻、都市、末世、古风、奇幻、赛博朋克等）<br>
+                                2. 有哪些核心元素或设定？<br>
+                                3. 世界的基本背景是什么？<br><br>
+                                我会全程携带您的设定，动态生成适配该题材的世界观板块内容。                            </div>
+                        </div>
+                    </div>
+                    <div class="chat-card-footer">
+                        <div class="chat-input-wrap">
+                            <textarea id="chat-input" rows="3" placeholder="描述您想要的世界观...（Shift+Enter 换行，Enter 发送）"></textarea>
+                            <button class="btn-send-purple" id="send-btn" onclick="sendMessage()">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 保存弹窗 -->
+    <div class="modal-overlay" id="save-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="fas fa-save me-2"></i>保存世界观</h5>
+                <button class="btn btn-close" onclick="closeSaveModal()"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">选择项目 <span class="text-danger">*</span></label>
+                    <select class="form-select" id="save-project-select">
+                        <option value="">加载中...</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">标题 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="save-title" placeholder="输入世界观标题">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">分类</label>
+                    <select class="form-select" id="save-category">
+                        <option value="worldview">世界观</option>
+                        <option value="setting">设定体系</option>
+                        <option value="history">历史背景</option>
+                        <option value="culture">文化风俗</option>
+                        <option value="location">地点场景</option>
+                        <option value="rule">规则设定</option>
+                        <option value="plot_foreshadow">情节伏笔</option>
+                        <option value="other">其他</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">关键词</label>
+                    <input type="text" class="form-control" id="save-keywords" placeholder="多个关键词用逗号分隔">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSaveModal()">取消</button>
+                <button class="btn btn-gradient btn-gradient-purple" onclick="doSaveWorldview()">
+                    <i class="fas fa-check me-1"></i> 确认保存
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        let messages = [];
+        let currentWorldview = '';
+        let isMultiSelectMode = false;
+        let worldviewId = ''; // 世界观ID
+        const urlParams = new URLSearchParams(window.location.search);
+        const projectId = urlParams.get('project_id') || '';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuth();
+            loadProjects();
+
+            document.getElementById('send-btn').addEventListener('click', sendMessage);
+            document.getElementById('chat-input').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+            });
+            document.getElementById('chat-input').addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+            });
+
+            // 加载已有世界观
+            if (projectId) loadExistingWorldview();
+        });
+
+        function goBack() {
+            if (projectId) {
+                window.location.href = `/worldview.html?project_id=${projectId}`;
+            } else {
+                window.location.href = '/index.html';
+            }
+        }
+
+        async function checkAuth() {
+            if (!api.isAuthenticated()) {
+                window.location.href = 'login.html';
+                return;
+            }
+            try {
+                const d = await api.get('/api/auth/user/');
+                if (!d.success) api.logout();
+            } catch(e) { api.logout(); }
+        }
+
+        async function loadProjects() {
+            try {
+                const d = await api.get('/api/projects/');
+                if (d.success && d.projects) {
+                    const sel = document.getElementById('save-project-select');
+                    sel.innerHTML = '<option value="">请选择项目</option>' +
+                        d.projects.map(p => `<option value="${p.id}" ${p.id == projectId ? 'selected' : ''}>${escapeHtml(p.title)}</option>`).join('');
+                }
+            } catch(e) {}
+        }
+
+        async function loadExistingWorldview() {
+            if (!projectId) return;
+            try {
+                // 使用新API获取世界观
+                const d = await api.get(`/api/worldview/?project_id=${projectId}`);
+                if (d.success && d.data) {
+                    worldviewId = d.data.id;
+                    // 加载世界观的Markdown内容
+                    await loadWorldviewMarkdown();
+                    // 加载聊天记录
+                    await loadChatHistory();
+                }
+            } catch(e) {
+                console.error('加载世界观失败:', e);
+            }
+        }
+
+        async function loadWorldviewMarkdown() {
+            if (!worldviewId) return;
+            try {
+                const d = await api.get(`/api/worldview/${worldviewId}/export/markdown/`);
+                if (d.success && d.data && d.data.markdown) {
+                    currentWorldview = d.data.markdown;
+                    renderWorldview(currentWorldview);
+                }
+            } catch(e) {
+                console.error('加载世界观Markdown失败:', e);
+            }
+        }
+
+        async function loadChatHistory() {
+            if (!worldviewId) return;
+            try {
+                const d = await api.get(`/api/worldview/${worldviewId}/chat/history/`);
+                if (d.success && d.data && d.data.messages && d.data.messages.length > 0) {
+                    messages = d.data.messages;
+                    renderChatHistory();
+                }
+            } catch(e) {
+                console.error('加载聊天记录失败:', e);
+            }
+        }
+
+        // 更新选中数量显示
+        function updateSelectedCount() {
+            const checked = document.querySelectorAll('.chat-message-checkbox:checked').length;
+            const countSpan = document.getElementById('selected-count');
+            if (countSpan) countSpan.textContent = `已选择 ${checked} 条`;
+        }
+
+        // 删除选中消息
+        async function deleteSelectedMessages() {
+            const selectedIds = [];
+            const selectedIndexes = [];
+
+            document.querySelectorAll('.chat-message-checkbox:checked').forEach(cb => {
+                const index = parseInt(cb.dataset.index);
+                if (messages[index] && messages[index].id) {
+                    selectedIds.push(messages[index].id);
+                    selectedIndexes.push(index);
+                } else {
+                    // 没有id的也记录索引，客户端删除
+                    selectedIndexes.push(index);
+                }
+            });
+
+            if (selectedIndexes.length === 0) {
+                showToast('请选择要删除的消息', 'warning');
+                return;
+            }
+
+            if (!confirm(`确定删除选中的 ${selectedIndexes.length} 条消息？`)) return;
+
+            try {
+                // 使用新API删除消息
+                if (selectedIds.length > 0 && worldviewId) {
+                    const data = await api.request(`/api/worldview/${worldviewId}/chat/history/delete/`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            message_ids: selectedIds
+                        })
+                    });
+                    if (!data.success) {
+                        showToast('删除失败: ' + data.message, 'danger');
+                        return;
+                    }
+                }
+
+                // 客户端删除（按索引倒序删除）
+                selectedIndexes.sort((a, b) => b - a).forEach(i => messages.splice(i, 1));
+                renderChatHistory();
+                toggleMultiSelectMode();
+                showToast(`已删除 ${selectedIndexes.length} 条消息`);
+
+            } catch (error) {
+                console.error('删除失败:', error);
+                showToast('删除失败', 'danger');
+            }
+        }
+
+        // 切换多选模式
+        function toggleMultiSelectMode() {
+            isMultiSelectMode = !isMultiSelectMode;
+            const checkboxes = document.querySelectorAll('.chat-message-checkbox');
+            const toolbar = document.getElementById('multi-select-toolbar');
+
+            checkboxes.forEach(cb => cb.style.display = isMultiSelectMode ? 'inline-block' : 'none');
+            if (toolbar) toolbar.style.display = isMultiSelectMode ? 'flex' : 'none';
+
+            // 更新复选框状态
+            document.querySelectorAll('.chat-message').forEach(div => {
+                const checkbox = div.querySelector('.chat-message-checkbox');
+                if (checkbox) checkbox.checked = false;
+            });
+
+            // 更新选中数量
+            updateSelectedCount();
+        }
+
+        function renderChatHistory() {
+            const chatMessages = document.getElementById('chat-messages');
+            chatMessages.innerHTML = '';
+            for (let index = 0; index < messages.length; index++) {
+                const msg = messages[index];
+                const div = document.createElement('div');
+                div.className = `chat-message ${msg.role}`;
+                div.dataset.index = index;
+                div.dataset.id = msg.id || '';
+
+                let checkboxHtml = `<input type="checkbox" class="chat-message-checkbox" data-index="${index}" style="display: ${isMultiSelectMode ? 'inline-block' : 'none'}" onclick="updateSelectedCount()">`;
+
+                if (msg.role === 'user') {
+                    div.innerHTML = `
+                        ${checkboxHtml}
+                        <div class="chat-message-content">
+                            <div class="chat-bubble chat-bubble-user">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
+                            <div class="chat-message-avatar avatar-me ms-2">我</div>
+                        </div>
+                    `;
+                } else {
+                    div.innerHTML = `
+                        ${checkboxHtml}
+                        <div class="chat-message-content">
+                            <div class="chat-message-avatar avatar-wv me-2">WV</div>
+                            <div class="chat-bubble chat-bubble-assistant">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
+                        </div>
+                    `;
+                }
+                chatMessages.appendChild(div);
+            }
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function renderWorldview(content) {
+            const preview = document.getElementById('wv-preview');
+            const ta = document.getElementById('wv-textarea');
+            if (content.trim()) {
+                preview.innerHTML = marked.parse(content);
+                // 确保内容区域可见
+                preview.classList.remove('d-none');
+            }
+            document.getElementById('save-btn').disabled = !content.trim();
+        }
+
+        function getCategoryLabel(category) {
+            const labels = {
+                worldview: '世界地理',
+                geography: '地理版图',
+                setting: '力量/设定体系',
+                power: '力量体系',
+                history: '起源历史',
+                civilization: '文明纪元',
+                culture: '社会文化',
+                society: '社会结构',
+                race: '种族生物',
+                species: '物种族群',
+                faction: '势力格局',
+                organization: '势力组织',
+                economy: '经济资源',
+                resource: '资源经济',
+                rule: '底层规则',
+                law: '法则设定',
+                base: '整体基调',
+                atmosphere: '整体基调',
+                tech: '科技体系',
+                magic: '魔法体系',
+                other: '其他'
+            };
+            return labels[category] || category;
+        }
+
+        function showEditMode() {
+            document.getElementById('wv-textarea').classList.remove('d-none');
+            document.getElementById('wv-preview').classList.add('d-none');
+            document.getElementById('btn-edit').classList.add('active');
+            document.getElementById('btn-preview').classList.remove('active');
+            document.getElementById('wv-textarea').value = currentWorldview;
+            document.getElementById('wv-textarea').focus();
+        }
+
+        function showPreviewMode() {
+            currentWorldview = document.getElementById('wv-textarea').value;
+            const preview = document.getElementById('wv-preview');
+            preview.innerHTML = marked.parse(currentWorldview || '');
+            document.getElementById('wv-textarea').classList.add('d-none');
+            preview.classList.remove('d-none');
+            document.getElementById('btn-preview').classList.add('active');
+            document.getElementById('btn-edit').classList.remove('active');
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+            if (!worldviewId) {
+                showToast('世界观未加载，请刷新页面', 'error');
+                return;
+            }
+
+            input.disabled = true;
+            document.getElementById('send-btn').disabled = true;
+
+            const chatMessages = document.getElementById('chat-messages');
+            // 用户消息
+            const userDiv = document.createElement('div');
+            userDiv.className = 'chat-message user';
+            userDiv.innerHTML = `<div class="chat-bubble chat-bubble-user">${escapeHtml(message).replace(/\n/g,'<br>')}</div><div class="chat-message-avatar avatar-me ms-2">我</div>`;
+            chatMessages.appendChild(userDiv);
+
+            // 思考状态
+            const thinkDiv = document.createElement('div');
+            thinkDiv.className = 'chat-message assistant';
+            const thinkBubble = document.createElement('div');
+            thinkBubble.className = 'chat-bubble chat-bubble-assistant';
+            thinkBubble.innerHTML = `<i class="fas fa-spinner fa-spin"></i> 思考中...`;
+            thinkDiv.innerHTML = `<div class="chat-message-avatar avatar-wv me-2">WV</div>`;
+            thinkDiv.appendChild(thinkBubble);
+            chatMessages.appendChild(thinkDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            messages.push({ role: 'user', content: message });
+            input.value = '';
+            input.style.height = 'auto';
+
+            try {
+                const response = await fetch(`/api/worldview/${worldviewId}/chat/stream/`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${api.getToken()}`,
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        messages: messages.slice(-10)
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                // SSE 解析缓冲区
+                let streamingBuffer = '';
+
+                // 分隔符（使用ASCII等号避免Unicode处理问题）
+                const CONTENT_START = '════CONTENT_START════';
+                const CONTENT_END = '════CONTENT_END════';
+                const QUESTION_START = '════QUESTION_START════';
+                const QUESTION_END = '════QUESTION_END════';
+
+                let rawTextBuffer = '';  // 原始文本流缓冲区
+                let isComplete = false;
+                let parsedContent = '';
+                let parsedQuestion = '';
+
+                // 流式打印状态
+                let inContentSection = false;
+                let inQuestionSection = false;
+                let currentContentText = '';
+                let currentQuestionText = '';
+                let chatTypingDiv = null;
+                let contentTypingTimeout = null;
+                let questionTypingTimeout = null;
+
+                // 初始化聊天打字区域
+                function initChatTyping() {
+                    chatTypingDiv = document.createElement('div');
+                    chatTypingDiv.className = 'chat-bubble chat-bubble-assistant';
+                    chatTypingDiv.innerHTML = '';
+                    thinkDiv.innerHTML = `<div class="chat-message-avatar avatar-wv me-2">WV</div>`;
+                    thinkDiv.appendChild(chatTypingDiv);
+                }
+
+                // 流式打印到聊天区域
+                function streamToChat(text) {
+                    if (!chatTypingDiv) return;
+                    chatTypingDiv.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+                
+                // 确保聊天区域已初始化
+                function ensureChatTypingInit() {
+                    if (!chatTypingDiv) {
+                        initChatTyping();
+                    }
+                }
+
+                // 检测并处理流式内容
+                function processStream(buffer) {
+                    // 检测所有分隔符位置
+                    const csIdx = buffer.indexOf(CONTENT_START);
+                    const ceIdx = buffer.indexOf(CONTENT_END);
+                    const qsIdx = buffer.indexOf(QUESTION_START);
+                    const qeIdx = buffer.indexOf(QUESTION_END);
+
+                    // 确定 CONTENT 区域
+                    let contentStartIdx = -1;
+                    let contentEndIdx = -1;
+                    if (csIdx !== -1) {
+                        contentStartIdx = csIdx + CONTENT_START.length;
+                    }
+                    if (ceIdx !== -1 && (csIdx === -1 || ceIdx > csIdx)) {
+                        contentEndIdx = ceIdx;
+                    }
+
+                    // 确定 QUESTION 区域
+                    let questionStartIdx = -1;
+                    let questionEndIdx = -1;
+                    if (qsIdx !== -1) {
+                        questionStartIdx = qsIdx + QUESTION_START.length;
+                    }
+                    // QUESTION_END 必须在 QUESTION_START 之后
+                    if (qeIdx !== -1 && (qsIdx === -1 || qeIdx > qsIdx)) {
+                        questionEndIdx = qeIdx;
+                    }
+
+                    // CONTENT 部分处理
+                    if (contentStartIdx !== -1) {
+                        if (contentEndIdx !== -1) {
+                            // CONTENT 已完成
+                            currentContentText = buffer.substring(contentStartIdx, contentEndIdx);
+                            inContentSection = false;
+                            parsedContent = currentContentText.trim();
+                            currentWorldview = parsedContent;
+                            renderWorldview(currentWorldview);
+                        } else {
+                            // CONTENT 进行中
+                            inContentSection = true;
+                            currentContentText = buffer.substring(contentStartIdx);
+                            // 检查是否意外遇到 QUESTION_START（说明 CONTENT 被提前关闭）
+                            if (qsIdx !== -1 && qsIdx > csIdx) {
+                                currentContentText = buffer.substring(contentStartIdx, qsIdx);
+                                inContentSection = false;
+                                parsedContent = currentContentText.trim();
+                                currentWorldview = parsedContent;
+                                renderWorldview(currentWorldview);
+                            }
+                        }
+                    }
+
+                    // QUESTION 部分处理
+                    if (questionStartIdx !== -1) {
+                        inQuestionSection = true;
+                        inContentSection = false; // 切换到 QUESTION
+
+                        if (questionEndIdx !== -1) {
+                            // QUESTION 已完成
+                            currentQuestionText = buffer.substring(questionStartIdx, questionEndIdx);
+                            inQuestionSection = false;
+                            parsedQuestion = currentQuestionText.trim();
+                        } else {
+                            // QUESTION 进行中
+                            currentQuestionText = buffer.substring(questionStartIdx);
+                        }
+                    }
+
+                    // 流式打印当前内容
+                    if (inContentSection && currentContentText) {
+                        // 预览区实时更新
+                        clearTimeout(contentTypingTimeout);
+                        contentTypingTimeout = setTimeout(() => {
+                            currentWorldview = currentContentText.trim();
+                            renderWorldview(currentWorldview);
+                        }, 100);
+                    }
+
+                    if (inQuestionSection && currentQuestionText) {
+                        // 聊天区实时打印
+                        streamToChat(currentQuestionText);
+                    }
+                }
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    streamingBuffer += chunk;
+
+                    // 解析 SSE 格式
+                    const lines = streamingBuffer.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                if (data.chunk) {
+                                    rawTextBuffer += data.chunk;
+
+                                    // 首次收到chunk时初始化聊天打字区域
+                                    if (!chatTypingDiv) {
+                                        initChatTyping();
+                                    }
+
+                                    // 处理流式内容
+                                    processStream(rawTextBuffer);
+                                } else if (data.complete) {
+                                    isComplete = true;
+                                    parsedContent = data.content || parsedContent;
+                                    parsedQuestion = data.question || parsedQuestion;
+
+                                    // 最终更新
+                                    if (parsedContent) {
+                                        currentWorldview = parsedContent;
+                                        renderWorldview(currentWorldview);
+                                    }
+                                } else if (data.error) {
+                                    thinkBubble.innerHTML = `<i class="fas fa-exclamation-circle text-danger"></i> ${data.error}`;
+                                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                                }
+                            } catch (e) {
+                                // JSON 解析失败，忽略
+                            }
+                        }
+                    }
+
+                    await new Promise(r => setTimeout(r, 10));
+                }
+
+                // 完成后的最终处理
+                if (isComplete) {
+                    // 确保预览区有内容
+                    if (parsedContent && !currentWorldview) {
+                        currentWorldview = parsedContent;
+                        renderWorldview(currentWorldview);
+                    }
+
+                    // 处理完成消息
+                    if (parsedQuestion) {
+                        // 使用打字机效果显示最新 QUESTION
+                        ensureChatTypingInit();
+                        chatTypingDiv.innerHTML = '';
+                        await typeText(chatTypingDiv, parsedQuestion, () => {
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+                        }, 15);
+                        messages.push({ role: 'assistant', content: parsedQuestion });
+                    } else if (parsedContent) {
+                        ensureChatTypingInit();
+                        chatTypingDiv.innerHTML = escapeHtml('世界观内容已生成，请查看左侧预览区').replace(/\n/g, '<br>');
+                        messages.push({ role: 'assistant', content: '世界观内容已生成' });
+                    } else {
+                        ensureChatTypingInit();
+                        chatTypingDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> 抱歉，生成失败，请重试。`;
+                    }
+                } else {
+                    ensureChatTypingInit();
+                    chatTypingDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> 抱歉，生成失败，请重试。`;
+                }
+
+                input.disabled = false;
+                document.getElementById('send-btn').disabled = false;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            } catch(error) {
+                console.error(error);
+                // 确保有聊天区域显示错误
+                ensureChatTypingInit();
+                chatTypingDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> 发生错误，请重试。`;
+                chatTypingDiv.style.color = 'var(--danger)';
+                input.disabled = false;
+                document.getElementById('send-btn').disabled = false;
+            }
+        }
+
+        async function typeText(element, text, callback, speed) {
+            element.innerHTML = '';
+            for (let i = 0; i < text.length; i++) {
+                element.innerHTML += escapeHtml(text.charAt(i)).replace(/\n/g, '<br>');
+                document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+                await new Promise(r => setTimeout(r, speed || 15));
+            }
+            if (callback) callback();
+        }
+
+        function updateCategoryBadge(category) {
+            const badge = document.getElementById('current-category');
+            const labels = {
+                worldview:'世界地理',
+                setting:'力量体系',
+                history:'起源历史',
+                culture:'社会文化',
+                location:'地理环境',
+                rule:'规则设定',
+                plot_foreshadow:'伏笔秘密',
+                base:'整体基调',
+                economy:'经济资源',
+                faction:'势力格局',
+                race:'种族生物',
+                other:'其他'
+            };
+            badge.textContent = labels[category] || category;
+            badge.className = 'category-badge cat-' + category;
+        }
+
+        function openSaveModal() {
+            if (!currentWorldview.trim()) return;
+            document.getElementById('save-modal').classList.add('show');
+            if (!document.getElementById('save-title').value) {
+                document.getElementById('save-title').focus();
+            }
+        }
+        function closeSaveModal() { document.getElementById('save-modal').classList.remove('show'); }
+
+        async function doSaveWorldview() {
+            const pid = document.getElementById('save-project-select').value;
+            const title = document.getElementById('save-title').value.trim();
+            if (!pid) { showToast('请选择项目', 'error'); return; }
+            if (!title) { showToast('请输入标题', 'error'); return; }
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>保存中...';
+
+            try {
+                const d = await api.request(`/api/projects/${pid}/worldviews/`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        title: title,
+                        category: document.getElementById('save-category').value,
+                        keywords: document.getElementById('save-keywords').value,
+                        content: document.getElementById('wv-textarea').value || currentWorldview
+                    })
+                });
+                if (d.success) {
+                    showToast('世界观保存成功！', 'success');
+                    closeSaveModal();
+                    document.getElementById('save-title').value = '';
+                    document.getElementById('save-keywords').value = '';
+                } else { showToast(d.error || '保存失败', 'error'); }
+            } catch(e) { showToast('网络错误', 'error'); }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check me-1"></i>确认保存';
+        }
+
+        function showToast(msg, type) {
+            const c = document.getElementById('toast-container');
+            const t = document.createElement('div');
+            t.className = `toast-item toast-${type}`;
+            t.innerHTML = `<i class="fas ${type==='success'?'fa-check-circle':'fa-exclamation-circle'}"></i>${msg}`;
+            c.appendChild(t);
+            setTimeout(()=>{ t.style.animation='toastSlideOut 0.3s ease forwards'; setTimeout(()=>t.remove(),300); }, 3000);
+        }
+
+        function goBack() { window.history.back(); }
+        function escapeHtml(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+        function getCookie(n) { let v=null; if(document.cookie&&document.cookie!==''){const cs=document.cookie.split(';');for(let i=0;i<cs.length;i++){const c=cs[i].trim();if(c.substring(0,n.length+1)===(n+'=')){v=decodeURIComponent(c.substring(n.length+1));break;}}} return v; }
+    </script>
+</body>
+</html>

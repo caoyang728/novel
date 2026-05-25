@@ -141,15 +141,7 @@ python manage.py runserver
 
 ## 提示词管理
 
-所有提示词都在 `apps/ai/prompts.py` 文件中，可以根据需要进行调整：
 
-- `OUTLINE_SYSTEM_PROMPT` - 大纲构建的系统提示
-- `OUTLINE_BUILD_PROMPT` - 初始大纲构建提示
-- `OUTLINE_OPTIMIZE_PROMPT` - 大纲优化提示
-- `VOLUME_GENERATION_PROMPT` - 卷生成提示
-- `CHAPTER_SUMMARY_PROMPT` - 章节概要生成提示
-- `CHAPTER_CONTENT_PROMPT` - 章节内容生成提示
-- `SELF_OPTIMIZE_PROMPT` - 自我优化提示
 
 ## 数据模型
 

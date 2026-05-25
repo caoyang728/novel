@@ -21,12 +21,16 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
-    'apps.core.apps.CoreConfig',
     'apps.ai.apps.AiConfig',
     'apps.project.apps.ProjectConfig',
     'apps.outline.apps.OutlineConfig',
     'apps.volume.apps.VolumeConfig',
     'apps.chapter.apps.ChapterConfig',
+    'apps.characters.apps.CharactersConfig',
+    'apps.user.apps.UserConfig',
+    'apps.worldview.apps.WorldviewConfig',
+    'apps.note.apps.NoteConfig',
+    'apps.timeline.apps.TimelineConfig',
 ]
 
 MIDDLEWARE = [
@@ -35,10 +39,11 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'novel_agent.middleware.JWTAuthenticationMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'apps.core.middleware.LoginRequiredMiddleware',
+    'novel_agent.middleware.LoginRequiredMiddleware',
 ]
 
 LOGIN_URL = '/login/'
@@ -122,6 +127,31 @@ LLM_MODEL = os.getenv('LLM_MODEL', 'deepseek-v4-flash')
 LLM_BASE_URL = os.getenv('LLM_BASE_URL', 'https://api.deepseek.com')
 LLM_TEMPERATURE = float(os.getenv('LLM_TEMPERATURE', '0.7'))
 LLM_MAX_TOKENS = int(os.getenv('LLM_MAX_TOKENS', '4096'))
-LLM_TIMEOUT = int(os.getenv('LLM_TIMEOUT', '120'))
+LLM_TIMEOUT = int(os.getenv('LLM_TIMEOUT', '600'))
+LLM_OUTLINE_TIMEOUT = int(os.getenv('LLM_OUTLINE_TIMEOUT', '300'))  # 大纲构建专用超时（秒）
 LLM_RETRY = int(os.getenv('LLM_RETRY', '3'))
 LLM_RETRY_INTERVAL = int(os.getenv('LLM_RETRY_INTERVAL', '5'))
+
+# JWT Settings
+from datetime import timedelta
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ROTATE_REFRESH_TOKENS': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+import rest_framework_simplejwt
+
+REST_FRAMEWORK = {
+    # DRF 全局 JWT 认证（用于 API 请求）
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+    # API 请求需要认证（可选，用中间件也行）
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    # 接口统一返回401，不跳转
+    "EXCEPTION_HANDLER": "utils.exceptions.custom_exception_handler",
+}

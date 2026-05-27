@@ -11,6 +11,33 @@ function getProjectIdFromUrl() {
 }
 
 /**
+ * 初始化返回项目按钮
+ * @param {string} selector - 返回按钮的选择器
+ * @param {string} targetPage - 目标页面，默认为 'project.html'
+ */
+function initBackToProjectButton(selector = '.back-btn', targetPage = 'project.html') {
+    const backBtn = document.querySelector(selector);
+    if (!backBtn) return;
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const projectId = urlParams.get('project_id');
+    
+    // 移除原有的 onclick 事件
+    backBtn.removeAttribute('onclick');
+    
+    if (projectId) {
+        backBtn.onclick = () => {
+            window.location.href = `${targetPage}?project_id=${projectId}`;
+        };
+    } else {
+        // 如果没有项目ID，使用浏览器后退
+        backBtn.onclick = () => {
+            window.history.back();
+        };
+    }
+}
+
+/**
  * 通用的 API 请求封装
  * 自动携带 JWT token
  */

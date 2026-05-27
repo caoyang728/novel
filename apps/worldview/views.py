@@ -859,6 +859,12 @@ class ApiWorldviewDeepeningApplyView(BaseWorldAPIView):
                 if field_parts[0] == target_layer:
                     field_parts = field_parts[1:]
                 
+                # 检查字段路径是否为空（当 targetField 只有一层且等于 targetLayer 时会发生）
+                if not field_parts:
+                    logger.warning(f"修改 {idx+1}: 字段路径为空，跳过（target_field='{target_field}', target_layer='{target_layer}'）")
+                    skipped_changes.append({'index': idx, 'reason': '字段路径为空'})
+                    continue
+                
                 # 导航到目标字段的父级
                 current_dict = layer_data
                 final_field_name = field_parts[-1]  # 最后一个是字段名

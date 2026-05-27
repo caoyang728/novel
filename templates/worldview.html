@@ -14,7 +14,7 @@
     <div class="page-header-wrapper">
         <div class="container">
             <div class="page-header-content">
-                <button class="back-btn" onclick="goBack()">
+                <button class="back-btn" id="backBtn">
                     <i class="fas fa-arrow-left"></i>
                 </button>
                 <div class="header-main">
@@ -1084,6 +1084,8 @@
             if (chatBuildBtn && INITIAL_PROJECT_ID) {
                 chatBuildBtn.href = '/worldview_chat.html?project_id=' + INITIAL_PROJECT_ID;
             }
+            // 初始化返回项目按钮
+            initBackToProjectButton('#backBtn');
         });
     </script>
     <script src="/static/js/worldview.js"></script>

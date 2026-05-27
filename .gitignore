@@ -5,3 +5,5 @@ staticfiles
 chroma_db
 .vscode
 .CLAUDE.md
+**/__pycache__/
+*.pyc

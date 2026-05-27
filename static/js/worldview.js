@@ -351,6 +351,22 @@ function initDeepeningState() {
     showElement(consistencyPrimaryButtons);
     hideElement(consistencyFixButtons);
     hideElement(consistencyActionButtons);
+    
+    // 初始化一致性报告状态
+    const emptyState = document.getElementById('consistencyEmptyState');
+    const noIssuesState = document.getElementById('consistencyNoIssues');
+    const issuesList = document.getElementById('consistencyIssuesList');
+    if (emptyState) showElement(emptyState);
+    if (noIssuesState) hideElement(noIssuesState);
+    if (issuesList) hideElement(issuesList);
+    
+    // 隐藏所有预定义的问题条目（保留HTML结构）
+    for (let i = 0; i < 5; i++) {
+        const issueEl = document.getElementById(`consistency-issue-${i}`);
+        if (issueEl) {
+            hideElement(issueEl);
+        }
+    }
 }
 
 function initAutoResizeTextareas() {
@@ -400,18 +416,26 @@ async function generateQuestions() {
             const primaryButtons = document.getElementById('deepeningPrimaryButtons');
             const answerButtons = document.getElementById('deepeningAnswerButtons');
             const actionButtons = document.getElementById('deepeningActionButtons');
-            
+            const questions = data.data || [];
+
             showElement(questionsList);
             if (suggestionsContainer) {
                 hideElement(suggestionsContainer);
                 suggestionsContainer.innerHTML = '';
             }
-            hideElement(primaryButtons);
-            showElement(answerButtons);
             hideElement(actionButtons);
-            
-            displayQuestions(data.data || []);
-            showToast('问题生成成功');
+
+            if (questions.length === 0) {
+                showElement(primaryButtons);
+                hideElement(answerButtons);
+                displayQuestions([]);
+                showToast('世界观已较为完善', 'success');
+            } else {
+                hideElement(primaryButtons);
+                showElement(answerButtons);
+                displayQuestions(questions);
+                showToast('问题生成成功');
+            }
         } else {
             showToast(data.message || '生成失败', 'error');
         }
@@ -433,8 +457,14 @@ function displayQuestions(questions) {
     }
     
     if (!questions || questions.length === 0) {
-        container.innerHTML = '<p class="text-muted">暂无深化问题</p>';
-        console.log('No questions to display');
+        container.innerHTML = `
+            <div class="text-center py-4">
+                <i class="fas fa-check-circle mb-2" style="font-size: 2rem; color: #22c55e;"></i>
+                <p class="text-muted mb-0" style="color: #e8b840 !important; font-size: 1.05rem;">
+                    世界观设定已经比较完善了，AI 都找不到需要深化的问题
+                </p>
+            </div>
+        `;
         return;
     }
 
@@ -630,6 +660,46 @@ function getLayerName(layer) {
     return names[layer] || layer;
 }
 
+function translateFieldPath(path) {
+    if (!path) return '';
+    
+    const commonTerms = {
+        'overview': '概述',
+        'identity': '身份',
+        'transmigration': '穿越设定',
+        'conflict': '冲突',
+        'natural': '自然',
+        'laws': '法则',
+        'cultivation': '修炼',
+        'destiny': '命运',
+        'energy': '能量',
+        'types': '类型',
+        'future': '未来',
+        'race': '种族',
+        'economy': '经济',
+        'politics': '政治',
+        'religion': '宗教',
+        'art': '艺术',
+        'customs': '习俗',
+        'war': '战争',
+        'crisis': '危机',
+        'relics': '遗迹'
+    };
+    
+    // 处理类似 "setting.conflict" 格式的路径
+    return path.split('.').map(part => {
+        // 先尝试作为完整部分查找
+        if (commonTerms[part]) {
+            return commonTerms[part];
+        }
+        // 尝试作为层级名称查找
+        if (getLayerName(part) !== part) {
+            return getLayerName(part);
+        }
+        return part;
+    }).join(' / ');
+}
+
 function clearSuggestions() {
     const container = document.getElementById('suggestionsContainer');
     if (container) {
@@ -753,28 +823,18 @@ async function checkConsistency() {
         });
 
         if (data.success) {
-            const report = document.getElementById('consistencyReport');
+            const issues = data.data?.issues || [];
+            const hasIssues = data.data?.hasIssues;
+        
             const primaryButtons = document.getElementById('consistencyPrimaryButtons');
             const fixButtons = document.getElementById('consistencyFixButtons');
-            const suggestionsContainer = document.getElementById('consistencySuggestionsContainer');
             const actionButtons = document.getElementById('consistencyActionButtons');
             
-            if (report) {
-                showElement(report);
-                let reportHtml = data.data?.report || '<p class="text-success">一致性检查通过！</p>';
-                report.innerHTML = reportHtml;
-            }
-            
-            // 隐藏建议容器
-            if (suggestionsContainer) {
-                hideElement(suggestionsContainer);
-                suggestionsContainer.innerHTML = '';
-            }
-            
-            // 隐藏操作按钮
             hideElement(actionButtons);
             
-            if (data.data?.hasIssues) {
+            displayConsistencyIssues(issues);
+            
+            if (hasIssues) {
                 hideElement(primaryButtons);
                 showElement(fixButtons);
             } else {
@@ -783,6 +843,8 @@ async function checkConsistency() {
             }
             
             showToast('检查完成');
+        } else {
+            showToast(data.message || '检查失败', 'error');
         }
     } catch (error) {
         console.error('Failed to check consistency:', error);
@@ -792,14 +854,95 @@ async function checkConsistency() {
     }
 }
 
+function displayConsistencyIssues(issues) {
+    const emptyState = document.getElementById('consistencyEmptyState');
+    const noIssuesState = document.getElementById('consistencyNoIssues');
+    const issuesList = document.getElementById('consistencyIssuesList');
+    const template = document.getElementById('consistencyIssueTemplate');
+    
+    if (!emptyState || !noIssuesState || !issuesList || !template) return;
+    
+    // 先隐藏所有状态
+    hideElement(emptyState);
+    hideElement(noIssuesState);
+    hideElement(issuesList);
+    
+    if (!issues || issues.length === 0) {
+        showElement(noIssuesState);
+        return;
+    }
+    
+    issuesList.innerHTML = '';
+    
+    issues.forEach((issue, i) => {
+        const isError = issue.severity === 'error';
+        const severityLabel = isError ? '严重' : '警告';
+        const targetLayer = getLayerName(issue.targetLayer || '');
+        
+        const clone = document.importNode(template.content, true);
+        
+        const titleEl = clone.querySelector('strong');
+        const severityEl = clone.querySelector('.consistency-severity');
+        const detailEl = clone.querySelector('.consistency-detail');
+        const metaEl = clone.querySelector('.consistency-meta');
+        const textarea = clone.querySelector('.consistency-note');
+        
+        if (titleEl) {
+            titleEl.innerHTML = `${i + 1}. ${escapeHtml(issue.message || '')}`;
+        }
+        
+        if (severityEl) {
+            severityEl.textContent = severityLabel;
+            severityEl.style.background = isError ? 'rgba(239, 68, 68, 0.2)' : 'rgba(234, 179, 8, 0.2)';
+            severityEl.style.color = isError ? '#f87171' : '#fbbf24';
+        }
+        
+        if (detailEl) {
+            detailEl.textContent = issue.detail || '';
+        }
+        
+        if (metaEl) {
+            let metaText = `目标层级: <span style="color: #d1d5db;">${targetLayer}</span>`;
+            if (issue.targetField) {
+                metaText += ` / <code style="font-family: monospace; color: #a78bfa; font-size: 13px;">${escapeHtml(translateFieldPath(issue.targetField))}</code>`;
+            }
+            metaEl.innerHTML = metaText;
+        }
+        
+        if (textarea) {
+            textarea.id = `consistency-fix-note-${i}`;
+        }
+        
+        issuesList.appendChild(clone);
+    });
+    
+    showElement(issuesList);
+}
+
 // AI 修复一致性问题
 async function fixConsistency() {
     if (!worldviewId) return;
     showLoading('正在生成修复建议...');
 
     try {
+        const manualTextarea = document.getElementById('consistencyManualTextarea');
+        let manualIssues = manualTextarea ? manualTextarea.value.trim() : '';
+
+        // 收集每条问题用户填写的修复方向
+        const fixNotes = [];
+        document.querySelectorAll('[id^="consistency-fix-note-"]').forEach(textarea => {
+            const note = textarea.value.trim();
+            if (note) {
+                fixNotes.push(note);
+            }
+        });
+        if (fixNotes.length > 0) {
+            manualIssues += (manualIssues ? '\n' : '') + fixNotes.join('\n');
+        }
+
         const data = await api.request(`/api/worldview/${worldviewId}/consistency/fix/`, {
-            method: 'POST'
+            method: 'POST',
+            body: JSON.stringify({ manual_issues: manualIssues })
         });
 
         if (data.success) {
@@ -813,6 +956,13 @@ async function fixConsistency() {
             hideElement(report);
             hideElement(fixButtons);
             showElement(actionButtons);
+            
+            // 隐藏并清空手动输入区域
+            const manualInput = document.getElementById('consistencyManualInput');
+            if (manualInput) {
+                hideElement(manualInput);
+                if (manualTextarea) manualTextarea.value = '';
+            }
             
             if (suggestionsContainer) {
                 showElement(suggestionsContainer);
@@ -833,7 +983,16 @@ function displayConsistencySuggestions(suggestions, container) {
     if (!container) return;
 
     if (suggestions.length === 0) {
-        container.innerHTML = '<div class="border rounded p-4"><p class="text-muted">没有生成修改建议</p></div>';
+        container.innerHTML = `
+            <div class="border rounded p-4">
+                <div class="text-center py-4">
+                    <i class="fas fa-check-circle mb-2" style="font-size: 2rem; color: #22c55e;"></i>
+                    <p class="text-muted mb-0" style="color: #e8b840 !important; font-size: 1.05rem;">
+                        无需修复，设定一致性已经很好！
+                    </p>
+                </div>
+            </div>
+        `;
         return;
     }
 
@@ -900,18 +1059,237 @@ function clearConsistencySuggestions() {
         hideElement(container);
     }
     
-    const report = document.getElementById('consistencyReport');
-    if (report) {
-        report.innerHTML = '<p class="text-muted mb-0">点击上方按钮检查设定一致性</p>';
-        showElement(report);
+    // 重置一致性报告状态
+    const emptyState = document.getElementById('consistencyEmptyState');
+    const noIssuesState = document.getElementById('consistencyNoIssues');
+    const issuesList = document.getElementById('consistencyIssuesList');
+    if (emptyState) showElement(emptyState);
+    if (noIssuesState) hideElement(noIssuesState);
+    if (issuesList) hideElement(issuesList);
+    
+    // 隐藏所有预定义的问题条目（保留HTML结构）
+    for (let i = 0; i < 5; i++) {
+        const issueEl = document.getElementById(`consistency-issue-${i}`);
+        if (issueEl) {
+            hideElement(issueEl);
+        }
     }
     
     hideElement(document.getElementById('consistencyFixButtons'));
     hideElement(document.getElementById('consistencyActionButtons'));
     showElement(document.getElementById('consistencyPrimaryButtons'));
-    
+
+    const manualInput = document.getElementById('consistencyManualInput');
+    if (manualInput) {
+        hideElement(manualInput);
+        const textarea = document.getElementById('consistencyManualTextarea');
+        if (textarea) textarea.value = '';
+    }
+
     window.currentSuggestions = null;
     window.isConsistencyFixMode = false;
+}
+
+// Alpine.js 一致性检查状态对象 - 工厂函数形式
+function consistencyState() {
+    return {
+        state: 'empty',
+        issues: [],
+        suggestions: [],
+        
+        async checkConsistency() {
+            if (!worldviewId) return;
+            showLoading('正在检查一致性...');
+            
+            try {
+                const data = await api.request(`/api/worldview/${worldviewId}/consistency/check/`, {
+                    method: 'POST'
+                });
+                
+                if (data.success) {
+                    this.issues = data.data?.issues || [];
+                    if (this.issues.length > 0) {
+                        this.state = 'hasIssues';
+                    } else {
+                        this.state = 'noIssues';
+                    }
+                    showToast('检查完成');
+                } else {
+                    showToast(data.message || '检查失败', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to check consistency:', error);
+                showToast('检查失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        },
+        
+        async fixConsistency() {
+            if (!worldviewId) return;
+            showLoading('正在生成修复建议...');
+            
+            try {
+                let manualIssues = '';
+                this.issues.forEach((issue, i) => {
+                    const noteEl = document.getElementById(`consistency-fix-note-${i}`);
+                    if (noteEl && noteEl.value.trim()) {
+                        manualIssues += (manualIssues ? '\n' : '') + noteEl.value.trim();
+                    }
+                });
+                
+                const data = await api.request(`/api/worldview/${worldviewId}/consistency/fix/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ manual_issues: manualIssues })
+                });
+                
+                if (data.success) {
+                    this.suggestions = (data.data || []).map(s => ({ ...s, selected: true }));
+                    this.state = 'hasSuggestions';
+                    window.currentSuggestions = this.suggestions;
+                    showToast('修复建议已生成');
+                } else {
+                    showToast(data.message || '生成失败', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to fix consistency:', error);
+                showToast('生成修复建议失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        },
+        
+        resetState() {
+            this.state = 'empty';
+            this.issues = [];
+            this.suggestions = [];
+            window.currentSuggestions = null;
+        },
+        
+        async applyConsistencyChanges() {
+            if (!worldviewId) return;
+            
+            const selectedChanges = this.suggestions.filter(s => s.selected);
+            if (selectedChanges.length === 0) {
+                showToast('请至少选择一个修改建议');
+                return;
+            }
+            
+            console.log('准备发送的修改数据:', JSON.stringify({ changes: selectedChanges }, null, 2));
+            
+            showLoading('正在应用修改...');
+            
+            try {
+                const data = await api.request(`/api/worldview/${worldviewId}/deepening/apply/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ changes: selectedChanges })
+                });
+                
+                if (data.success) {
+                    console.log('应用修改成功，返回数据:', data);
+                    showToast('修改已应用');
+                    await loadWorldData(worldviewId);
+                    this.resetState();
+                } else {
+                    showToast(data.message || '应用失败', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to apply changes:', error);
+                showToast('应用修改失败', 'error');
+            } finally {
+                hideLoading();
+            }
+        },
+        
+        toggleSuggestion(index) {
+            if (this.suggestions[index]) {
+                this.suggestions[index].selected = !this.suggestions[index].selected;
+            }
+        },
+        
+        selectAllSuggestions(selected) {
+            this.suggestions.forEach(s => s.selected = selected);
+        },
+        
+        getLayerName(layer) {
+            const names = {
+                'setting': '基础设定',
+                'foundation': '世界基础',
+                'power': '力量体系',
+                'races': '种族族群',
+                'society': '社会结构',
+                'culture': '文化人文',
+                'history': '历史进程',
+                'special': '特殊规则'
+            };
+            return names[layer] || layer;
+        },
+        
+        translateFieldPath(path) {
+            if (!path) return '';
+            
+            const commonTerms = {
+                'overview': '概述',
+                'identity': '身份',
+                'transmigration': '穿越设定',
+                'conflict': '冲突',
+                'natural': '自然',
+                'laws': '法则',
+                'cultivation': '修炼',
+                'destiny': '命运',
+                'energy': '能量',
+                'types': '类型',
+                'future': '未来',
+                'race': '种族',
+                'economy': '经济',
+                'politics': '政治',
+                'religion': '宗教',
+                'art': '艺术',
+                'customs': '习俗',
+                'war': '战争',
+                'crisis': '危机',
+                'relics': '遗迹'
+            };
+            
+            return path.split('.').map(part => {
+                if (commonTerms[part]) {
+                    return commonTerms[part];
+                }
+                if (this.getLayerName(part) !== part) {
+                    return this.getLayerName(part);
+                }
+                return part;
+            }).join(' / ');
+        },
+        
+        getImpactText(impact) {
+            const impacts = {
+                'low': '影响较小',
+                'medium': '中等影响',
+                'high': '影响较大',
+                'critical': '关键影响'
+            };
+            return impacts[impact] || impact;
+        },
+        
+        formatValue(value) {
+            if (value === null || value === undefined) {
+                return '<span class="text-muted">空</span>';
+            }
+            if (typeof value === 'object') {
+                return `<pre class="text-sm" style="white-space: pre-wrap;">${JSON.stringify(value, null, 2)}</pre>`;
+            }
+            return `<span>${value}</span>`;
+        }
+    };
+}
+
+// 重置一致性检查UI到初始状态（保留用于兼容旧代码）
+function resetConsistencyUI() {
+    // 由于 Alpine.js 使用工厂函数，这里通过全局状态对象重置
+    if (window.consistencyStateInstance) {
+        window.consistencyStateInstance.resetState();
+    }
 }
 
 // 应用一致性修复建议
@@ -970,12 +1348,8 @@ async function applyConsistencyChanges() {
             showToast('修改已应用');
             // 不刷新页面，而是重新加载数据
             await loadWorldData(worldviewId);
-            // 清除建议并重置报告
-            clearConsistencySuggestions();
-            const report = document.getElementById('consistencyReport');
-            if (report) {
-                report.innerHTML = '<p class="text-success">一致性检查通过</p><p class="text-muted small mt-2">未发现明显的冲突或不一致点</p>';
-            }
+            // 重置一致性检查UI到初始状态
+            resetConsistencyUI();
         }
     } catch (error) {
         console.error('Failed to apply changes:', error);

@@ -694,7 +694,7 @@ class ApiWorldviewDeepeningQuestionsView(BaseWorldAPIView):
         except Exception as e:
             logger.error(f"LLM调用失败: {e}")
             questions = list(WORLDVIEW_FALLBACK_QUESTIONS)
-        
+        # logger.debug(questions)
         return self.success_response(questions)
 
 
@@ -805,6 +805,8 @@ class ApiWorldviewDeepeningApplyView(BaseWorldAPIView):
         
         changes = data.get('changes', [])
         
+        # logger.info(f"接收到 changes 数据: {changes}")
+        
         if not changes:
             return self.error_response('没有要应用的修改')
         
@@ -812,54 +814,84 @@ class ApiWorldviewDeepeningApplyView(BaseWorldAPIView):
             # 获取 WorldView 对象
             worldview_detail = WorldView.objects.get(project=worldview.project)
             
-            logger.info(f"接收 {len(changes)} 个修改请求")
+            # logger.info(f"接收 {len(changes)} 个修改请求")
+            # logger.info(f"WorldView ID: {worldview_detail.id}, project_id: {worldview_detail.project_id}")
+            
+            # 记录修改结果
+            applied_changes = []
+            skipped_changes = []
             
             for idx, change in enumerate(changes):
-                target_layer = change.get('targetLayer')
-                target_field = change.get('targetField')
-                new_value = change.get('newValue')
+                # 提取修改数据
+                target_layer = change.get('targetLayer')  # 例如: "history"
+                target_field = change.get('targetField')  # 例如: "history.future"
+                new_value = change.get('newValue')        # 例如: "xxxxx"
                 
-                logger.info(f"修改 {idx+1}: layer={target_layer}, field={target_field}, value={new_value}")
+                # logger.info(f"处理修改 {idx+1}: layer={target_layer}, field={target_field}, value={new_value}")
                 
-                if not target_layer or not target_field:
-                    logger.warning(f"修改 {idx+1} 缺少 targetLayer targetField")
+                # 检查必要字段是否存在
+                if not target_layer or not target_field or new_value is None:
+                    logger.warning(f"修改 {idx+1} 缺少必要字段")
+                    skipped_changes.append({'index': idx, 'reason': '缺少必要字段'})
                     continue
                 
-                # 根据 targetLayer 获取字段
-                current_layer = worldview_detail.__dict__.get(target_layer)
-                if current_layer is None:
+                # 检查目标层级是否存在于模型中
+                if not hasattr(worldview_detail, target_layer):
+                    logger.warning(f"修改 {idx+1}: 目标层级 '{target_layer}' 不存在")
+                    skipped_changes.append({'index': idx, 'reason': f"目标层级 '{target_layer}' 不存在"})
+                    continue
+                
+                # 获取当前层级的完整数据（你的思路：先查询）
+                current_layer_data = getattr(worldview_detail, target_layer, None)
+                if current_layer_data is None:
                     layer_data = {}
-                elif isinstance(current_layer, dict):
-                    layer_data = json.loads(json.dumps(current_layer))  # 深拷
+                elif isinstance(current_layer_data, dict):
+                    layer_data = current_layer_data.copy()  # 复制一份进行修改
                 else:
                     layer_data = {}
                 
-                logger.info(f"修改 layer_data: {layer_data}")
+                # logger.info(f"当前 {target_layer} 数据: {layer_data}")
                 
-                # 支持嵌套字段路径
-                fields = target_field.split('.')
-                current = layer_data
+                # 解析目标字段路径（支持嵌套）
+                field_parts = target_field.split('.')
                 
-                # 导航到嵌套字段
-                for field in fields[:-1]:
-                    if field not in current:
-                        current[field] = {}
-                        logger.info(f"创建嵌套字段: {field}")
-                    current = current[field]
+                # 关键修复：如果 targetField 开头是 targetLayer（例如 "history.future" 中 "history" 是层级名），则跳过第一个
+                if field_parts[0] == target_layer:
+                    field_parts = field_parts[1:]
                 
-                # 设置新值 
-                old_value = current.get(fields[-1])
-                current[fields[-1]] = new_value
-                logger.info(f"设置新值 {fields[-1]} = {new_value} (原值 {old_value})")
+                # 导航到目标字段的父级
+                current_dict = layer_data
+                final_field_name = field_parts[-1]  # 最后一个是字段名
                 
-                # 直接修改 WorldView __dict__
-                worldview_detail.__dict__[target_layer] = layer_data
-                logger.info(f"保存 layer_data: {worldview_detail.__dict__.get(target_layer)}")
+                # 遍历路径（除了最后一个）
+                for part in field_parts[:-1]:
+                    if part not in current_dict:
+                        current_dict[part] = {}
+                        logger.info(f"创建嵌套路径: {part}")
+                    current_dict = current_dict[part]
+                
+                # 保存旧值用于日志
+                old_value = current_dict.get(final_field_name)
+                
+                # 修改字段值（你的思路：修改future）
+                current_dict[final_field_name] = new_value
+                logger.info(f"修改 {target_field}: {old_value} -> {new_value}")
+                
+                # 将修改后的数据存回去（你的思路：将history存进去）
+                setattr(worldview_detail, target_layer, layer_data)
+                logger.info(f"保存修改后的 {target_layer}: {layer_data}")
+                
+                applied_changes.append({'index': idx, 'layer': target_layer, 'field': target_field})
             
+            # 保存到数据库
             worldview_detail.save()
-            logger.info("WorldView 保存成功")
+            logger.info(f"WorldView 保存成功，应用了 {len(applied_changes)} 个修改")
             
-            return self.success_response(message='修改已应用')
+            return self.success_response({
+                'applied': applied_changes,
+                'skipped': skipped_changes
+            }, message='修改已应用')
+
         except WorldView.DoesNotExist:
                 return self.error_response('世界观详情不存在，请先生成世界观')
         except Exception as e:
@@ -909,25 +941,14 @@ class ApiWorldviewConsistencyView(BaseWorldAPIView):
             # 保存问题到临时存储，供后续修复使用
             self.request.session['consistency_issues'] = issues
             
-            if issues and len(issues) > 0:
-                report = '<div class="text-danger">发现以下一致性问题：</div><ul>'
-                for issue in issues:
-                    severity_label = '严重错误' if 'error' in issue.get('severity', '') else '警告'
-                    severity_class = 'text-danger' if 'error' in issue.get('severity', '') else 'text-warning'
-                    report += f'<li><span class="{severity_class}">[{severity_label}]</span> {issue.get("message", "")}: {issue.get("detail", "")}</li>'
-                report += '</ul>'
-            else:
-                report = '<div class="text-success">世界观设定一致性检查通过</div>'
-                report += '<div class="text-muted small mt-2">未发现明显的冲突或不一致点</div>'
-            
         except Exception as e:
             logger.error(f"LLM调用失败: {e}")
-            report = '<div class="text-success">世界观设定一致性检查通过</div><br>'
-            report += '<div>所有分层内容已定义</div>'
-            report += '<div>结构化设定完整</div>'
-            report += '<div>核心规则已设置</div>'
+            issues = []
 
-        return self.success_response({'report': report, 'hasIssues': len(issues) > 0})
+        return self.success_response({
+            'issues': issues,
+            'hasIssues': len(issues) > 0
+        })
 
 
 class ApiWorldviewConsistencyFixView(BaseWorldAPIView):
@@ -938,9 +959,27 @@ class ApiWorldviewConsistencyFixView(BaseWorldAPIView):
         if not worldview:
             return self.error_response('世界观不存在')
 
-        # 获取之前保存的问题
-        issues = self.request.session.get('consistency_issues', [])
-        if not issues:
+        data = self.parse_request_data(request)
+
+        # 获取AI发现的问题（从session）和用户手动补充的问题（从请求体）
+        ai_issues = self.request.session.get('consistency_issues', [])
+        manual_issues_text = (data or {}).get('manual_issues', '').strip()
+
+        # 将手动输入的文本转为问题对象
+        manual_issues = []
+        if manual_issues_text:
+            for line in manual_issues_text.split('\n'):
+                line = line.strip()
+                if line:
+                    manual_issues.append({
+                        'severity': 'manual',
+                        'message': '用户手动补充',
+                        'detail': line
+                    })
+
+        all_issues = ai_issues + manual_issues
+
+        if not all_issues:
             return self.error_response('没有发现一致性问题，无需修复')
 
         try:
@@ -967,7 +1006,7 @@ class ApiWorldviewConsistencyFixView(BaseWorldAPIView):
             
             result = chain.invoke({
                 "worldview_data": json.dumps(worldview_data, ensure_ascii=False),
-                "consistency_issues": json.dumps(issues, ensure_ascii=False)
+                "consistency_issues": json.dumps(all_issues, ensure_ascii=False)
             })
             
             suggestions = result if isinstance(result, list) else []

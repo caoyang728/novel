@@ -1,3 +1,4 @@
+let currentProjectId = null;
 let worldviewId = null;
 let axioms = [''];
 let currentWorldview = null;
@@ -125,6 +126,7 @@ function showToast(message, type = 'success') {
 document.addEventListener('DOMContentLoaded', async function() {
     const urlParams = new URLSearchParams(window.location.search);
     const projectId = urlParams.get('project_id');
+    currentProjectId = projectId;
     const projectName = urlParams.get('project_name');
 
     if (projectName) {
@@ -1369,10 +1371,6 @@ function createSnapshot() {
 
 function exportWorld(format) {
     showToast(`导出 ${format.toUpperCase()} 功能开发中`);
-}
-
-function goBack() {
-    window.history.back();
 }
 
 function escapeHtml(t) {

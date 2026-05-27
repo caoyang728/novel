@@ -8,6 +8,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="/static/css/common.css" rel="stylesheet">
     <link href="/static/css/worldview.css" rel="stylesheet">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body>
     <div class="page-header-wrapper">
@@ -766,39 +767,123 @@
                     </div>
                 </div>
 
-                <div id="tab-consistency" class="tab-content hidden">
+                <div id="tab-consistency" class="tab-content hidden" x-data="consistencyState()" x-init="window.consistencyStateInstance = $data">
                     <div class="dc-panel-container">
                         <h3 class="dc-panel-header">
                             <i class="fas fa-check-double"></i> 一致性检查
                         </h3>
                         <div class="d-flex gap-2 mb-3 dc-panel-actions">
-                            <div class="d-flex gap-2" id="consistencyPrimaryButtons">
-                                <button class="btn-primary" onclick="checkConsistency()">
+                            <template x-if="state === 'empty' || state === 'noIssues'">
+                                <button class="btn-primary" @click="checkConsistency()">
                                     <i class="fas fa-search me-1"></i> 检查一致性
                                 </button>
-                            </div>
-                            <div class="d-flex gap-2 dc-hidden" id="consistencyFixButtons">
-                                <button class="btn-primary" onclick="checkConsistency()">
-                                    <i class="fas fa-search me-1"></i> 检查一致性
-                                </button>
-                                <button class="btn-accent" id="aiFixConsistencyBtn" onclick="fixConsistency()">
-                                    <i class="fas fa-wand-magic-sparkles me-1"></i> AI 修复
-                                </button>
-                            </div>
-                            <div class="ml-auto d-flex gap-2 dc-hidden" id="consistencyActionButtons">
-                                <button class="btn-secondary" onclick="clearConsistencySuggestions()">
-                                    <i class="fas fa-times me-1"></i> 清除建议
-                                </button>
-                                <button class="btn-primary" id="applyConsistencyChangesBtn" onclick="applyConsistencyChanges()">
-                                    <i class="fas fa-check me-1"></i> 应用选中的修改
-                                </button>
-                            </div>
+                            </template>
+                            <template x-if="state === 'hasIssues'">
+                                <div class="d-flex gap-2">
+                                    <button class="btn-primary" @click="checkConsistency()">
+                                        <i class="fas fa-search me-1"></i> 检查一致性
+                                    </button>
+                                    <button class="btn-accent" @click="fixConsistency()">
+                                        <i class="fas fa-wand-magic-sparkles me-1"></i> AI 修复
+                                    </button>
+                                </div>
+                            </template>
+                            <template x-if="state === 'hasSuggestions'">
+                                <div class="d-flex gap-2">
+                                    <button class="btn-secondary" @click="resetState()">
+                                        <i class="fas fa-times me-1"></i> 清除建议
+                                    </button>
+                                    <button class="btn-primary" @click="applyConsistencyChanges()">
+                                        <i class="fas fa-check me-1"></i> 应用选中的修改
+                                    </button>
+                                </div>
+                            </template>
                         </div>
                         <div class="dc-panel-content">
-                            <div class="border rounded p-4 dc-report-box" id="consistencyReport">
+                            <!-- 初始状态 -->
+                            <div x-show="state === 'empty'" class="border rounded p-4 dc-report-box">
                                 <p class="text-muted mb-0">点击上方按钮检查设定一致性</p>
                             </div>
-                            <div id="consistencySuggestionsContainer" class="dc-hidden"></div>
+                            
+                            <!-- 无问题状态 -->
+                            <div x-show="state === 'noIssues'">
+                                <div style="text-align: center; padding: 20px 0;">
+                                    <span style="font-size: 32px; color: #22c55e;">✓</span>
+                                    <p style="color: #e8b840; font-size: 16px; margin: 8px 0 0 0;">设定之间逻辑自洽，未发现矛盾，继续加油！</p>
+                                </div>
+                            </div>
+                            
+                            <!-- 问题列表 -->
+                            <div x-show="state === 'hasIssues'">
+                                <template x-for="(issue, index) in issues" :key="index">
+                                    <div class="consistency-card" style="border: 1px solid #374151; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 12px;">
+                                            <div style="font-size: 16px; line-height: 1.6; flex: 1; word-break: break-word;">
+                                                <strong x-text="(index + 1) + '. ' + issue.message"></strong>
+                                            </div>
+                                            <span style="display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 14px; font-weight: 600; flex-shrink: 0; white-space: nowrap;"
+                                                  :style="{ background: issue.severity === 'error' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(234, 179, 8, 0.2)', color: issue.severity === 'error' ? '#f87171' : '#fbbf24' }"
+                                                  x-text="issue.severity === 'error' ? '严重' : '警告'"></span>
+                                        </div>
+                                        <p style="color: #d1d5db; font-size: 15px; margin: 0 0 8px 0; line-height: 1.8;" x-text="issue.detail"></p>
+                                        <p style="color: #9ca3af; font-size: 14px; margin: 0 0 8px 0;">
+                                            目标层级: <span style="color: #d1d5db;" x-text="getLayerName(issue.targetLayer)"></span>
+                                            <span x-show="issue.targetField"> / </span>
+                                            <code x-show="issue.targetField" style="font-family: monospace; color: #a78bfa; font-size: 13px;" x-text="translateFieldPath(issue.targetField)"></code>
+                                        </p>
+                                        <textarea class="consistency-note" rows="3" style="width: 100%; background: #1f2937; color: #f3f4f6; border: 1px solid #374151; border-radius: 4px; padding: 8px 10px; font-size: 15px; line-height: 1.7; resize: vertical; box-sizing: border-box;" placeholder="输入你期望的修复方向...（可选）"
+                                                  :id="'consistency-fix-note-' + index"></textarea>
+                                    </div>
+                                </template>
+                            </div>
+                            
+                            <!-- 修复建议 -->
+                            <div x-show="state === 'hasSuggestions'">
+                                <div class="border rounded p-4">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h4>修改建议</h4>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-sm btn-outline-secondary" @click="selectAllSuggestions(true)">
+                                                <i class="fas fa-check-square me-1"></i>全选
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary" @click="selectAllSuggestions(false)">
+                                                <i class="fas fa-square me-1"></i>取消全选
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <template x-for="(suggestion, index) in suggestions" :key="index">
+                                            <div class="suggestion-item" :data-index="index">
+                                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input type="checkbox" class="suggestion-checkbox" :checked="suggestion.selected" @change="toggleSuggestion(index)">
+                                                        <span class="font-medium" x-text="'修改 ' + (index + 1)"></span>
+                                                    </div>
+                                                    <span class="suggestion-impact" x-text="getImpactText(suggestion.impact)"></span>
+                                                </div>
+                                                <div class="suggestion-content">
+                                                    <p class="text-sm text-muted mb-1">
+                                                        <strong>目标:</strong> <span class="text-primary" x-text="getLayerName(suggestion.targetLayer)"></span> / <code class="text-sm" x-text="translateFieldPath(suggestion.targetField)"></code>
+                                                    </p>
+                                                    <div class="suggestion-section">
+                                                        <p class="text-sm mb-1"><strong>原值:</strong></p>
+                                                        <div class="suggestion-old-value" x-html="formatValue(suggestion.oldValue)"></div>
+                                                    </div>
+                                                    <div class="suggestion-section">
+                                                        <p class="text-sm mb-1"><strong>新值:</strong></p>
+                                                        <textarea class="suggestion-edit" :data-index="index" data-field="newValue" style="width: 100%; background: #1f2937; color: #f3f4f6; border: 1px solid #374151; border-radius: 4px; padding: 8px; font-size: 14px; resize: vertical;"
+                                                                  x-model="suggestion.newValue"></textarea>
+                                                    </div>
+                                                    <div class="suggestion-section">
+                                                        <p class="text-sm mb-1"><strong>原因:</strong></p>
+                                                        <div class="suggestion-reason" x-text="suggestion.reason"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -986,6 +1071,7 @@
 
     <div class="toast-container" id="toast-container"></div>
 
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/common.js"></script>
     <script>

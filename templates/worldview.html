@@ -185,11 +185,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">大陆分布</label>
-                                            <textarea class="form-control" rows="10" id="foundationContinent" placeholder="描述世界的大陆、海洋、岛屿分布" oninput="updateFoundationBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="foundationContinent" placeholder="描述世界的大陆、海洋、岛屿分布" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">特殊地形</label>
-                                            <textarea class="form-control" rows="10" id="foundationTerrain" placeholder="山脉、森林、沙漠、秘境等特殊地理特征" oninput="updateFoundationBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="foundationTerrain" placeholder="山脉、森林、沙漠、秘境等特殊地理特征" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -198,20 +198,20 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">纪年方式</label>
-                                            <input type="text" class="form-control" id="foundationEra" placeholder="如：神武纪年" oninput="updateFoundationBtn()">
+                                            <input type="text" class="form-control" id="foundationEra" placeholder="如：神武纪年" >
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">一年天数</label>
-                                            <input type="text" class="form-control" id="foundationDays" placeholder="如：365天" oninput="updateFoundationBtn()">
+                                            <input type="text" class="form-control" id="foundationDays" placeholder="如：365天" >
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">季节划分</label>
-                                            <input type="text" class="form-control" id="foundationSeasons" placeholder="如：春夏秋冬" oninput="updateFoundationBtn()">
+                                            <input type="text" class="form-control" id="foundationSeasons" placeholder="如：春夏秋冬" >
                                         </div>
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">特殊节气/节日</label>
-                                        <textarea class="form-control" rows="6" id="foundationFestivals" placeholder="重要的节气、节日及其意义" oninput="updateFoundationBtn()"></textarea>
+                                        <textarea class="form-control" rows="6" id="foundationFestivals" placeholder="重要的节气、节日及其意义" ></textarea>
                                     </div>
                                 </div>
 
@@ -219,11 +219,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">自然法则</label>
-                                            <textarea class="form-control" rows="6" id="foundationLaws" placeholder="物理定律、元素规则等" oninput="updateFoundationBtn()"></textarea>
+                                            <textarea class="form-control" rows="6" id="foundationLaws" placeholder="物理定律、元素规则等" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">世界边界</label>
-                                            <textarea class="form-control" rows="6" id="foundationBoundary" placeholder="世界的边界、极限在哪里" oninput="updateFoundationBtn()"></textarea>
+                                            <textarea class="form-control" rows="6" id="foundationBoundary" placeholder="世界的边界、极限在哪里" ></textarea>
                                         </div>
                                     </div>
 
@@ -231,7 +231,7 @@
                                         <label class="form-label">核心公理</label>
                                         <p class="text-muted small mb-2">公理是这个世界绝对不能打破的底层规则（如："魔法必须消耗能量"），后面的自动生成、一致性检查都会严格参考公理设定。</p>
                                         <div id="axiomsList">
-                                            <input type="text" class="form-control mb-2" placeholder="核心规则 1" oninput="updateFoundationBtn()">
+                                            <input type="text" class="form-control mb-2" placeholder="核心规则 1" >
                                         </div>
                                         <div class="d-flex gap-2">
                                             <button class="btn-secondary btn-sm" onclick="addAxiom()">
@@ -244,7 +244,7 @@
                                 <div id="foundation-balance" class="foundation-section hidden">
                                     <div class="form-group">
                                         <label class="form-label">平衡机制</label>
-                                        <textarea class="form-control" rows="12" id="foundationBalance" placeholder="维持世界稳定的制衡力量、法则平衡等" oninput="updateFoundationBtn()"></textarea>
+                                        <textarea class="form-control" rows="12" id="foundationBalance" placeholder="维持世界稳定的制衡力量、法则平衡等" ></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -277,23 +277,23 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">主要能量类型</label>
-                                            <textarea class="form-control" rows="4" id="powerEnergyType" placeholder="如：灵气、魔力、斗气" oninput="updatePowerBtn()"></textarea>
+                                            <textarea class="form-control" rows="4" id="powerEnergyType" placeholder="如：灵气、魔力、斗气" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">能量分布</label>
-                                            <textarea class="form-control" rows="4" id="powerEnergyDistribution" placeholder="如：山川灵脉、地火精华" oninput="updatePowerBtn()"></textarea>
+                                            <textarea class="form-control" rows="4" id="powerEnergyDistribution" placeholder="如：山川灵脉、地火精华" ></textarea>
                                         </div>
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">能量特性</label>
-                                        <textarea class="form-control" rows="6" id="powerEnergyTraits" placeholder="能量的属性、相生相克等" oninput="updatePowerBtn()"></textarea>
+                                        <textarea class="form-control" rows="6" id="powerEnergyTraits" placeholder="能量的属性、相生相克等" ></textarea>
                                     </div>
                                 </div>
 
                                 <div id="power-level" class="power-section hidden">
                                     <div class="form-group">
                                         <label class="form-label">修炼等级</label>
-                                        <textarea class="form-control" rows="12" id="powerLevels" placeholder="列出修炼境界及其描述，如：炼气、筑基、金丹、元婴..." oninput="updatePowerBtn()"></textarea>
+                                        <textarea class="form-control" rows="12" id="powerLevels" placeholder="列出修炼境界及其描述，如：炼气、筑基、金丹、元婴..." ></textarea>
                                     </div>
                                 </div>
 
@@ -301,11 +301,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">功法分类</label>
-                                            <textarea class="form-control" rows="10" id="powerMartialCategory" placeholder="如：内功心法、身法、剑法、秘术" oninput="updatePowerBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="powerMartialCategory" placeholder="如：内功心法、身法、剑法、秘术" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">传承方式</label>
-                                            <textarea class="form-control" rows="10" id="powerMartialHeritage" placeholder="如何获取功法、传承条件" oninput="updatePowerBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="powerMartialHeritage" placeholder="如何获取功法、传承条件" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -314,11 +314,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">法宝分类</label>
-                                            <textarea class="form-control" rows="10" id="powerTreasureCategory" placeholder="如：法器、灵宝、仙器、神器" oninput="updatePowerBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="powerTreasureCategory" placeholder="如：法器、灵宝、仙器、神器" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">丹药体系</label>
-                                            <textarea class="form-control" rows="10" id="powerTreasurePill" placeholder="丹药等级、炼制方法等" oninput="updatePowerBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="powerTreasurePill" placeholder="丹药等级、炼制方法等" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -327,11 +327,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">妖兽等级</label>
-                                            <textarea class="form-control" rows="10" id="powerBeastLevel" placeholder="妖兽的实力划分" oninput="updatePowerBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="powerBeastLevel" placeholder="妖兽的实力划分" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">神兽传说</label>
-                                            <textarea class="form-control" rows="10" id="powerBeastLegend" placeholder="传说中的神兽、圣兽" oninput="updatePowerBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="powerBeastLegend" placeholder="传说中的神兽、圣兽" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -362,13 +362,13 @@
                                 <h4 id="races-title" class="section-title">种族分类</h4>
                                 <div id="races-category" class="races-section">
                                     <div class="form-group">
-                                        <textarea class="form-control" rows="12" id="racesCategory" placeholder="列出主要种族：人类、妖族、魔族、精灵、海族等" oninput="updateRacesBtn()"></textarea>
+                                        <textarea class="form-control" rows="12" id="racesCategory" placeholder="列出主要种族：人类、妖族、魔族、精灵、海族等" ></textarea>
                                     </div>
                                 </div>
 
                                 <div id="races-value" class="races-section hidden">
                                     <div class="form-group">
-                                        <textarea class="form-control" rows="12" id="racesValue" placeholder="种族的核心价值观、处世哲学" oninput="updateRacesBtn()"></textarea>
+                                        <textarea class="form-control" rows="12" id="racesValue" placeholder="种族的核心价值观、处世哲学" ></textarea>
                                     </div>
                                 </div>
 
@@ -376,15 +376,15 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">寿命</label>
-                                            <textarea class="form-control" rows="6" id="racesLifespan" placeholder="如：人类百年、精灵千年" oninput="updateRacesBtn()"></textarea>
+                                            <textarea class="form-control" rows="6" id="racesLifespan" placeholder="如：人类百年、精灵千年" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">繁衍方式</label>
-                                            <textarea class="form-control" rows="6" id="racesReproduction" placeholder="自然繁衍/特殊方式" oninput="updateRacesBtn()"></textarea>
+                                            <textarea class="form-control" rows="6" id="racesReproduction" placeholder="自然繁衍/特殊方式" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">特殊体质</label>
-                                            <textarea class="form-control" rows="6" id="racesConstitution" placeholder="如：天生灵体、魔躯" oninput="updateRacesBtn()"></textarea>
+                                            <textarea class="form-control" rows="6" id="racesConstitution" placeholder="如：天生灵体、魔躯" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -392,14 +392,14 @@
                                 <div id="races-relation" class="races-section hidden">
                                     <div class="form-group">
                                         <label class="form-label">族群关系</label>
-                                        <textarea class="form-control" rows="12" id="racesRelation" placeholder="种族间的对立、融合、冲突历史" oninput="updateRacesBtn()"></textarea>
+                                        <textarea class="form-control" rows="12" id="racesRelation" placeholder="种族间的对立、融合、冲突历史" ></textarea>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillRaces()">
-                                <i class="fas fa-magic me-1"></i> AI 补全
+                            <button class="btn-secondary" onclick="aiFillRaces()" id="expandRacesBtn">
+                                <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
                             <button class="btn-primary" onclick="saveRaces()">
                                 <i class="fas fa-save me-1"></i> 保存设定
@@ -427,11 +427,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">国家体制</label>
-                                            <textarea class="form-control" rows="10" id="societyGovernment" placeholder="王朝、帝国、联邦等政治体制" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societyGovernment" placeholder="王朝、帝国、联邦等政治体制" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">官僚体系</label>
-                                            <textarea class="form-control" rows="10" id="societyBureaucracy" placeholder="官职设置、权力结构" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societyBureaucracy" placeholder="官职设置、权力结构" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -440,11 +440,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">门派等级</label>
-                                            <textarea class="form-control" rows="10" id="societySectLevel" placeholder="如：大宗、名门、小派" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societySectLevel" placeholder="如：大宗、名门、小派" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">传承关系</label>
-                                            <textarea class="form-control" rows="10" id="societySectHeritage" placeholder="门派间的师承、联盟、敌对关系" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societySectHeritage" placeholder="门派间的师承、联盟、敌对关系" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -453,11 +453,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">武林帮派</label>
-                                            <textarea class="form-control" rows="10" id="societyMartialFaction" placeholder="各大帮派及其特点" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societyMartialFaction" placeholder="各大帮派及其特点" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">商会联盟</label>
-                                            <textarea class="form-control" rows="10" id="societyMartialGuild" placeholder="商业组织、地下势力" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societyMartialGuild" placeholder="商业组织、地下势力" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -465,7 +465,7 @@
                                 <div id="society-external" class="society-section hidden">
                                     <div class="form-group">
                                         <label class="form-label">域外势力</label>
-                                        <textarea class="form-control" rows="12" id="societyExternal" placeholder="异界来客、上古传承、隐秘组织" oninput="updateSocietyBtn()"></textarea>
+                                        <textarea class="form-control" rows="12" id="societyExternal" placeholder="异界来客、上古传承、隐秘组织" ></textarea>
                                     </div>
                                 </div>
 
@@ -473,11 +473,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">社会等级</label>
-                                            <textarea class="form-control" rows="10" id="societyClassLevel" placeholder="贵族、平民、奴隶等阶层" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societyClassLevel" placeholder="贵族、平民、奴隶等阶层" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">流动规则</label>
-                                            <textarea class="form-control" rows="10" id="societyClassMobility" placeholder="阶层间的流动方式" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societyClassMobility" placeholder="阶层间的流动方式" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -486,11 +486,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">货币类型</label>
-                                            <textarea class="form-control" rows="10" id="societyCurrencyType" placeholder="如：金币、银币、铜币" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societyCurrencyType" placeholder="如：金币、银币、铜币" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">经济规则</label>
-                                            <textarea class="form-control" rows="10" id="societyCurrencyRule" placeholder="货币兑换比例、经济政策" oninput="updateSocietyBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="societyCurrencyRule" placeholder="货币兑换比例、经济政策" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -498,14 +498,14 @@
                                 <div id="society-resource" class="society-section hidden">
                                     <div class="form-group">
                                         <label class="form-label">核心资源</label>
-                                        <textarea class="form-control" rows="10" id="societyResource" placeholder="战略资源、稀有材料、垄断物资" oninput="updateSocietyBtn()"></textarea>
+                                        <textarea class="form-control" rows="10" id="societyResource" placeholder="战略资源、稀有材料、垄断物资" ></textarea>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillSociety()">
-                                <i class="fas fa-magic me-1"></i> AI 补全
+                            <button class="btn-secondary" onclick="aiFillSociety()" id="expandSocietyBtn">
+                                <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
                             <button class="btn-primary" onclick="saveSociety()">
                                 <i class="fas fa-save me-1"></i> 保存设定
@@ -592,8 +592,8 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillCulture()">
-                                <i class="fas fa-magic me-1"></i> AI 补全
+                            <button class="btn-secondary" onclick="aiFillCulture()" id="expandCultureBtn">
+                                <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
                             <button class="btn-primary" onclick="saveCulture()">
                                 <i class="fas fa-save me-1"></i> 保存设定
@@ -616,29 +616,29 @@
                             <div class="section-content flex-fill">
                                 <h4 id="history-title" class="section-title">远古历史</h4>
                                 <div id="history-ancient" class="history-section">
-                                    <textarea class="form-control" rows="10" id="historyAncient" placeholder="神话时代、创世传说、远古秘辛" oninput="updateHistoryBtn()"></textarea>
+                                    <textarea class="form-control" rows="10" id="historyAncient" placeholder="神话时代、创世传说、远古秘辛" ></textarea>
                                 </div>
 
                                 <div id="history-modern" class="history-section hidden">
-                                    <textarea class="form-control" rows="10" id="historyModern" placeholder="历史转折点、战争、灾难、变革" oninput="updateHistoryBtn()"></textarea>
+                                    <textarea class="form-control" rows="10" id="historyModern" placeholder="历史转折点、战争、灾难、变革" ></textarea>
                                 </div>
 
                                 <div id="history-crisis" class="history-section hidden">
-                                    <textarea class="form-control" rows="10" id="historyCrisis" placeholder="当前危机、潜在威胁、未来风险" oninput="updateHistoryBtn()"></textarea>
+                                    <textarea class="form-control" rows="10" id="historyCrisis" placeholder="当前危机、潜在威胁、未来风险" ></textarea>
                                 </div>
 
                                 <div id="history-destiny" class="history-section hidden">
-                                    <textarea class="form-control" rows="10" id="historyDestiny" placeholder="预言、命运线、关键节点" oninput="updateHistoryBtn()"></textarea>
+                                    <textarea class="form-control" rows="10" id="historyDestiny" placeholder="预言、命运线、关键节点" ></textarea>
                                 </div>
 
                                 <div id="history-future" class="history-section hidden">
-                                    <textarea class="form-control" rows="10" id="historyFuture" placeholder="发展趋势、可能结局" oninput="updateHistoryBtn()"></textarea>
+                                    <textarea class="form-control" rows="10" id="historyFuture" placeholder="发展趋势、可能结局" ></textarea>
                                 </div>
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillHistory()">
-                                <i class="fas fa-magic me-1"></i> AI 补全
+                            <button class="btn-secondary" onclick="aiFillHistory()" id="expandHistoryBtn">
+                                <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
                             <button class="btn-primary" onclick="saveHistory()">
                                 <i class="fas fa-save me-1"></i> 保存设定
@@ -664,13 +664,13 @@
                                 <h4 id="special-title" class="section-title">世界禁忌</h4>
                                 <div id="special-taboo" class="special-section">
                                     <div class="form-group">
-                                        <textarea class="form-control" rows="10" id="specialTaboo" placeholder="不可触碰的规则、禁忌知识" oninput="updateSpecialBtn()"></textarea>
+                                        <textarea class="form-control" rows="10" id="specialTaboo" placeholder="不可触碰的规则、禁忌知识" ></textarea>
                                     </div>
                                 </div>
 
                                 <div id="special-secret" class="special-section hidden">
                                     <div class="form-group">
-                                        <textarea class="form-control" rows="10" id="specialSecret" placeholder="不为人知的真相、阴谋" oninput="updateSpecialBtn()"></textarea>
+                                        <textarea class="form-control" rows="10" id="specialSecret" placeholder="不为人知的真相、阴谋" ></textarea>
                                     </div>
                                 </div>
 
@@ -678,11 +678,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">气运规则</label>
-                                            <textarea class="form-control" rows="10" id="specialFortune" placeholder="气运的概念、获取与消耗" oninput="updateSpecialBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="specialFortune" placeholder="气运的概念、获取与消耗" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">命格设定</label>
-                                            <textarea class="form-control" rows="10" id="specialDestiny" placeholder="命格种类、影响" oninput="updateSpecialBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="specialDestiny" placeholder="命格种类、影响" ></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -691,37 +691,37 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">灵魂规则</label>
-                                            <textarea class="form-control" rows="10" id="specialSoul" placeholder="灵魂的本质、存在形式" oninput="updateSpecialBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="specialSoul" placeholder="灵魂的本质、存在形式" ></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">转世机制</label>
-                                            <textarea class="form-control" rows="10" id="specialReincarnation" placeholder="转世条件、记忆保留" oninput="updateSpecialBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="specialReincarnation" placeholder="转世条件、记忆保留" ></textarea>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div id="special-transmigration" class="special-section hidden">
                                     <div class="form-group">
-                                        <textarea class="form-control" rows="10" id="specialTransmigration" placeholder="穿越者、重生者的规则限制" oninput="updateSpecialBtn()"></textarea>
+                                        <textarea class="form-control" rows="10" id="specialTransmigration" placeholder="穿越者、重生者的规则限制" ></textarea>
                                     </div>
                                 </div>
 
                                 <div id="special-system" class="special-section hidden">
                                     <div class="form-group">
-                                        <textarea class="form-control" rows="10" id="specialSystem" placeholder="金手指、游戏化系统的设定" oninput="updateSpecialBtn()"></textarea>
+                                        <textarea class="form-control" rows="10" id="specialSystem" placeholder="金手指、游戏化系统的设定" ></textarea>
                                     </div>
                                 </div>
 
                                 <div id="special-rules" class="special-section hidden">
                                     <div class="form-group">
-                                        <textarea class="form-control" rows="10" id="specialRules" placeholder="穿越者之间的约定、限制" oninput="updateSpecialBtn()"></textarea>
+                                        <textarea class="form-control" rows="10" id="specialRules" placeholder="穿越者之间的约定、限制" ></textarea>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillSpecial()">
-                                <i class="fas fa-magic me-1"></i> AI 补全
+                            <button class="btn-secondary" onclick="aiFillSpecial()" id="expandSpecialBtn">
+                                <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
                             <button class="btn-primary" onclick="saveSpecial()">
                                 <i class="fas fa-save me-1"></i> 保存设定

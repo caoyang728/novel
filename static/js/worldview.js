@@ -254,7 +254,7 @@ function renderAxioms() {
     const container = document.getElementById('axiomsList');
     if (!container) return;
     container.innerHTML = axioms.map((axiom, index) => `
-        <input type="text" class="form-control mb-2" placeholder="核心规则 ${index + 1}" value="${escapeHtml(axiom)}" onchange="updateAxiom(${index}, this.value)" oninput="updateFoundationBtn()">
+        <input type="text" class="form-control mb-2" placeholder="核心规则 ${index + 1}" value="${escapeHtml(axiom)}" onchange="updateAxiom(${index}, this.value)">
     `).join('');
 }
 
@@ -279,7 +279,6 @@ function addAxiom() {
     if (newInputs.length > 0) {
         newInputs[newInputs.length - 1].focus();
     }
-    updateFoundationBtn();
 }
 
 
@@ -1382,20 +1381,20 @@ function escapeHtml(t) {
     return d.innerHTML;
 }
 
-function getCookie(name) {
-    let v = null;
-    if (document.cookie && document.cookie !== '') {
-        const cs = document.cookie.split(';');
-        for (let i = 0; i < cs.length; i++) {
-            const c = cs[i].trim();
-            if (c.substring(0, name.length + 1) === (name + '=')) {
-                v = decodeURIComponent(c.substring(name.length + 1));
-                break;
-            }
-        }
-    }
-    return v;
-}
+// function getCookie(name) {
+//     let v = null;
+//     if (document.cookie && document.cookie !== '') {
+//         const cs = document.cookie.split(';');
+//         for (let i = 0; i < cs.length; i++) {
+//             const c = cs[i].trim();
+//             if (c.substring(0, name.length + 1) === (name + '=')) {
+//                 v = decodeURIComponent(c.substring(name.length + 1));
+//                 break;
+//             }
+//         }
+//     }
+//     return v;
+// }
 
 function getAxiomsText() {
     const inputs = document.querySelectorAll('#axiomsList input');
@@ -1416,97 +1415,6 @@ function setAxiomsFromText(data) {
     list.forEach(v => axioms.push(v));
     renderAxioms();
 }
-
-
-
-
-
-
-function updateFoundationBtn() {
-    const continent = document.getElementById('foundationContinent')?.value.trim() || '';
-    const terrain = document.getElementById('foundationTerrain')?.value.trim() || '';
-    const era = document.getElementById('foundationEra')?.value.trim() || '';
-    const days = document.getElementById('foundationDays')?.value.trim() || '';
-    const seasons = document.getElementById('foundationSeasons')?.value.trim() || '';
-    const festivals = document.getElementById('foundationFestivals')?.value.trim() || '';
-    const laws = document.getElementById('foundationLaws')?.value.trim() || '';
-    const boundary = document.getElementById('foundationBoundary')?.value.trim() || '';
-    const axiomsText = getAxiomsText();
-    const balance = document.getElementById('foundationBalance')?.value.trim() || '';
-}
-
-
-function updatePowerBtn() {
-    const energyType = document.getElementById('powerEnergyType')?.value.trim() || '';
-    const energyDist = document.getElementById('powerEnergyDistribution')?.value.trim() || '';
-    const energyTraits = document.getElementById('powerEnergyTraits')?.value.trim() || '';
-    const levels = document.getElementById('powerLevels')?.value.trim() || '';
-    const martialCat = document.getElementById('powerMartialCategory')?.value.trim() || '';
-    const martialHeritage = document.getElementById('powerMartialHeritage')?.value.trim() || '';
-    const treasureCat = document.getElementById('powerTreasureCategory')?.value.trim() || '';
-    const treasurePill = document.getElementById('powerTreasurePill')?.value.trim() || '';
-    const beastLevel = document.getElementById('powerBeastLevel')?.value.trim() || '';
-    const beastLegend = document.getElementById('powerBeastLegend')?.value.trim() || '';
-}
-
-function updateRacesBtn() {
-    const category = document.getElementById('racesCategory')?.value.trim() || '';
-    const value = document.getElementById('racesValue')?.value.trim() || '';
-    const lifespan = document.getElementById('racesLifespan')?.value.trim() || '';
-    const reproduction = document.getElementById('racesReproduction')?.value.trim() || '';
-    const constitution = document.getElementById('racesConstitution')?.value.trim() || '';
-    const relation = document.getElementById('racesRelation')?.value.trim() || '';
-}
-
-function updateSocietyBtn() {
-    const government = document.getElementById('societyGovernment')?.value.trim() || '';
-    const bureaucracy = document.getElementById('societyBureaucracy')?.value.trim() || '';
-    const sectLevel = document.getElementById('societySectLevel')?.value.trim() || '';
-    const sectHeritage = document.getElementById('societySectHeritage')?.value.trim() || '';
-    const martialFaction = document.getElementById('societyMartialFaction')?.value.trim() || '';
-    const martialGuild = document.getElementById('societyMartialGuild')?.value.trim() || '';
-    const external = document.getElementById('societyExternal')?.value.trim() || '';
-    const classLevel = document.getElementById('societyClassLevel')?.value.trim() || '';
-    const classMobility = document.getElementById('societyClassMobility')?.value.trim() || '';
-    const currencyType = document.getElementById('societyCurrencyType')?.value.trim() || '';
-    const currencyRule = document.getElementById('societyCurrencyRule')?.value.trim() || '';
-    const resource = document.getElementById('societyResource')?.value.trim() || '';
-}
-
-function updateCultureBtn() {
-    const festival = document.getElementById('cultureFestival')?.value.trim() || '';
-    const ritual = document.getElementById('cultureRitual')?.value.trim() || '';
-    const language = document.getElementById('cultureLanguage')?.value.trim() || '';
-    const script = document.getElementById('cultureScript')?.value.trim() || '';
-    const clothing = document.getElementById('cultureClothing')?.value.trim() || '';
-    const food = document.getElementById('cultureFood')?.value.trim() || '';
-    const architecture = document.getElementById('cultureArchitecture')?.value.trim() || '';
-    const transport = document.getElementById('cultureTransport')?.value.trim() || '';
-    const deity = document.getElementById('cultureDeity')?.value.trim() || '';
-    const religionOrg = document.getElementById('cultureReligionOrg')?.value.trim() || '';
-    const faithDiff = document.getElementById('cultureFaithDiff')?.value.trim() || '';
-}
-
-function updateHistoryBtn() {
-    const ancient = document.getElementById('historyAncient')?.value.trim() || '';
-    const modern = document.getElementById('historyModern')?.value.trim() || '';
-    const crisis = document.getElementById('historyCrisis')?.value.trim() || '';
-    const destiny = document.getElementById('historyDestiny')?.value.trim() || '';
-    const future = document.getElementById('historyFuture')?.value.trim() || '';
-}
-
-function updateSpecialBtn() {
-    const taboo = document.getElementById('specialTaboo')?.value.trim() || '';
-    const secret = document.getElementById('specialSecret')?.value.trim() || '';
-    const fortune = document.getElementById('specialFortune')?.value.trim() || '';
-    const destiny = document.getElementById('specialDestiny')?.value.trim() || '';
-    const soul = document.getElementById('specialSoul')?.value.trim() || '';
-    const reincarnation = document.getElementById('specialReincarnation')?.value.trim() || '';
-    const transmigration = document.getElementById('specialTransmigration')?.value.trim() || '';
-    const system = document.getElementById('specialSystem')?.value.trim() || '';
-    const rules = document.getElementById('specialRules')?.value.trim() || '';
-}
-
 
 
 /** 渲染 */
@@ -2428,7 +2336,6 @@ async function aiFillFoundation() {
         showToast('完善失败', 'error');
     } finally {
         hideLoading();
-        updateFoundationBtn();
     }
 }
 

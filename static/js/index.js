@@ -4,9 +4,18 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function loadUserInfo() {
+    // 如果未登录，直接显示登录弹窗，登录成功后重新加载数据
+    if (!api.isAuthenticated()) {
+        showLoginModal(() => {
+            loadUserInfo();
+            loadProjects();
+        });
+        return;
+    }
+
     try {
         const data = await api.get('/api/auth/user/');
-        if (data.success) {
+        if (data && data.success) {
             document.getElementById('username').textContent = data.user.username;
         }
     } catch (error) {
@@ -16,7 +25,7 @@ async function loadUserInfo() {
 
     try {
         const data = await api.get('/api/token-usage/today/');
-        if (data.success) {
+        if (data && data.success) {
             const total = data.usage.total_tokens || 0;
             const formatted = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : total;
             document.getElementById('token-usage').textContent = '今日 Token: ' + formatted;
@@ -27,9 +36,16 @@ async function loadUserInfo() {
 }
 
 async function loadProjects() {
+    // 如果未登录，不加载项目，登录弹窗已经显示
+    if (!api.isAuthenticated()) {
+        return;
+    }
+
     try {
         const data = await api.get('/api/projects/');
-        renderProjects(data.projects || []);
+        if (data) {
+            renderProjects(data.projects || []);
+        }
     } catch (error) {
         console.error('Failed to load projects:', error);
         document.getElementById('projects-container').innerHTML = `
@@ -111,9 +127,6 @@ function formatDate(dateStr) {
     return date.toLocaleDateString('zh-CN');
 }
 
-function openProject(projectId) {
-    window.location.href = `project.html?project_id=${projectId}`;
-}
 
 // 根据版本数量决定跳转页面
 function openProjectByVersion(projectId, versionCount, latestVersionNumber) {
@@ -122,10 +135,6 @@ function openProjectByVersion(projectId, versionCount, latestVersionNumber) {
     window.location.href = `project.html?project_id=${projectId}`;
 }
 
-// 直接进入项目编辑页面（大纲构建）
-function openProjectToNewProject(projectId) {
-    window.location.href = `new_project.html?project_id=${projectId}`;
-}
 
 async function deleteProject(projectId) {
     const confirmModal = document.createElement('div');
@@ -203,15 +212,6 @@ async function confirmDeleteProject(projectId) {
 
 let editingProjectId = null;
 
-function editProject(projectId) {
-    const project = getProjectData(projectId);
-    if (project) {
-        editingProjectId = projectId;
-        document.getElementById('edit-project-title').value = project.title;
-        document.getElementById('edit-project-description').value = project.description || '';
-        document.getElementById('editProjectModal').classList.add('show');
-    }
-}
 
 function getProjectData(projectId) {
     const projectCards = document.querySelectorAll('.project-card');
@@ -225,7 +225,7 @@ function getProjectData(projectId) {
 }
 
 function closeEditProjectModal() {
-    document.getElementById('editProjectModal').classList.remove('show');
+    document.getElementById('editProjectModal').classList.remove('active');
     editingProjectId = null;
 }
 
@@ -251,11 +251,150 @@ async function saveProjectEdit() {
     }
 }
 
-async function logout() {
-    try {
-        await api.post('/logout/', {});
-    } catch (error) {
-        console.error('Logout failed:', error);
+
+function openCreateProjectModal() {
+    document.getElementById('create-project-title').value = '';
+    document.getElementById('create-project-description').value = '';
+    document.getElementById('ai-enhance-btn').disabled = true;
+    document.getElementById('createProjectModal').classList.add('active');
+}
+
+function closeCreateProjectModal() {
+    document.getElementById('createProjectModal').classList.remove('active');
+}
+
+document.getElementById('create-project-description').addEventListener('input', function() {
+    const hasDescription = this.value.trim().length > 0;
+    document.getElementById('ai-enhance-btn').disabled = !hasDescription;
+});
+
+async function confirmCreateProject() {
+    const title = document.getElementById('create-project-title').value.trim();
+    const description = document.getElementById('create-project-description').value.trim();
+
+    if (!title) {
+        alert('请输入书名');
+        return;
     }
-    api.logout();
+
+    try {
+        const data = await api.post('/api/projects/create/', { title, description });
+        if (data.success) {
+            closeCreateProjectModal();
+            loadProjects();
+        } else {
+            alert(data.error || '创建失败');
+        }
+    } catch (error) {
+        alert('网络错误，请重试');
+    }
+}
+
+async function aiEnhanceCreateProject() {
+    const description = document.getElementById('create-project-description').value.trim();
+    const title = document.getElementById('create-project-title').value.trim();
+
+    if (!description) {
+        alert('请先输入描述内容');
+        return;
+    }
+
+    const btn = document.getElementById('ai-enhance-btn');
+    const originalText = btn.innerHTML;
+    const titleInput = document.getElementById('create-project-title');
+    const descriptionInput = document.getElementById('create-project-description');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>完善中...';
+
+    showLoading('AI正在完善描述...');
+
+    try {
+        const data = await api.post('/api/projects/description-optimization/', {
+            title: title,
+            description: description
+        });
+
+        if (data.success) {
+            if (data.title) {
+                titleInput.value = data.title;
+            }
+            if (data.description) {
+                descriptionInput.value = data.description;
+            }
+            api.showSuccess('AI完善成功');
+        } else {
+            alert(data.error || 'AI完善失败');
+        }
+    } catch (error) {
+        console.error('AI完善失败:', error);
+        alert(error.message || '网络错误，请重试');
+    } finally {
+        hideLoading();
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+let editingProjectData = null;
+
+function editProject(projectId) {
+    const project = getProjectData(projectId);
+    if (project) {
+        editingProjectId = projectId;
+        editingProjectData = project;
+        document.getElementById('edit-project-title').value = project.title;
+        document.getElementById('edit-project-description').value = project.description || '';
+        document.getElementById('editProjectModal').classList.add('active');
+    }
+}
+
+async function aiEnhanceEditProject() {
+    if (!editingProjectId || !editingProjectData) {
+        alert('项目信息加载失败');
+        return;
+    }
+
+    const description = document.getElementById('edit-project-description').value.trim();
+    const title = document.getElementById('edit-project-title').value.trim();
+
+    if (!description) {
+        alert('请先输入描述内容');
+        return;
+    }
+
+    const btn = document.getElementById('ai-enhance-edit-btn');
+    const originalText = btn.innerHTML;
+    const titleInput = document.getElementById('edit-project-title');
+    const descriptionInput = document.getElementById('edit-project-description');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>完善中...';
+
+    showLoading('AI正在完善描述...');
+
+    try {
+        const data = await api.post('/api/projects/description-optimization/', {
+            title: title,
+            description: description,
+            project_id: editingProjectId
+        });
+
+        if (data.success) {
+            if (data.title) {
+                titleInput.value = data.title;
+            }
+            if (data.description) {
+                descriptionInput.value = data.description;
+            }
+            api.showSuccess('AI完善成功');
+        } else {
+            alert(data.error || 'AI完善失败');
+        }
+    } catch (error) {
+        console.error('AI完善失败:', error);
+        alert(error.message || '网络错误，请重试');
+    } finally {
+        hideLoading();
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
 }

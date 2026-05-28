@@ -1,23 +1,24 @@
 import json
 import time
+import traceback
 from loguru import logger
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.views import APIView, Response
 from rest_framework import status
-from rest_framework_simplejwt.authentication import JWTAuthentication
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
-
 from apps.project.models import ProjectList
-from apps.outline.models import OutlineVersion
+from apps.outline.models import OutlineVersion, OutlineChatHistory
+from apps.project.prompts import DESCRIPTION_ENHANCE_USER_PROMPT, DESCRIPTION_ENHANCE_SYSTEM_PROMPT
 from apps.volume.models import VolumeVersion, VolumeList
 from apps.chapter.models import ChapterVersion, ChapterList
 from apps.user.models import TokenUsageLog
+from apps.worldview.models import WorldView
 from apps.ai.llm import get_llm
 from apps.ai.prompts import TITLE_SUGGESTION_JSON_PROMPT
 
@@ -138,7 +139,6 @@ class ProjectListView(View):
     '''项目列表视图 - 根路径重定向到 index.html'''
 
     def get(self, request):
-        from django.shortcuts import redirect
         return redirect('/index.html')
 
 
@@ -192,7 +192,6 @@ class ApiAutoSaveChatView(APIView):
                 project.save()
 
             # 只保存大纲内容到 OutlineVersion（聊天记录由 ChatNewOutlineStreamView 保存）
-            from apps.outline.models import OutlineVersion
             building_version = OutlineVersion.get_or_create_building_version(project)
             building_version.content = outline
             building_version.save()
@@ -230,7 +229,6 @@ class ApiAutoSaveChatView(APIView):
                 'project_id': project.id
             })
         except Exception as e:
-            import traceback
             traceback.print_exc()
             return JsonResponse({'success': False, 'error': str(e)})
 
@@ -453,7 +451,6 @@ class ApiProjectDetailView(APIView):
                 'chapter_versions': chapter_versions
             })
         except Exception as e:
-            import traceback
             traceback.print_exc()
             return JsonResponse({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -688,7 +685,6 @@ class ApiSaveProjectView(APIView):
                     user=request.user
                 )
 
-            from apps.outline.models import OutlineVersion, OutlineChatHistory
             building_version = OutlineVersion.get_or_create_building_version(project)
             building_version.content = outline
             building_version.save()
@@ -728,7 +724,98 @@ class ApiSaveProjectView(APIView):
                 'project_id': project.id
             })
         except Exception as e:
-            import traceback
             traceback.print_exc()
             logger.error(f"保存项目失败: {e}")
             return JsonResponse({'success': False, 'message': str(e)})
+
+
+class ApiEnhanceDescriptionView(APIView):
+    """AI完善描述API - 流式响应"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            title = request.data.get('title', '').strip()
+            description = request.data.get('description', '').strip()
+            project_id = request.data.get('project_id')
+
+            if not description:
+                return JsonResponse({'success': False, 'error': '请提供描述内容'})
+
+            worldview = ''
+            outline = ''
+
+            if project_id:
+                try:
+                    project = ProjectList.objects.get(pk=project_id, user=request.user)
+
+                    latest_version = project.outline_versions.filter(
+                        is_deleted=False
+                    ).order_by('-version_number').first()
+
+                    if latest_version:
+                        outline = latest_version.content or ''
+
+                    worldview = WorldView.objects.filter(
+                        project=project
+                    ).order_by('-created_at').first()
+
+                    if worldview:
+                        if isinstance(worldview, dict):
+                            worldview = json.dumps(worldview, ensure_ascii=False, indent=2)
+                        else:
+                            worldview = str(worldview)
+
+                except ProjectList.DoesNotExist:
+                    return JsonResponse({'success': False, 'error': '项目不存在'})
+
+            prompt_template = ChatPromptTemplate.from_messages([
+                ("system", DESCRIPTION_ENHANCE_SYSTEM_PROMPT),
+                ("user", DESCRIPTION_ENHANCE_USER_PROMPT)
+            ])
+
+            llm = get_llm(user=request.user, scene="default")
+            chain = prompt_template | llm
+
+            try:
+                result = chain.invoke({
+                    "title": title or '未命名小说',
+                    "description": description,
+                    "worldview": worldview,
+                    "outline": outline
+                })
+
+                full_content = result.content if hasattr(result, 'content') else str(result)
+
+                try:
+                    import re
+                    json_match = re.search(r'\{.*\}', full_content, re.DOTALL)
+                    if json_match:
+                        parsed_result = json.loads(json_match.group())
+                        return JsonResponse({
+                            'success': True,
+                            'title': parsed_result.get('title', ''),
+                            'description': parsed_result.get('description', '')
+                        })
+                    else:
+                        return JsonResponse({
+                            'success': True,
+                            'title': title or '',
+                            'description': full_content
+                        })
+                except:
+                    return JsonResponse({
+                        'success': True,
+                        'title': title or '',
+                        'description': full_content
+                    })
+
+            except Exception as e:
+                logger.error(f"AI完善描述生成失败: {e}")
+                raise
+
+        except Exception as e:
+            traceback.print_exc()
+            logger.error(f"AI完善描述失败: {e}")
+            return JsonResponse({'success': False, 'error': str(e)})

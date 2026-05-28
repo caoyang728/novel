@@ -56,10 +56,10 @@ async function checkAuth() {
     try {
         const data = await api.get('/api/auth/user/');
         if (!data.success) {
-            api.logout();
+            logout();
         }
     } catch (error) {
-        api.logout();
+        logout();
     }
 }
 

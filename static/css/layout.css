@@ -81,22 +81,27 @@ body {
 .user-info .btn-logout {
     width: 100%;
     margin-top: 0.75rem;
-    padding: 0.5rem;
-    border: 1px solid #4b5563;
-    background: rgba(239, 68, 68, 0.1);
-    color: #f87171;
-    border-radius: 8px;
+    padding: 0.65rem;
+    border: 1.5px solid rgba(107, 114, 128, 0.4);
+    background: linear-gradient(135deg, rgba(75, 85, 99, 0.15) 0%, rgba(55, 65, 81, 0.1) 100%);
+    color: #9ca3af;
+    border-radius: 12px;
     font-size: 0.875rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 .user-info .btn-logout:hover {
-    background: rgba(239, 68, 68, 0.2);
-    border-color: #ef4444;
+    background: linear-gradient(135deg, rgba(107, 114, 128, 0.25) 0%, rgba(75, 85, 99, 0.2) 100%);
+    border-color: rgba(156, 163, 175, 0.6);
+    color: #d1d5db;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    transform: translateY(-2px);
 }
 .main-content {
     margin-left: 220px;

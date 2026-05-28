@@ -1,14 +1,6 @@
 from django.urls import path
 from .views import (
     ApiWorldviewDataView,
-    ApiWorldviewStructureView,
-    ApiWorldviewLayersView,
-    ApiWorldviewLayerConfirmView,
-    ApiWorldviewLayersSaveAllView,
-    ApiWorldviewLayersGenerateAllView,
-    ApiWorldviewLayerGenerateView,
-    ApiWorldviewLayerGenerateStreamView,
-    ApiWorldviewAllLayersGenerateStreamView,
     ApiWorldviewDeepeningQuestionsView,
     ApiWorldviewDeepeningSubmitView,
     ApiWorldviewDeepeningApplyView,
@@ -26,9 +18,6 @@ from .views import (
     ApiWorldviewCultureView,
     ApiWorldviewHistoryView,
     ApiWorldviewSpecialView,
-    ApiWorldviewGenerateOverviewView,
-    ApiWorldviewGenerateProfileView,
-    ApiWorldviewGenerateRulesView,
     ApiWorldviewExportMarkdownView,
     ApiWorldviewChatHistoryView,
     ApiWorldviewChatHistoryDeleteView,
@@ -36,18 +25,9 @@ from .views import (
 )
 
 urlpatterns = [
-    # API Worldview
     path('api/worldview/', ApiWorldviewDataView.as_view(), name='api_worldview_data'),
     path('api/worldview/<int:pk>/', ApiWorldviewDataView.as_view(), name='api_worldview_data_by_id'),
     path('api/worldview/<int:pk>/delete/', ApiWorldviewDeleteView.as_view(), name='api_worldview_delete'),
-    path('api/worldview/<int:pk>/structure/', ApiWorldviewStructureView.as_view(), name='api_worldview_structure'),
-    path('api/worldview/<int:pk>/layers/<str:layer_key>/', ApiWorldviewLayersView.as_view(), name='api_worldview_layers'),
-    path('api/worldview/<int:pk>/layers/<str:layer_key>/generate/', ApiWorldviewLayerGenerateView.as_view(), name='api_worldview_layers_generate'),
-    path('api/worldview/<int:pk>/layers/<str:layer_key>/generate/stream/', ApiWorldviewLayerGenerateStreamView.as_view(), name='api_worldview_layers_generate_stream'),
-    path('api/worldview/<int:pk>/layers/<str:layer_key>/confirm/', ApiWorldviewLayerConfirmView.as_view(), name='api_worldview_layers_confirm'),
-    path('api/worldview/<int:pk>/layers/generate-all/', ApiWorldviewLayersGenerateAllView.as_view(), name='api_worldview_layers_generate_all'),
-    path('api/worldview/<int:pk>/layers/generate-all/stream/', ApiWorldviewAllLayersGenerateStreamView.as_view(), name='api_worldview_layers_generate_all_stream'),
-    path('api/worldview/<int:pk>/layers/save-all/', ApiWorldviewLayersSaveAllView.as_view(), name='api_worldview_layers_save_all'),
     path('api/worldview/<int:pk>/deepening/questions/', ApiWorldviewDeepeningQuestionsView.as_view(), name='api_worldview_deepening_questions'),
     path('api/worldview/<int:pk>/deepening/submit/', ApiWorldviewDeepeningSubmitView.as_view(), name='api_worldview_deepening_submit'),
     path('api/worldview/<int:pk>/deepening/apply/', ApiWorldviewDeepeningApplyView.as_view(), name='api_worldview_deepening_apply'),
@@ -64,9 +44,6 @@ urlpatterns = [
     path('api/worldview/<int:pk>/culture/', ApiWorldviewCultureView.as_view(), name='api_worldview_culture'),
     path('api/worldview/<int:pk>/history/', ApiWorldviewHistoryView.as_view(), name='api_worldview_history'),
     path('api/worldview/<int:pk>/special/', ApiWorldviewSpecialView.as_view(), name='api_worldview_special'),
-    path('api/worldview/<int:pk>/generate/overview/', ApiWorldviewGenerateOverviewView.as_view(), name='api_worldview_generate_overview'),
-    path('api/worldview/<int:pk>/generate/profile/', ApiWorldviewGenerateProfileView.as_view(), name='api_worldview_generate_profile'),
-    path('api/worldview/<int:pk>/generate/rules/', ApiWorldviewGenerateRulesView.as_view(), name='api_worldview_generate_rules'),
     path('api/worldview/<int:pk>/export/markdown/', ApiWorldviewExportMarkdownView.as_view(), name='api_worldview_export_markdown'),
     path('api/worldview/<int:pk>/chat/history/', ApiWorldviewChatHistoryView.as_view(), name='api_worldview_chat_history'),
     path('api/worldview/<int:pk>/chat/history/delete/', ApiWorldviewChatHistoryDeleteView.as_view(), name='api_worldview_chat_history_delete'),

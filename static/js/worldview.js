@@ -2955,74 +2955,6 @@ async function aiFillSpecial() {
 
 
 
-
-
-// async function saveStructurePart(partName, data) {
-//     try {
-//         const response = await api.request(`/api/worldview/${worldviewId}/structure/`, {
-//             method: 'PUT',
-// 
-//             body: JSON.stringify({
-//                 structure: { ...currentStructure, [partName]: data }
-//             })
-//         });
-//         
-//         if (response.success) {
-//             currentStructure[partName] = data;
-//         } else {
-//             throw new Error(response.message || '保存失败');
-//         }
-//     } catch (error) {
-//         throw error;
-//     }
-// }
-
-
-
-// async function generateWorldOverview() {
-//     if (!worldviewId) return;
-//     
-//     const name = document.getElementById('worldName').value.trim();
-//     if (!name) {
-//         showToast('请先输入世界名称', 'error');
-//         return;
-//     }
-//     
-//     showLoading('AI正在生成世界总览...');
-//     
-//     try {
-//         const data = await api.request(`/api/worldview/${worldviewId}/generate/overview/`, {
-//             method: 'POST',
-// 
-//             body: JSON.stringify({ 
-//                 name: name, 
-//                 genre: getSelectedGenre(),
-//                 description: document.getElementById('worldOverview').value.trim(),
-//                 background: document.getElementById('worldCoreConflict').value.trim()
-//             })
-//         });
-//         
-//         if (data.success && data.data) {
-//             if (data.data.description) {
-//                 document.getElementById('worldOverview').value = data.data.description;
-//             }
-//             if (data.data.background) {
-//                 document.getElementById('worldCoreConflict').value = data.data.background;
-//             }
-//             showToast('世界总览已生成');
-//             updateExpandBtn();
-//         }
-//     } catch (error) {
-//         console.error('Failed to generate overview:', error);
-//         showToast('生成失败', 'error');
-//     } finally {
-//         hideLoading();
-//     }
-// }
-
-
-
-
 // function renderStructure(structure) {
 //     const profileIdentity = document.getElementById('worldIdentity');
 //     const profileTone = document.getElementById('worldTone');
@@ -3095,68 +3027,6 @@ async function aiFillSpecial() {
 // }
 
 
-
-
-
-// function updateLayerStates() {
-//     if (!currentWorldview) return;
-// 
-//     const layers = ['foundation', 'power', 'society', 'culture', 'history'];
-//     layers.forEach(layerKey => {
-//         const textarea = document.getElementById(`layer-${layerKey}`);
-//         if (textarea && currentWorldview.layers && currentWorldview.layers[layerKey]) {
-//             const layerData = currentWorldview.layers[layerKey];
-//             textarea.value = typeof layerData === 'object' ? (layerData.content || '') : (layerData || '');
-//         }
-//     });
-// }
-// 
-// async function generateSingleLayer(layerKey) {
-//     if (!worldviewId) return;
-//     
-//     showLoading(`正在生成${getLayerName(layerKey)}...`);
-//     
-//     try {
-//         const data = await api.request(`/api/worldview/${worldviewId}/layers/${layerKey}/generate/`, {
-//             method: 'POST'
-//         });
-//         
-//         if (data.success && data.data) {
-//             const textarea = document.getElementById(`layer-${layerKey}`);
-//             if (textarea) {
-//                 textarea.value = data.data.content;
-//             }
-//             showToast(`${getLayerName(layerKey)}生成成功`);
-//         }
-//     } catch (error) {
-//         console.error('Failed to generate layer:', error);
-//         showToast('生成失败', 'error');
-//     } finally {
-//         hideLoading();
-//     }
-// }
-// 
-// async function saveSingleLayer(layerKey) {
-//     if (!worldviewId) return;
-//     const textarea = document.getElementById(`layer-${layerKey}`);
-//     if (!textarea) return;
-//     const content = textarea.value;
-// 
-//     try {
-//         const data = await api.request(`/api/worldview/${worldviewId}/layers/${layerKey}/`, {
-//             method: 'PUT',
-// 
-//             body: JSON.stringify({ content })
-//         });
-// 
-//         if (data.success) {
-//             showToast(`${getLayerName(layerKey)}保存成功`);
-//         }
-//     } catch (error) {
-//         console.error('Failed to save layer:', error);
-//         showToast('保存失败', 'error');
-//     }
-// }
 
 
 
@@ -3433,58 +3303,6 @@ async function aiFillSpecial() {
 //         showToast('生成失败，请重试', 'error');
 //     } finally {
 //         hideLoading();
-//     }
-// }
-
-
-
-// async function saveAxioms() {
-//     if (!worldviewId) return;
-// 
-//     const normalizedAxioms = axioms.filter(a => a.trim());
-// 
-//     try {
-//         const data = await api.request(`/api/worldview/${worldviewId}/structure/`, {
-//             method: 'PUT',
-// 
-//             body: JSON.stringify({
-//                 structure: { ...currentStructure, axioms: normalizedAxioms }
-//             })
-//         });
-// 
-//         if (data.success) {
-//             showToast('公理已保存');
-//         } else {
-//             throw new Error(data.message || '保存失败');
-//         }
-//     } catch (error) {
-//         console.error('Save failed:', error);
-//         showToast('保存失败', 'error');
-//     }
-// }
-
-// async function deleteWorld() {
-//     if (!worldviewId) return;
-// 
-//     if (!confirm('确定要删除这个世界观吗？此操作无法撤销。')) return;
-// 
-//     try {
-//         const data = await api.request(`/api/worldview/${worldviewId}/delete/`, {
-//             method: 'DELETE'
-//         });
-// 
-//         if (data.success) {
-//             if (new URLSearchParams(window.location.search).get("project_id")) {
-//                 window.location.href = `/project/${new URLSearchParams(window.location.search).get("project_id")}/`;
-//             } else {
-//                 window.location.href = '/project/';
-//             }
-//         } else {
-//             throw new Error(data.message || '删除失败');
-//         }
-//     } catch (error) {
-//         console.error('Delete failed:', error);
-//         showToast('删除失败', 'error');
 //     }
 // }
 

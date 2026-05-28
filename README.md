@@ -413,12 +413,6 @@ AI 辅助生成角色设定，管理角色的：
 | `/api/worldview/` | POST | 创建/获取世界观 |
 | `/api/worldview/<id>/` | GET/PUT | 世界观数据 |
 | `/api/worldview/<id>/delete/` | POST | 删除世界观 |
-| `/api/worldview/<id>/structure/` | GET | 获取结构概览 |
-| `/api/worldview/<id>/layers/<layer>/` | GET | 获取分层数据 |
-| `/api/worldview/<id>/layers/<layer>/generate/` | POST | 单层 AI 生成 |
-| `/api/worldview/<id>/layers/generate-all/` | POST | 全量 AI 生成 |
-| `/api/worldview/<id>/layers/generate-all/stream/` | POST | 全量生成（流式 SSE） |
-| `/api/worldview/<id>/layers/save-all/` | POST | 保存所有分层 |
 | `/api/worldview/<id>/deepening/questions/` | GET | 深度追问问题 |
 | `/api/worldview/<id>/deepening/submit/` | POST | 提交追问回答 |
 | `/api/worldview/<id>/deepening/apply/` | POST | 应用追问结果 |

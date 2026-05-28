@@ -278,14 +278,15 @@ body {
 }
 
 .loading-content {
-    background: white;
-    border-radius: 12px;
+    background: rgba(31, 41, 55, 0.95);
+    border-radius: 16px;
     padding: 32px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 16px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(75, 85, 99, 0.3);
 }
 
 .loading-spinner {
@@ -306,7 +307,7 @@ body {
     position: fixed;
     top: 20px;
     right: 20px;
-    z-index: 9999;
+    z-index: 100000;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -394,4 +395,252 @@ body {
 .stat-label {
     font-size: 0.875rem;
     color: #64748b;
+}
+
+/* ==================== 登录弹窗样式 ==================== */
+#api-login-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+#api-login-modal input,
+#api-login-modal input[type="text"],
+#api-login-modal input[type="password"],
+#api-login-modal .login-modal-input {
+    background-color: #0f172a !important;
+    background: #0f172a !important;
+    border: 2px solid #374151 !important;
+    border-radius: 14px !important;
+    color: #f9fafb !important;
+    padding: 1rem 1.25rem 1rem 3.25rem !important;
+    font-size: 1rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+#api-login-modal input:focus,
+#api-login-modal input[type="text"]:focus,
+#api-login-modal input[type="password"]:focus {
+    border-color: #818cf8 !important;
+    box-shadow: 0 0 0 4px rgba(99,102,241,0.15) !important;
+    outline: none !important;
+}
+
+#api-login-modal input::placeholder {
+    color: #6b7280 !important;
+    opacity: 1 !important;
+}
+
+@keyframes loginModalFadeIn {
+    from { opacity: 0; transform: scale(0.95) translateY(-20px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+#api-login-modal .login-modal-btn {
+    width: 100%;
+    padding: 1rem;
+    border-radius: 14px;
+    font-weight: 600;
+    font-size: 1rem;
+    border: none;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: all 0.3s ease;
+}
+
+#api-login-modal .login-modal-btn-primary {
+    background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+
+#api-login-modal .login-modal-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+}
+
+#api-login-modal .login-modal-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#api-login-modal .login-modal-link {
+    color: #818cf8;
+    text-decoration: none;
+    font-size: 0.875rem;
+    transition: color 0.2s;
+}
+
+#api-login-modal .login-modal-link:hover {
+    color: #a5b4fc;
+    text-decoration: underline;
+}
+
+/* 登录弹窗容器 */
+.login-modal-container {
+    background: linear-gradient(160deg, #1f2937 0%, #0f172a 100%);
+    border-radius: 24px;
+    width: 90%;
+    max-width: 400px;
+    overflow: hidden;
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(99, 102, 241, 0.1);
+    animation: loginModalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 登录弹窗头部区域 */
+.login-modal-header {
+    padding: 2rem 2rem 1.5rem 2rem;
+    position: relative;
+}
+
+.login-modal-header-decoration {
+    position: absolute;
+    top: -50px;
+    right: -30px;
+    width: 150px;
+    height: 150px;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.login-modal-title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #f9fafb;
+    letter-spacing: -0.01em;
+}
+
+.login-modal-subtitle {
+    margin: 0.25rem 0 0 0;
+    font-size: 0.875rem;
+    color: #9ca3af;
+}
+
+/* 登录弹窗主体区域 */
+.login-modal-body {
+    padding: 0 2rem 2rem 2rem;
+}
+
+/* 登录弹窗错误提示 */
+.login-modal-error {
+    display: none;
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    padding: 0.875rem 1rem;
+    border-radius: 12px;
+    margin-bottom: 1.25rem;
+    font-size: 0.875rem;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.login-modal-error.show {
+    display: flex;
+}
+
+/* 登录表单 */
+.login-modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.login-modal-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+}
+
+.login-modal-label-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.login-modal-label-icon {
+    color: #6366f1;
+    font-size: 1rem;
+}
+
+.login-modal-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #d1d5db;
+    letter-spacing: 0.01em;
+}
+
+.login-modal-input-wrapper {
+    position: relative;
+}
+
+.login-modal-input-icon {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 1rem;
+    font-size: 1.125rem;
+    color: #6b7280;
+    pointer-events: none;
+}
+
+/* 登录弹窗底部链接 */
+.login-modal-links {
+    margin-top: 1.5rem;
+    display: flex;
+    justify-content: center;
+    gap: 4rem;
+}
+
+/* ==================== API Toast 样式 ==================== */
+#api-toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.api-toast-item {
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    color: #fff;
+    padding: 0.875rem 1.25rem;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    font-size: 0.9rem;
+    font-weight: 500;
+    min-width: 280px;
+    animation: toastSlideIn 0.3s ease;
+}
+
+.api-toast-item.api-toast-error {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+@keyframes toastSlideIn {
+    from { opacity: 0; transform: translateX(100%); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toastSlideOut {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(100%); }
 }

@@ -295,6 +295,14 @@ function _createToastContainer() {
     return container;
 }
 
+// HTML转义
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // 显示成功提示
 function showSuccess(message) {
     showToast(message, 'success');

@@ -74,54 +74,6 @@ function updateExpandBtn() {
 }
 
 
-function showLoading(message = '处理中...') {
-    document.getElementById('loadingText').textContent = message;
-    document.getElementById('loadingOverlay').classList.add('active');
-    
-    // 禁用 header-actions 中的按钮
-    const headerActions = document.querySelector('.header-actions');
-    if (headerActions) {
-        const buttons = headerActions.querySelectorAll('button');
-        buttons.forEach(btn => btn.disabled = true);
-    }
-    
-    // 禁用 chatBuildBtn (链接)
-    const chatBuildBtn = document.getElementById('chatBuildBtn');
-    if (chatBuildBtn) {
-        chatBuildBtn.style.pointerEvents = 'none';
-        chatBuildBtn.style.opacity = '0.5';
-    }
-}
-
-function hideLoading() {
-    document.getElementById('loadingOverlay').classList.remove('active');
-    
-    // 启用 header-actions 中的按钮
-    const headerActions = document.querySelector('.header-actions');
-    if (headerActions) {
-        const buttons = headerActions.querySelectorAll('button');
-        buttons.forEach(btn => btn.disabled = false);
-    }
-    
-    // 启用 chatBuildBtn (链接)
-    const chatBuildBtn = document.getElementById('chatBuildBtn');
-    if (chatBuildBtn) {
-        chatBuildBtn.style.pointerEvents = '';
-        chatBuildBtn.style.opacity = '';
-    }
-}
-
-function showToast(message, type = 'success') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast-item toast-${type}`;
-    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>${message}`;
-    container.appendChild(toast);
-    setTimeout(() => {
-        toast.style.animation = 'toastSlideIn 0.3s ease reverse';
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
-}
 
 document.addEventListener('DOMContentLoaded', async function() {
     const urlParams = new URLSearchParams(window.location.search);
@@ -148,16 +100,16 @@ document.addEventListener('DOMContentLoaded', async function() {
                 currentWorldview = data.data;
                 updateWorldviewUI(data.data);
             } else {
-                showToast(data.message || '获取世界观失败', 'error');
+                showError(data.message || '获取世界观失败');
             }
         } catch (error) {
             console.error('Failed to load world by project:', error);
-            showToast('获取世界观失败', 'error');
+            showError('获取世界观失败');
         }
     } else if (worldviewId) {
         await loadWorldData(worldviewId);
     } else {
-        showToast('无法加载世界观数据', 'error');
+        showError('无法加载世界观数据');
     }
 });
 
@@ -430,19 +382,19 @@ async function generateQuestions() {
                 showElement(primaryButtons);
                 hideElement(answerButtons);
                 displayQuestions([]);
-                showToast('世界观已较为完善', 'success');
+                showSuccess('世界观已较为完善');
             } else {
                 hideElement(primaryButtons);
                 showElement(answerButtons);
                 displayQuestions(questions);
-                showToast('问题生成成功');
+                showSuccess('问题生成成功');
             }
         } else {
-            showToast(data.message || '生成失败', 'error');
+            showError(data.message || '生成失败');
         }
     } catch (error) {
         console.error('Failed to generate questions:', error);
-        showToast('生成失败', 'error');
+        showError('生成失败');
     } finally {
         hideLoading();
     }
@@ -519,7 +471,7 @@ async function submitAnswers() {
         });
 
         if (data.success) {
-            showToast('提交成功');
+            showSuccess('提交成功');
             
             const questionsList = document.getElementById('questionsList');
             const suggestionsContainer = document.getElementById('suggestionsContainer');
@@ -535,7 +487,7 @@ async function submitAnswers() {
         }
     } catch (error) {
         console.error('Failed to submit answers:', error);
-        showToast('提交失败', 'error');
+        showError('提交失败');
     } finally {
         hideLoading();
     }
@@ -757,7 +709,7 @@ async function applyChanges() {
     });
 
     if (selectedChanges.length === 0) {
-        showToast('请至少选择一个修改建议');
+        showError('请至少选择一个修改建议');
         return;
     }
 
@@ -775,14 +727,14 @@ async function applyChanges() {
         // console.log('响应:', data);
 
         if (data.success) {
-            showToast('修改已应用');
+            showSuccess('修改已应用');
             // 不刷新页面，而是重新加载数据
             await loadWorldData(worldviewId);
             resetDeepeningPage();
         }
     } catch (error) {
         console.error('Failed to apply changes:', error);
-        showToast('应用修改失败', 'error');
+        showError('应用修改失败');
     } finally {
         hideLoading();
     }
@@ -843,13 +795,13 @@ async function checkConsistency() {
                 hideElement(fixButtons);
             }
             
-            showToast('检查完成');
+            showSuccess('检查完成');
         } else {
-            showToast(data.message || '检查失败', 'error');
+            showError(data.message || '检查失败');
         }
     } catch (error) {
         console.error('Failed to check consistency:', error);
-        showToast('检查失败', 'error');
+        showError('检查失败');
     } finally {
         hideLoading();
     }

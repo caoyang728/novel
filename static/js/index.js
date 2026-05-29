@@ -321,7 +321,7 @@ async function aiEnhanceCreateProject() {
             if (data.description) {
                 descriptionInput.value = data.description;
             }
-            api.showSuccess('AI完善成功');
+            showSuccess('AI完善成功');
         } else {
             alert(data.error || 'AI完善失败');
         }
@@ -385,7 +385,7 @@ async function aiEnhanceEditProject() {
             if (data.description) {
                 descriptionInput.value = data.description;
             }
-            api.showSuccess('AI完善成功');
+            showSuccess('AI完善成功');
         } else {
             alert(data.error || 'AI完善失败');
         }

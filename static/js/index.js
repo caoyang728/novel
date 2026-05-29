@@ -199,14 +199,14 @@ async function confirmDeleteProject(projectId) {
             if (data.success) {
                 loadProjects();
             } else {
-                alert(data.message || '删除失败');
+                showError(data.message || '删除失败');
             }
         } catch (error) {
             closeDeleteConfirmModal();
-            alert('网络错误，请重试');
+            showError('网络错误，请重试');
         }
     } else {
-        alert('请输入正确的确认文字');
+        showError('请输入正确的确认文字');
     }
 }
 
@@ -234,7 +234,7 @@ async function saveProjectEdit() {
     const description = document.getElementById('edit-project-description').value.trim();
 
     if (!title) {
-        alert('请输入项目名称');
+        showError('请输入项目名称');
         return;
     }
 
@@ -244,10 +244,10 @@ async function saveProjectEdit() {
             closeEditProjectModal();
             loadProjects();
         } else {
-            alert(data.message || '更新失败');
+            showError(data.message || '更新失败');
         }
     } catch (error) {
-        alert('网络错误，请重试');
+        showError('网络错误，请重试');
     }
 }
 
@@ -273,7 +273,7 @@ async function confirmCreateProject() {
     const description = document.getElementById('create-project-description').value.trim();
 
     if (!title) {
-        alert('请输入书名');
+        showError('请输入书名');
         return;
     }
 
@@ -283,10 +283,10 @@ async function confirmCreateProject() {
             closeCreateProjectModal();
             loadProjects();
         } else {
-            alert(data.error || '创建失败');
+            showError(data.error || '创建失败');
         }
     } catch (error) {
-        alert('网络错误，请重试');
+        showError('网络错误，请重试');
     }
 }
 
@@ -295,7 +295,7 @@ async function aiEnhanceCreateProject() {
     const title = document.getElementById('create-project-title').value.trim();
 
     if (!description) {
-        alert('请先输入描述内容');
+        showError('请先输入描述内容');
         return;
     }
 
@@ -323,11 +323,11 @@ async function aiEnhanceCreateProject() {
             }
             showSuccess('AI完善成功');
         } else {
-            alert(data.error || 'AI完善失败');
+            showError(data.error || 'AI完善失败');
         }
     } catch (error) {
         console.error('AI完善失败:', error);
-        alert(error.message || '网络错误，请重试');
+        showError(error.message || '网络错误，请重试');
     } finally {
         hideLoading();
         btn.disabled = false;
@@ -350,7 +350,7 @@ function editProject(projectId) {
 
 async function aiEnhanceEditProject() {
     if (!editingProjectId || !editingProjectData) {
-        alert('项目信息加载失败');
+        showError('项目信息加载失败');
         return;
     }
 
@@ -358,7 +358,7 @@ async function aiEnhanceEditProject() {
     const title = document.getElementById('edit-project-title').value.trim();
 
     if (!description) {
-        alert('请先输入描述内容');
+        showError('请先输入描述内容');
         return;
     }
 
@@ -387,11 +387,11 @@ async function aiEnhanceEditProject() {
             }
             showSuccess('AI完善成功');
         } else {
-            alert(data.error || 'AI完善失败');
+            showError(data.error || 'AI完善失败');
         }
     } catch (error) {
         console.error('AI完善失败:', error);
-        alert(error.message || '网络错误，请重试');
+        showError(error.message || '网络错误，请重试');
     } finally {
         hideLoading();
         btn.disabled = false;

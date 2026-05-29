@@ -297,7 +297,7 @@ body {
     display: flex !important;
     flex-direction: column;
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-    margin: auto !important;
+    align-self: stretch;
     top: auto !important;
     left: auto !important;
     transform: none !important;
@@ -310,15 +310,17 @@ body {
 }
 
 .modal-header {
-    padding: 20px 24px;
+    padding: 12px 20px;
     border-bottom: none;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    background: linear-gradient(135deg, #818cf8 0%, #6366f1 40%, #4f46e5 100%);
+    position: relative;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
 }
 
 .modal-header h3 {
+    flex: 1;
+    text-align: center;
     font-size: 18px;
     font-weight: 600;
     color: white;
@@ -351,11 +353,12 @@ body {
     overflow-y: auto;
     flex: 1;
     min-height: 0;
+    max-height: none;
     color: #d1d5db;
 }
 
 .modal-footer {
-    padding: 16px 24px;
+    padding: 12px 24px;
     border-top: 1px solid #374151;
     display: flex;
     justify-content: flex-end;
@@ -1034,8 +1037,8 @@ body {
     color: #9ca3af !important;
 }
 
-/* loading overlay */
-.loading-overlay {
+/* ===== loading样式已移至common.css，使用统一的loading组件 ===== */
+/* .loading-overlay {
     display: none;
     position: fixed;
     top: 0;
@@ -1078,4 +1081,4 @@ body {
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin: 0;
-}
+} */

@@ -69,7 +69,7 @@ async function loadCharacters() {
         }
     } catch (error) {
         console.error('加载角色失败:', error);
-        showToast('加载角色失败', 'error');
+        showError('加载角色失败');
     }
 }
 
@@ -336,7 +336,7 @@ async function createCharacter() {
     const name = document.getElementById('createName').value.trim();
 
     if (!name) {
-        showToast('请输入角色名称', 'error');
+        showError('请输入角色名称');
         return;
     }
 
@@ -375,14 +375,14 @@ async function createCharacter() {
         });
 
         if (data.success) {
-            showToast('角色创建成功', 'success');
+            showSuccess('角色创建成功');
             closeCreateDialog();
             loadCharacters();
         } else {
-            showToast(data.error || '创建失败', 'error');
+            showError(data.error || '创建失败');
         }
     } catch (error) {
-        showToast('网络错误', 'error');
+        showError('网络错误');
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
@@ -398,7 +398,7 @@ async function generateCharacterPreview() {
     const description = document.getElementById('aiDescription').value.trim();
 
     if (!description) {
-        showToast('请输入角色描述', 'error');
+        showError('请输入角色描述');
         return;
     }
 
@@ -406,7 +406,6 @@ async function generateCharacterPreview() {
     const saveBtn = document.getElementById('saveCreateBtn');
 
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
     saveBtn.disabled = true;
 
     // 显示生成内容区域并清空
@@ -415,55 +414,66 @@ async function generateCharacterPreview() {
     currentCharacterData = {};
     streamingBuffer = '';
 
+    showLoading('正在生成角色...');
+
     try {
-        const response = await fetch(`/api/projects/${currentProjectId}/characters/generate/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/characters/generate/`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': getCookie('csrftoken'),
-                'Authorization': `Bearer ${api.getToken()}`
-            },
-            body: new URLSearchParams({
-                requirement: description,
-                count: 1
+            stream: true,
+            body: JSON.stringify({
+                requirement: description
             })
         });
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        let buffer = '';
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            sseBuffer += chunk;
+            buffer += decoder.decode(value, { stream: true });
 
-            // 解析 SSE 格式数据
-            processSSEBuffer();
+            let searchStart = 0;
+            let dataStart;
+            while ((dataStart = buffer.indexOf('data: ', searchStart)) !== -1) {
+                const msgEnd = buffer.indexOf('\n\n', dataStart);
+                if (msgEnd === -1) break;
 
-            // 让出主线程，让浏览器渲染已更新的内容
-            await new Promise(r => setTimeout(r, 10));
-        }
-
-        // 处理缓冲区中剩余的数据
-        processStreamingBuffer();
-
-        // 保存完整数据
-        if (Object.keys(currentCharacterData).length > 0) {
-            currentAiGenerated = currentCharacterData;
-            displayAiGeneratedCharacter(currentAiGenerated);
-            // 切换按钮文字：变为"重新生成"
-            btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
-            saveBtn.disabled = false;
-            showToast('角色生成完成，请确认后保存', 'success');
-        } else {
-            showToast('生成失败，请重试', 'error');
+                const dataContent = buffer.substring(dataStart + 6, msgEnd);
+                try {
+                    const json = JSON.parse(dataContent);
+                    if (json.type === 'complete' && json.data) {
+                        hideLoading();
+                        let result = JSON.parse(json.data);
+                        if (Array.isArray(result) && result.length > 0) {
+                            result = result[0];
+                        }
+                        currentAiGenerated = result;
+                        displayAiGeneratedCharacter(currentAiGenerated);
+                        btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
+                        saveBtn.disabled = false;
+                        showSuccess('角色生成完成，请确认后保存');
+                    } else if (json.type === 'error') {
+                        hideLoading();
+                        showError(json.message || '生成失败');
+                    }
+                } catch (e) {
+                    console.error('解析失败:', e);
+                    showError('解析失败，请重试');
+                }
+                searchStart = msgEnd + 2;
+            }
+            if (searchStart > 0) {
+                buffer = buffer.substring(searchStart);
+            }
         }
     } catch (error) {
         console.error('生成角色失败:', error);
-        showToast('网络错误，请重试', 'error');
+        showError('网络错误，请重试');
     } finally {
+        hideLoading();
         btn.disabled = false;
         if (currentAiGenerated && Object.keys(currentAiGenerated).length > 0) {
             btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
@@ -691,7 +701,7 @@ async function saveAiGeneratedCharacter() {
     const name = document.getElementById('aiGeneratedName').value.trim();
 
     if (!name) {
-        showToast('请输入角色名称', 'error');
+        showError('请输入角色名称');
         return;
     }
 
@@ -728,18 +738,18 @@ async function saveAiGeneratedCharacter() {
         });
 
         if (data.success) {
-            showToast('角色保存成功', 'success');
+            showSuccess('角色保存成功');
             closeCreateDialog();
             document.getElementById('aiGeneratedContent').style.display = 'none';
             document.getElementById('aiDescription').value = '';
             currentAiGenerated = null;
             loadCharacters();
         } else {
-            showToast(data.error || '保存失败', 'error');
+            showError(data.error || '保存失败');
         }
     } catch (error) {
         console.error('保存角色失败:', error);
-        showToast('网络错误', 'error');
+        showError('网络错误');
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
@@ -755,7 +765,7 @@ async function generateBatchCharacters() {
     const description = document.getElementById('batchDescription').value.trim();
 
     if (!description) {
-        showToast('请输入角色描述', 'error');
+        showError('请输入角色描述');
         return;
     }
 
@@ -763,29 +773,22 @@ async function generateBatchCharacters() {
     const saveBtn = document.getElementById('saveCreateBtn');
 
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
     saveBtn.disabled = true;
 
-    // 显示全屏loading弹窗
-    document.getElementById('batchLoadingOverlay').classList.add('active');
     document.getElementById('batchGeneratedContent').style.display = 'none';
     document.getElementById('batchCharactersList').innerHTML = '';
     document.getElementById('popupGeneratedCount').textContent = '0';
-    document.getElementById('popupLoadingStatus').textContent = '正在生成角色...';
     
     currentBatchGenerated = [];
     batchStreamingBuffer = '';
-    batchSSEBuffer = '';
+
+    showLoading('正在生成角色...');
 
     try {
-        const response = await fetch(`/api/projects/${currentProjectId}/characters/generate/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/characters/generate/`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': getCookie('csrftoken'),
-                'Authorization': `Bearer ${api.getToken()}`
-            },
-            body: new URLSearchParams({
+            stream: true,
+            body: JSON.stringify({
                 requirement: description,
                 is_batch: true
             })
@@ -793,33 +796,60 @@ async function generateBatchCharacters() {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        let buffer = '';
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            batchSSEBuffer += chunk;
-            processBatchSSEBuffer();
-            await new Promise(r => setTimeout(r, 10));
-        }
 
-        processBatchStreamingBuffer(true);
+            buffer += decoder.decode(value, { stream: true });
 
-        // 隐藏loading，显示结果
-        document.getElementById('batchLoadingOverlay').classList.remove('active');
-        
-        if (currentBatchGenerated.length > 0) {
-            btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
-            validateBatchCreateButtons();
-            showToast(`成功生成 ${currentBatchGenerated.length} 个角色`, 'success');
-        } else {
-            showToast('生成失败', 'error');
+            let searchStart = 0;
+            let dataStart;
+            while ((dataStart = buffer.indexOf('data: ', searchStart)) !== -1) {
+                const msgEnd = buffer.indexOf('\n\n', dataStart);
+                if (msgEnd === -1) break;
+
+                const dataContent = buffer.substring(dataStart + 6, msgEnd);
+                try {
+                    const json = JSON.parse(dataContent);
+                    if (json.type === 'complete' && json.data) {
+                        hideLoading();
+                        const results = JSON.parse(json.data);
+                        if (Array.isArray(results)) {
+                            currentBatchGenerated = results.map((char, index) => ({
+                                ...char,
+                                selected: true,
+                                index: index
+                            }));
+                            renderBatchCharacters();
+                            document.getElementById('batchGeneratedContent').style.display = 'block';
+                            document.getElementById('popupGeneratedCount').textContent = currentBatchGenerated.length.toString();
+                            btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
+                            validateBatchCreateButtons();
+                            showSuccess(`成功生成 ${currentBatchGenerated.length} 个角色`);
+                        } else {
+                            showError('生成失败，格式错误');
+                        }
+                    } else if (json.type === 'error') {
+                        hideLoading();
+                        showError(json.message || '生成失败');
+                    }
+                } catch (e) {
+                    console.error('解析失败:', e);
+                    showError('解析失败，请重试');
+                }
+                searchStart = msgEnd + 2;
+            }
+            if (searchStart > 0) {
+                buffer = buffer.substring(searchStart);
+            }
         }
     } catch (error) {
-        document.getElementById('batchLoadingOverlay').classList.remove('active');
         console.error('批量生成角色失败:', error);
-        showToast('网络错误，请重试', 'error');
+        showError('网络错误，请重试');
     } finally {
+        hideLoading();
         btn.disabled = false;
     }
 }
@@ -934,7 +964,7 @@ async function saveBatchCharacters() {
     const selectedCharacters = currentBatchGenerated.filter(c => c.selected);
     
     if (selectedCharacters.length === 0) {
-        showToast('请至少选择一个角色', 'error');
+        showError('请至少选择一个角色');
         return;
     }
 
@@ -978,13 +1008,13 @@ async function saveBatchCharacters() {
             }
         }
 
-        showToast(`成功保存 ${selectedCharacters.length} 个角色`, 'success');
+        showSuccess(`成功保存 ${selectedCharacters.length} 个角色`);
         closeCreateDialog();
         currentBatchGenerated = null;
         loadCharacters();
     } catch (error) {
         console.error('批量保存角色失败:', error);
-        showToast('网络错误', 'error');
+        showError('网络错误');
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-save"></i> 批量保存';
@@ -1004,7 +1034,7 @@ async function openEditDialog(id) {
         const data = await api.get(`/api/projects/${currentProjectId}/characters/${id}/`);
         
         if (!data.success || !data.character) {
-            showToast('加载角色失败', 'error');
+            showError('加载角色失败');
             return;
         }
         
@@ -1043,7 +1073,7 @@ async function openEditDialog(id) {
         document.getElementById('editDialog').classList.add('active');
     } catch (error) {
         console.error('加载角色详情失败:', error);
-        showToast('加载角色失败', 'error');
+        showError('加载角色失败');
     }
 }
 
@@ -1064,14 +1094,14 @@ async function deleteCharacter() {
         });
 
         if (data.success) {
-            showToast('角色已删除', 'success');
+            showSuccess('角色已删除');
             closeEditDialog();
             loadCharacters();
         } else {
-            showToast(data.error || '删除失败', 'error');
+            showError(data.error || '删除失败');
         }
     } catch (error) {
-        showToast('网络错误', 'error');
+        showError('网络错误');
     }
 }
 
@@ -1269,7 +1299,7 @@ async function saveCharacter() {
     const name = document.getElementById('editName').value.trim();
 
     if (!name) {
-        showToast('请输入角色名称', 'error');
+        showError('请输入角色名称');
         return;
     }
 
@@ -1307,14 +1337,14 @@ async function saveCharacter() {
         });
 
         if (data.success) {
-            showToast('角色更新成功', 'success');
+            showSuccess('角色更新成功');
             closeEditDialog();
             loadCharacters();
         } else {
-            showToast(data.error || '保存失败', 'error');
+            showError(data.error || '保存失败');
         }
     } catch (error) {
-        showToast('网络错误', 'error');
+        showError('网络错误');
     } finally {
         btn.disabled = false;
         btn.innerHTML = '保存修改';
@@ -1347,7 +1377,7 @@ async function polishCharacter() {
     const tags = document.getElementById('createTags')?.value || '';
 
     if (!name) {
-        showToast('请先输入角色名称', 'error');
+        showError('请先输入角色名称');
         return;
     }
 
@@ -1358,14 +1388,12 @@ async function polishCharacter() {
     let fullContent = '';
     let isCompleted = false;
 
+    showLoading('正在润色角色...');
+
     try {
-        const response = await fetch(`/api/projects/${currentProjectId}/characters/polish/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/characters/polish/`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken'),
-                'Authorization': `Bearer ${api.getToken()}`
-            },
+            stream: true,
             body: JSON.stringify({
                 name: name,
                 gender: gender,
@@ -1413,9 +1441,12 @@ async function polishCharacter() {
                     if (json.type === 'chunk' && json.data) {
                         fullContent += json.data;
                     } else if (json.type === 'complete') {
-                        // 解析完整的JSON数据
+                        hideLoading();
                         try {
-                            const result = JSON.parse(json.data);
+                            let contentStr = json.data || '';
+                            const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) contentStr = jsonMatch[0];
+                            const result = JSON.parse(contentStr);
                             if (result.gender !== undefined && document.getElementById('createGender')) document.getElementById('createGender').value = mapGenderToSelect(result.gender);
                             if (result.role !== undefined && document.getElementById('createRole')) document.getElementById('createRole').value = mapRoleToSelect(result.role);
                             if (result.age !== undefined && document.getElementById('createAge')) document.getElementById('createAge').value = result.age;
@@ -1436,14 +1467,15 @@ async function polishCharacter() {
                             if (result.development !== undefined) document.getElementById('createDevelopment').value = result.development;
                             if (result.weaknesses !== undefined) document.getElementById('createWeaknesses').value = result.weaknesses;
                             if (result.tags !== undefined && document.getElementById('createTags')) document.getElementById('createTags').value = result.tags;
-                            showToast('AI润色完成', 'success');
+                            showSuccess('AI润色完成');
                             isCompleted = true;
                         } catch (e) {
                             console.error('解析完整结果失败:', e);
-                            showToast('解析结果失败', 'error');
+                            showError('解析结果失败');
                         }
                     } else if (json.type === 'error') {
-                        showToast(json.message || '润色失败', 'error');
+                        hideLoading();
+                        showError(json.message || '润色失败');
                     }
                 } catch (e) {
                 }
@@ -1480,16 +1512,17 @@ async function polishCharacter() {
                     if (data.development) document.getElementById('createDevelopment').value = data.development;
                     if (data.weaknesses) document.getElementById('createWeaknesses').value = data.weaknesses;
                     if (data.tags && document.getElementById('createTags')) document.getElementById('createTags').value = data.tags;
-                    showToast('AI润色完成', 'success');
+                    showSuccess('AI润色完成');
                 } catch (e) {
-                    showToast('解析结果失败', 'error');
+                    showError('解析结果失败');
                 }
             }
         }
     } catch (error) {
         console.error('AI润色失败:', error);
-        showToast('网络错误', 'error');
+        showError('网络错误');
     } finally {
+        hideLoading();
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-star"></i> AI 润色';
     }
@@ -1547,7 +1580,7 @@ async function polishEditCharacter() {
     const tags = document.getElementById('editTags')?.value || '';
 
     if (!name) {
-        showToast('请先输入角色名称', 'error');
+        showError('请先输入角色名称');
         return;
     }
 
@@ -1558,14 +1591,12 @@ async function polishEditCharacter() {
     let fullContent = '';
     let isCompleted = false;
 
+    showLoading('正在润色角色...');
+
     try {
-        const response = await fetch(`/api/projects/${currentProjectId}/characters/polish/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/characters/polish/`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken'),
-                'Authorization': `Bearer ${api.getToken()}`
-            },
+            stream: true,
             body: JSON.stringify({
                 name: name,
                 gender: gender,
@@ -1612,17 +1643,22 @@ async function polishEditCharacter() {
                     if (json.type === 'chunk' && json.data) {
                         fullContent += json.data;
                     } else if (json.type === 'complete') {
+                        hideLoading();
                         try {
-                            const result = JSON.parse(json.data);
+                            let contentStr = json.data || '';
+                            const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) contentStr = jsonMatch[0];
+                            const result = JSON.parse(contentStr);
                             applyPolishResultToEditForm(result);
-                            showToast('AI润色完成', 'success');
+                            showSuccess('AI润色完成');
                             isCompleted = true;
                         } catch (e) {
                             console.error('解析完整结果失败:', e);
-                            showToast('解析结果失败', 'error');
+                            showError('解析结果失败');
                         }
                     } else if (json.type === 'error') {
-                        showToast(json.message || '润色失败', 'error');
+                        hideLoading();
+                        showError(json.message || '润色失败');
                     }
                 } catch (e) {
                 }
@@ -1640,16 +1676,17 @@ async function polishEditCharacter() {
                 try {
                     const data = JSON.parse(jsonMatch[0]);
                     applyPolishResultToEditForm(data);
-                    showToast('AI润色完成', 'success');
+                    showSuccess('AI润色完成');
                 } catch (e) {
-                    showToast('解析结果失败', 'error');
+                    showError('解析结果失败');
                 }
             }
         }
     } catch (error) {
         console.error('AI润色失败:', error);
-        showToast('网络错误', 'error');
+        showError('网络错误');
     } finally {
+        hideLoading();
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-star"></i> AI 润色';
     }
@@ -1693,45 +1730,4 @@ function normalizeFactionInputField(inputField) {
     inputField.value = normalizeFactionInput(inputField.value);
 }
 
-function showToast(message, type = 'success') {
-    let container = document.querySelector('.toast-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.className = 'toast-container';
-        document.body.appendChild(container);
-    }
 
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i> ${escapeHtml(message)}`;
-
-    container.appendChild(toast);
-
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateX(20px)';
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function getCookie(name) {
-    let value = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                value = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
-        }
-    }
-    return value;
-}

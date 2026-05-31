@@ -274,17 +274,35 @@ async function _handleLoginSubmit(e) {
 // ==================== Toast 提示相关 ====================
 
 // 显示提示消息
-function showToast(message, type = 'success') {
+function showToast(message, type = 'success', duration = null) {
     const container = document.getElementById('api-toast-container') || _createToastContainer();
     const toast = document.createElement('div');
     toast.className = 'api-toast-item' + (type === 'error' ? ' api-toast-error' : '');
-    toast.innerHTML = `<i>${type === 'success' ? '&#x2705;' : '&#x274C;'}</i>${message}`;
+
+    let closeBtnHtml = '';
+    if (type === 'error') {
+        closeBtnHtml = '<button class="api-toast-close">&times;</button>';
+    }
+
+    toast.innerHTML = `<i>${type === 'success' ? '&#x2705;' : '&#x274C;'}</i><span class="api-toast-message">${message}</span>${closeBtnHtml}`;
     container.appendChild(toast);
-    
-    setTimeout(() => {
-        toast.style.animation = 'toastSlideOut 0.3s ease forwards';
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+
+    const closeBtn = toast.querySelector('.api-toast-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+            setTimeout(() => toast.remove(), 300);
+        });
+    }
+
+    const autoClose = duration !== null ? duration : (type === 'success' ? 3000 : null);
+
+    if (autoClose) {
+        setTimeout(() => {
+            toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+            setTimeout(() => toast.remove(), 300);
+        }, autoClose);
+    }
 }
 
 // 创建 toast 容器
@@ -304,27 +322,30 @@ function escapeHtml(text) {
 }
 
 // 显示成功提示
-function showSuccess(message) {
-    showToast(message, 'success');
+function showSuccess(message, duration = 3000) {
+    showToast(message, 'success', duration);
 }
 
 // 显示错误提示
-function showError(message) {
-    showToast(message, 'error');
+function showError(message, duration = null) {
+    showToast(message, 'error', duration);
 }
 
 // ==================== 加载动画相关 ====================
 
 // 显示加载动画
-function showLoading(message = '加载中...') {
+function showLoading(message = '加载中...', opacity = 0.6) {
     let loadingEl = document.getElementById('global-loading');
     if (!loadingEl) {
         loadingEl = document.createElement('div');
         loadingEl.id = 'global-loading';
         loadingEl.innerHTML = `
-            <div class="loading-overlay active">
+            <div class="loading-overlay active" style="background-color: rgba(15, 23, 42, ${opacity})">
                 <div class="loading-content">
-                    <div class="loading-spinner"></div>
+                    <div class="loading-spinner">
+                        <div class="loading-spinner-outer"></div>
+                        <div class="loading-spinner-inner"></div>
+                    </div>
                     <p id="loading-message">加载中...</p>
                 </div>
             </div>
@@ -334,6 +355,10 @@ function showLoading(message = '加载中...') {
     const messageEl = loadingEl.querySelector('#loading-message');
     if (messageEl) {
         messageEl.textContent = message;
+    }
+    const overlay = loadingEl.querySelector('.loading-overlay');
+    if (overlay) {
+        overlay.style.backgroundColor = `rgba(15, 23, 42, ${opacity})`;
     }
 }
 

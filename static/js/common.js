@@ -537,8 +537,9 @@ const api = {
                         }
                         try {
                             const parsed = JSON.parse(data);
-                            if (parsed.content) {
-                                result += parsed.content;
+                            const chunkContent = parsed.content || parsed.data || '';
+                            if (chunkContent) {
+                                result += chunkContent;
                             }
                         } catch (e) {
                         }
@@ -608,10 +609,11 @@ const api = {
                         }
                         try {
                             const parsed = JSON.parse(data);
-                            if (parsed.content) {
-                                fullContent += parsed.content;
-                                onChunk && onChunk({ done: false, content: parsed.content });
+                            const chunkContent = parsed.content || parsed.data || '';
+                            if (chunkContent) {
+                                fullContent += chunkContent;
                             }
+                            onChunk && onChunk({ done: false, content: chunkContent, data: parsed });
                         } catch (e) {
                         }
                     }

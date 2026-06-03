@@ -15,6 +15,8 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
         window.location.href = '/index.html';
     }
+
+    initBackToProjectButton('.back-btn', 'project.html');
 });
 
 async function checkAuth() {
@@ -37,6 +39,8 @@ async function loadProjectInfo() {
     }
 }
 
+let allNotes = [];
+
 async function loadNotes() {
     if (!currentProjectId) return;
 
@@ -44,11 +48,18 @@ async function loadNotes() {
         const data = await api.get(`/api/projects/${currentProjectId}/notes/`);
 
         if (data.success) {
-            renderNotes(data.data);
+            allNotes = data.data;
+            filterAndRenderNotes();
         }
     } catch (error) {
         console.error('加载随手记失败:', error);
     }
+}
+
+function filterAndRenderNotes() {
+    const statusFilter = document.getElementById('status-filter').value;
+    const filtered = statusFilter ? allNotes.filter(n => n.status === statusFilter) : allNotes;
+    renderNotes(filtered);
 }
 
 function renderNotes(notes) {
@@ -75,12 +86,6 @@ function renderNotes(notes) {
             </div>
         </div>
     `).join('');
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 async function selectNote(noteId) {
@@ -119,7 +124,7 @@ function showNoteDetail(note) {
 
     document.getElementById('note-title').disabled = true;
     document.getElementById('note-content-textarea').disabled = true;
-    document.getElementById('status-select').disabled = true;
+    document.getElementById('status-select').disabled = false;
     document.getElementById('btn-edit').disabled = false;
     document.getElementById('btn-delete').disabled = false;
     document.getElementById('btn-ai-footer').disabled = true;
@@ -165,7 +170,7 @@ async function saveNote() {
     const content = document.getElementById('note-content-textarea').value;
 
     if (!content.trim()) {
-        alert('内容不能为空');
+        showError('内容不能为空');
         return;
     }
 
@@ -189,12 +194,13 @@ async function saveNote() {
             updateTimeEl.innerHTML = `<i class="far fa-clock"></i> ${data.note.updated_at}`;
 
             loadNotes();
+            showSuccess('保存成功');
         } else {
-            alert('保存失败: ' + data.error);
+            showError('保存失败: ' + data.error);
         }
     } catch (error) {
         console.error('保存失败:', error);
-        alert('保存失败');
+        showError('保存失败');
     }
 }
 
@@ -214,119 +220,128 @@ function updateStatus() {
         });
 }
 
-async function aiPolishInEditMode() {
-    if (!isEditMode) {
-        alert('请先进入编辑模式');
-        return;
-    }
-    
-    if (!currentNoteId) return;
-
-    const btnAi = document.getElementById('btn-ai-footer');
-    const originalHtml = btnAi.innerHTML;
-    btnAi.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 优化中...';
-    btnAi.disabled = true;
-
+/**
+ * 统一的AI润色方法
+ * @param {string} mode - 'edit' 编辑模式 | 'new' 新建模式
+ */
+async function aiPolish(mode) {
     const TITLE_START = '════TITLE_START════';
     const TITLE_END = '════TITLE_END════';
     const CONTENT_START = '════CONTENT_START════';
     const CONTENT_END = '════CONTENT_END════';
 
+    const isEdit = mode === 'edit';
+    const contentEl = isEdit ? document.getElementById('note-content-textarea') : document.getElementById('new-content');
+    const content = contentEl.value;
+
+    if (!content.trim()) {
+        showError(isEdit ? '请先进入编辑模式' : '请先输入内容');
+        return;
+    }
+
+    if (isEdit && !currentNoteId) return;
+
+    const title = isEdit ? document.getElementById('note-title').value : '';
+
+    showLoading('AI润色中...', 0.3);
+
     let streamingBuffer = '';
     let titleComplete = false;
-    let contentComplete = false;
     let finalContent = '';
+    let finalTitle = '';
 
     try {
-        const token = api.getToken();
-        // 获取当前编辑的内容
-        const currentContent = document.getElementById('note-content-textarea').value;
-        const response = await fetch(`/api/projects/${currentProjectId}/notes/${currentNoteId}/polish/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ content: currentContent })
-        });
+        const requestBody = { content };
+        if (title) requestBody.title = title;
 
-        if (!response.ok) {
-            if (response.status === 401) {
-                alert('登录已过期，请重新登录');
-                window.location.href = '/login.html';
-                return;
-            }
-            throw new Error('请求失败');
-        }
+        await api.streamRequestRaw(
+            `/api/projects/${currentProjectId}/notes/polish/`,
+            { body: requestBody },
+            (event) => {
+                if (event.done) return;
+                const parsed = event.data;
+                if (!parsed) return;
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+                if (parsed.type === 'chunk') {
+                    const chunkContent = parsed.content || '';
+                    streamingBuffer += chunkContent;
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+                    if (!titleComplete && isEdit) {
+                        const titleStartIdx = streamingBuffer.indexOf(TITLE_START);
+                        if (titleStartIdx !== -1) {
+                            const afterTitleStart = streamingBuffer.substring(titleStartIdx + TITLE_START.length);
+                            const titleEndIdx = afterTitleStart.indexOf(TITLE_END);
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        
-                        if (data.type === 'chunk') {
-                            const chunkContent = data.content || '';
-                            streamingBuffer += chunkContent;
-                            
-                            if (!titleComplete) {
-                                const titleStartIdx = streamingBuffer.indexOf(TITLE_START);
-                                if (titleStartIdx !== -1) {
-                                    const afterTitleStart = streamingBuffer.substring(titleStartIdx + TITLE_START.length);
-                                    const titleEndIdx = afterTitleStart.indexOf(TITLE_END);
-
-                                    if (titleEndIdx !== -1) {
-                                        const titleContent = afterTitleStart.substring(0, titleEndIdx).trim();
-                                        document.getElementById('note-title').value = titleContent;
-                                        titleComplete = true;
-                                    }
-                                }
+                            if (titleEndIdx !== -1) {
+                                finalTitle = afterTitleStart.substring(0, titleEndIdx).trim();
+                                document.getElementById('note-title').value = finalTitle;
+                                titleComplete = true;
                             }
-                        } else if (data.type === 'complete') {
-                            // 更新时间显示
-                            if (data.updated_at) {
-                                const updateTimeEl = document.querySelector('.title-section .update-time');
-                                updateTimeEl.innerHTML = `<i class="far fa-clock"></i> ${data.updated_at}`;
-                            }
-                            
-                            // 解析最终内容
-                            const contentStartIdx = streamingBuffer.indexOf(CONTENT_START);
-                            const contentEndIdx = streamingBuffer.indexOf(CONTENT_END);
-                            
-                            if (contentStartIdx !== -1 && contentEndIdx !== -1) {
-                                finalContent = streamingBuffer.substring(contentStartIdx + CONTENT_START.length, contentEndIdx).trim();
-                                // 使用打字机效果
-                                typewriterEffect(finalContent);
-                            }
-                        } else if (data.type === 'error') {
-                            alert('AI优化失败: ' + data.message);
                         }
-                    } catch (e) {
-                        console.error('解析数据失败:', e);
                     }
+                } else if (parsed.type === 'complete') {
+                    // 从流式缓冲区解析标题
+                    if (!finalTitle) {
+                        const titleStartIdx = streamingBuffer.indexOf(TITLE_START);
+                        const titleEndIdx = streamingBuffer.indexOf(TITLE_END);
+                        if (titleStartIdx !== -1 && titleEndIdx !== -1) {
+                            finalTitle = streamingBuffer.substring(titleStartIdx + TITLE_START.length, titleEndIdx).trim();
+                            if (isEdit) {
+                                document.getElementById('note-title').value = finalTitle;
+                            } else {
+                                document.getElementById('new-title').value = finalTitle;
+                            }
+                        }
+                    }
+                    // 从流式缓冲区解析内容
+                    const contentStartIdx = streamingBuffer.indexOf(CONTENT_START);
+                    const contentEndIdx = streamingBuffer.indexOf(CONTENT_END);
+                    if (contentStartIdx !== -1 && contentEndIdx !== -1) {
+                        finalContent = streamingBuffer.substring(contentStartIdx + CONTENT_START.length, contentEndIdx).trim();
+                    }
+
+                    if (finalContent) {
+                        if (isEdit) {
+                            typewriterEffect(finalContent, async () => {
+                                // 打字机效果完成后，通过NoteDetailAPIView保存
+                                try {
+                                    const data = await api.put(`/api/projects/${currentProjectId}/notes/${currentNoteId}/`, {
+                                        title: finalTitle,
+                                        content: finalContent
+                                    });
+                                    if (data.success) {
+                                        originalContent = finalContent;
+                                        originalTitle = finalTitle;
+                                        const updateTimeEl = document.querySelector('.title-section .update-time');
+                                        updateTimeEl.innerHTML = `<i class="far fa-clock"></i> ${data.note.updated_at}`;
+                                        loadNotes();
+                                        showSuccess('AI优化完成');
+                                    }
+                                } catch (e) {
+                                    console.error('保存失败:', e);
+                                    showError('保存失败');
+                                }
+                            });
+                        } else {
+                            contentEl.value = finalContent;
+                            updateNewWordCount();
+                            showSuccess('AI润色完成');
+                        }
+                    }
+                } else if (parsed.type === 'error') {
+                    showError('AI润色失败: ' + parsed.message);
                 }
             }
-        }
-
+        );
     } catch (error) {
-        console.error('AI优化失败:', error);
-        alert('AI优化失败');
+        console.error('AI润色失败:', error);
+        showError('AI润色失败');
     } finally {
-        btnAi.innerHTML = originalHtml;
-        btnAi.disabled = false;
+        hideLoading();
     }
 }
 
-function typewriterEffect(text) {
+function typewriterEffect(text, onComplete) {
     const textarea = document.getElementById('note-content-textarea');
     let index = 0;
     
@@ -346,11 +361,13 @@ function typewriterEffect(text) {
             originalContent = textarea.value;
             originalTitle = document.getElementById('note-title').value;
             loadNotes();
+            if (onComplete) onComplete();
         }
     }, 20);
 }
 
 function showAddModal() {
+    document.getElementById('new-title').value = '';
     document.getElementById('new-content').value = '';
     document.getElementById('modal-word-count').textContent = '0 字';
     document.getElementById('add-modal').classList.add('show');
@@ -361,26 +378,28 @@ function closeAddModal() {
 }
 
 async function addNote() {
+    const title = document.getElementById('new-title').value.trim();
     const content = document.getElementById('new-content').value;
 
     if (!content.trim()) {
-        alert('内容不能为空');
+        showError('内容不能为空');
         return;
     }
 
     try {
-        const data = await api.post(`/api/projects/${currentProjectId}/notes/`, { content });
+        const data = await api.post(`/api/projects/${currentProjectId}/notes/`, { title, content });
 
         if (data.success) {
             closeAddModal();
-            loadNotes();
+            await loadNotes();
             selectNote(data.note.id);
+            showSuccess('添加成功');
         } else {
-            alert('添加失败: ' + data.error);
+            showError('添加失败: ' + data.error);
         }
     } catch (error) {
         console.error('添加失败:', error);
-        alert('添加失败');
+        showError('添加失败');
     }
 }
 
@@ -407,12 +426,13 @@ async function confirmDelete() {
 
             loadNotes();
             currentNoteId = null;
+            showSuccess('删除成功');
         } else {
-            alert('删除失败: ' + data.error);
+            showError('删除失败: ' + data.error);
         }
     } catch (error) {
         console.error('删除失败:', error);
-        alert('删除失败');
+        showError('删除失败');
     }
 }
 
@@ -442,76 +462,4 @@ function updateNewWordCount() {
     const content = document.getElementById('new-content').value;
     const count = content.length;
     document.getElementById('modal-word-count').textContent = count + ' 字';
-}
-
-async function aiPolishNewNote() {
-    const content = document.getElementById('new-content').value;
-    
-    if (!content.trim()) {
-        alert('请先输入内容');
-        return;
-    }
-
-    const btnAi = document.getElementById('btn-new-ai');
-    const originalHtml = btnAi.innerHTML;
-    btnAi.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 润色中...';
-    btnAi.disabled = true;
-
-    try {
-        const prompt = `请帮我整理和优化以下小说片段，并为它提炼一个合适的标题：
-
-原文内容：
-${content}
-
-请按照以下格式返回：
-标题：[提炼的标题]
-内容：[整理优化后的内容]
-
-要求：
-1. 标题要简洁明了，能够概括内容核心
-2. 内容优化要保持原意，但让表达更流畅、更具文学性
-3. 可以适当调整语序和用词，使片段更具可读性`;
-        
-        const messages = [
-            {'role': 'system', 'content': '你是一位专业的文学编辑，擅长整理和优化小说片段。'},
-            {'role': 'user', 'content': prompt}
-        ];
-
-        const data = await api.post('/api/ai/chat/', { messages });
-
-        if (data.success && data.response) {
-            const result = data.response;
-            
-            let title = '';
-            let polishedContent = '';
-            
-            const lines = result.split('\n');
-            for (const line of lines) {
-                if (line.startsWith('标题：')) {
-                    title = line.substring(3).trim();
-                } else if (line.startsWith('内容：')) {
-                    polishedContent = line.substring(3).trim();
-                }
-            }
-            
-            if (!polishedContent) {
-                polishedContent = result;
-            }
-            
-            document.getElementById('new-content').value = polishedContent;
-            updateNewWordCount();
-        } else {
-            alert('AI润色失败: ' + (data.message || '未知错误'));
-        }
-    } catch (error) {
-        console.error('AI润色失败:', error);
-        alert('AI润色失败');
-    } finally {
-        btnAi.innerHTML = originalHtml;
-        btnAi.disabled = false;
-    }
-}
-
-function goBack() {
-    window.location.href = `project.html?project_id=${currentProjectId}`;
 }

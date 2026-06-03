@@ -13,7 +13,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from apps.note.models import Note
 from apps.project.models import ProjectList
 from apps.ai.llm import get_llm
-from apps.ai.prompts import NOTE_POLISH_STREAM_PROMPT
+from apps.note.prompts import NOTE_POLISH_SYSTEM_PROMPT, NOTE_POLISH_USER_PROMPT
 import json
 import pytz
 import time
@@ -55,7 +55,7 @@ def _call_with_retry(messages, stream=False, timeout=None, user=None, scene="def
                             yield chunk.content
                         else:
                             yield str(chunk)
-                    return gen()
+                return gen()
             else:
                 result = chain.invoke({})
                 if hasattr(result, 'content'):
@@ -107,7 +107,7 @@ class NotesAPIView(APIView):
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
         search_query = request.query_params.get('search', '')
         
-        notes = Note.objects.filter(project=project, user=request.user, is_deleted=False)
+        notes = Note.objects.filter(project=project, user=request.user)
         
         if search_query:
             notes = notes.filter(content__icontains=search_query) | notes.filter(title__icontains=search_query)
@@ -131,11 +131,13 @@ class NotesAPIView(APIView):
         if not content.strip():
             return Response({'success': False, 'error': '内容不能为空'}, status=status.HTTP_400_BAD_REQUEST)
         
+        title = request.data.get('title', '').strip()
+        
         note = Note.objects.create(
             user=request.user,
             project=project,
             content=content,
-            title=''
+            title=title
         )
         
         serializer = NoteSerializer(note)
@@ -151,7 +153,7 @@ class NoteDetailAPIView(APIView):
 
     def get(self, request, project_id, note_id):
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
-        note = get_object_or_404(Note, pk=note_id, project=project, user=request.user, is_deleted=False)
+        note = get_object_or_404(Note, pk=note_id, project=project, user=request.user)
         
         serializer = NoteSerializer(note)
         return Response({
@@ -161,7 +163,7 @@ class NoteDetailAPIView(APIView):
     
     def put(self, request, project_id, note_id):
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
-        note = get_object_or_404(Note, pk=note_id, project=project, user=request.user, is_deleted=False)
+        note = get_object_or_404(Note, pk=note_id, project=project, user=request.user)
         
         content = request.data.get('content')
         title = request.data.get('title')
@@ -184,10 +186,9 @@ class NoteDetailAPIView(APIView):
     
     def delete(self, request, project_id, note_id):
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
-        note = get_object_or_404(Note, pk=note_id, project=project, user=request.user, is_deleted=False)
+        note = get_object_or_404(Note, pk=note_id, project=project, user=request.user)
         
-        note.is_deleted = True
-        note.save()
+        note.delete()
         
         return Response({'success': True})
 
@@ -196,68 +197,36 @@ class NoteAIPolishAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, project_id, note_id):
+    def post(self, request, project_id):
         try:
             project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
-            note = get_object_or_404(Note, pk=note_id, project=project, user=request.user, is_deleted=False)
+
+            content = request.data.get('content', '')
+            if not content.strip():
+                return Response({'success': False, 'error': '内容不能为空'}, status=status.HTTP_400_BAD_REQUEST)
             
-            content = request.data.get('content', note.content)
+            title = request.data.get('title', '').strip()
+            title_section = f'原标题：{title}\n' if title else ''
             
             def generate():
                 yield f"data: {json.dumps({'type': 'start', 'content': '开始AI整理...'}, ensure_ascii=False)}\n\n"
                 
                 try:
-                    prompt = NOTE_POLISH_STREAM_PROMPT.format(content=content)
+                    user_prompt = NOTE_POLISH_USER_PROMPT.format(content=content, title_section=title_section)
                     
                     messages = [
-                        {'role': 'system', 'content': '你是一位专业的文学编辑，擅长整理和优化小说片段。'},
-                        {'role': 'user', 'content': prompt}
+                        {'role': 'system', 'content': NOTE_POLISH_SYSTEM_PROMPT},
+                        {'role': 'user', 'content': user_prompt}
                     ]
                     
-                    full_content = ''
                     stream_response = _call_with_retry(messages, stream=True, user=request.user, scene="default")
                     
                     for chunk in stream_response:
                         chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                        full_content += chunk_content
                         
                         yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
                     
-                    TITLE_START = '════TITLE_START════'
-                    TITLE_END = '════TITLE_END════'
-                    CONTENT_START = '════CONTENT_START════'
-                    CONTENT_END = '════CONTENT_END════'
-                    
-                    title = ''
-                    polished_content = ''
-                    
-                    ts_idx = full_content.find(TITLE_START)
-                    te_idx = full_content.find(TITLE_END)
-                    if ts_idx != -1 and te_idx != -1:
-                        title = full_content[ts_idx + len(TITLE_START):te_idx].strip()
-                    
-                    cs_idx = full_content.find(CONTENT_START)
-                    ce_idx = full_content.find(CONTENT_END)
-                    if cs_idx != -1 and ce_idx != -1:
-                        polished_content = full_content[cs_idx + len(CONTENT_START):ce_idx].strip()
-                    
-                    if not title or not polished_content:
-                        lines = full_content.split('\n')
-                        for line in lines:
-                            if line.startswith('标题:'):
-                                title = line[3:].strip()
-                            elif line.startswith('内容:'):
-                                polished_content = line[3:].strip()
-                        
-                        if not polished_content:
-                            polished_content = full_content
-                    
-                    note.title = title
-                    note.content = polished_content
-                    note.save()
-                    
-                    serializer = NoteSerializer(note)
-                    yield f"data: {json.dumps({'type': 'complete', 'updated_at': serializer.data['updated_at']}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'complete'}, ensure_ascii=False)}\n\n"
                     
                 except Exception as e:
                     logger.error(f"流式整理失败: {e}")

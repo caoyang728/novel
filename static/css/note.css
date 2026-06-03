@@ -187,20 +187,24 @@ button.btn-add-header i {
 }
 
 .sidebar-header {
-    padding: 1rem 1rem 0rem;
+    display: flex;
+    padding: 1rem 1rem 0.75rem;
     border-bottom: 1px solid #374151;
     background: #1f2937;
     flex-shrink: 0;
+    flex-direction: row;
+    gap: 0.5rem;
+    align-items: center;
 }
 
 .search-box {
     position: relative;
-    margin-bottom: 0.75rem;
+    flex: 1;
 }
 
 .search-box input {
     width: 100%;
-    padding: 0.65rem 0.8rem 0.65rem 2.2rem;
+    padding: 0.55rem 0.8rem 0.55rem 2.2rem;
     border: 2px solid #4b5563;
     border-radius: 10px;
     font-size: 0.85rem;
@@ -227,6 +231,29 @@ button.btn-add-header i {
     transform: translateY(-50%);
     color: #6b7280;
     font-size: 0.8rem;
+}
+
+.status-filter {
+    padding: 0.55rem 1.8rem 0.55rem 0.6rem;
+    border: 2px solid #4b5563;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    background: #111827;
+    color: #f9fafb;
+    cursor: pointer;
+    transition: all 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    flex-shrink: 0;
+}
+
+.status-filter:focus {
+    outline: none;
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.1);
 }
 
 .btn-add {
@@ -791,6 +818,29 @@ button.btn-add-header i {
     font-weight: 600;
     color: #d1d5db;
     margin-bottom: 0.6rem;
+}
+
+.modal-input {
+    width: 100%;
+    border: 2px solid #4b5563;
+    border-radius: 12px;
+    padding: 0.8rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    transition: all 0.2s;
+    background: #111827;
+    color: #f9fafb;
+    margin-bottom: 1rem;
+}
+
+.modal-input:focus {
+    outline: none;
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.1);
+}
+
+.modal-input::placeholder {
+    color: #6b7280;
 }
 
 .modal-textarea {

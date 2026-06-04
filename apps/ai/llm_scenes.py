@@ -56,8 +56,8 @@ LLM_SCENES = {
     },
     "timeline_generate": {
         "name": "时间线生成",
-        "default_temperature": 0.7,
-        "default_max_tokens": 2500,
+        "default_temperature": 0.5,
+        "default_max_tokens": 8000,
     },
     "dialogue_generate": {
         "name": "对话生成",

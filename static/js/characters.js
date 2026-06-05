@@ -4,6 +4,31 @@ let characters = [];
 let filteredCharacters = [];
 let allFactions = [];  // 所有势力列表
 let currentRelationships = [];  // 当前编辑的角色关系
+let currentExperiences = [];  // 当前编辑的角色经历
+let searchDebounceTimer = null;  // 搜索防抖计时器
+
+// 共享字段映射：API 字段名 → 表单元素 ID 后缀（配合 formPrefix 使用）
+const CHARACTER_FIELD_MAP = {
+    'gender': 'Gender',
+    'role': 'Role',
+    'age': 'Age',
+    'identity': 'Identity',
+    'personality': 'Personality',
+    'strengths': 'Strengths',
+    'flaws': 'Flaws',
+    'obsession': 'Obsession',
+    'motivation': 'Motivation',
+    'appearance': 'Appearance',
+    'faction': 'Faction',
+    'abilities': 'Abilities',
+    'taboos': 'Taboos',
+    'dark_history': 'DarkHistory',
+    'secrets': 'Secrets',
+    'backstory': 'Background',
+    'development': 'Development',
+    'weaknesses': 'Weaknesses',
+    'tags': 'Tags'
+};
 
 document.addEventListener('DOMContentLoaded', function() {
     checkAuth();
@@ -23,6 +48,8 @@ function unlockScroll() {
 async function checkAuth() {
     try {
         const data = await api.get('/api/auth/user/');
+        // api.get 在 401 时返回 null（forceReLogin 已处理），无需再跳转
+        if (data === null) return;
         if (!data.success) {
             window.location.href = '/login.html';
         }
@@ -34,10 +61,17 @@ async function checkAuth() {
 function initPage() {
     // 从URL查询参数获取项目ID
     const urlParams = new URLSearchParams(window.location.search);
-    currentProjectId = urlParams.get('project_id');
+    const rawProjectId = urlParams.get('project_id');
+
+    // 校验 project_id 为有效数字
+    if (rawProjectId && /^\d+$/.test(rawProjectId)) {
+        currentProjectId = rawProjectId;
+    } else {
+        currentProjectId = null;
+    }
 
     // 设置返回按钮链接
-    const backBtn = document.querySelector('.btn-back');
+    const backBtn = document.getElementById('backBtn');
     if (backBtn && currentProjectId) {
         backBtn.onclick = () => { window.location.href = `project.html?project_id=${currentProjectId}`; };
     }
@@ -58,18 +92,22 @@ function initPage() {
 async function loadCharacters() {
     if (!currentProjectId) return;
 
+    showLoading('加载角色列表...');
+
     try {
         const data = await api.get(`/api/projects/${currentProjectId}/characters/`);
 
         if (data.success) {
             characters = data.characters;
-            filteredCharacters = [...characters];
             updateFactionFilterOptions();
-            renderCharacterList();
+            // 重新应用当前筛选条件，而非直接显示全部
+            filterCharacters();
         }
     } catch (error) {
         console.error('加载角色失败:', error);
         showError('加载角色失败');
+    } finally {
+        hideLoading();
     }
 }
 
@@ -107,6 +145,11 @@ function updateFactionFilterOptions() {
 }
 
 function filterCharacters() {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(_doFilterCharacters, 200);
+}
+
+function _doFilterCharacters() {
     const searchText = document.getElementById('searchInput').value.toLowerCase().trim();
     const roleFilter = document.getElementById('roleFilter').value;
     const factionFilter = document.getElementById('factionFilter').value;
@@ -125,15 +168,21 @@ function filterCharacters() {
         return matchName && matchRole && matchFaction;
     });
 
+    // 已删除角色排在最后
+    filteredCharacters.sort((a, b) => {
+        if (a.is_deleted !== b.is_deleted) return a.is_deleted ? 1 : -1;
+        return 0;
+    });
+
     renderCharacterList();
 }
 
 function renderCharacterList() {
     const listContainer = document.getElementById('characterList');
-    const loading = document.getElementById('loadingState');
     const empty = document.getElementById('emptyState');
 
-    loading.style.display = 'none';
+    const activeChars = filteredCharacters.filter(c => c.is_deleted !== true);
+    const deletedChars = filteredCharacters.filter(c => c.is_deleted === true);
 
     if (filteredCharacters.length === 0) {
         listContainer.style.display = 'none';
@@ -151,36 +200,74 @@ function renderCharacterList() {
     empty.style.display = 'none';
     listContainer.style.display = 'grid';
 
-    listContainer.innerHTML = filteredCharacters.map(c => {
+    function renderCharCard(c) {
         const factions = c.faction ? c.faction.split(',').map(f => f.trim()).filter(f => f) : [];
+        const isDeleted = c.is_deleted === true;
         return `
-        <div class="char-item" onclick="openEditDialog(${c.id})">
+        <div class="char-item${isDeleted ? ' char-item-deleted' : ''}" ${isDeleted ? '' : `onclick="openEditDialog(${c.id})"`}>
             <div class="char-item-header">
                 <div class="char-item-avatar">${escapeHtml(c.name.charAt(0))}</div>
                 <div class="char-item-info">
                     <h4>${escapeHtml(c.name)}</h4>
                     <div class="char-item-tags">
-                        <span class="role-tag">${c.role_type_display || c.role_type}</span>
+                        ${isDeleted ? '<span class="deleted-tag">已删除</span>' : ''}
+                        <span class="role-tag">${escapeHtml(c.role_type)}</span>
                         ${factions.map(f => `<span class="faction-tag">${escapeHtml(f)}</span>`).join('')}
                     </div>
                 </div>
             </div>
+            ${isDeleted ? `<div class="char-item-actions"><button class="btn btn-sm btn-restore" onclick="event.stopPropagation(); restoreCharacter(${c.id})"><i class="fas fa-undo"></i> 恢复</button></div>` : ''}
         </div>`;
-    }).join('');
+    }
+
+    let html = '';
+    if (activeChars.length > 0) {
+        html += activeChars.map(renderCharCard).join('');
+    }
+    if (deletedChars.length > 0) {
+        html += `<div class="deleted-section">
+            <div class="deleted-section-header">
+                <i class="fas fa-trash-alt"></i>
+                <span>已删除角色</span>
+                <span class="deleted-section-count">${deletedChars.length}</span>
+            </div>
+            <div class="deleted-section-grid">
+                ${deletedChars.map(renderCharCard).join('')}
+            </div>
+        </div>`;
+    }
+    listContainer.innerHTML = html;
 }
 
 function showEmptyState() {
-    document.getElementById('loadingState').style.display = 'none';
     document.getElementById('characterList').style.display = 'none';
     document.getElementById('emptyState').style.display = 'flex';
+}
+
+// ============ 恢复已删除角色 ============
+async function restoreCharacter(id) {
+    try {
+        const data = await api.put(`/api/projects/${currentProjectId}/characters/${id}/`, {
+            action: 'restore'
+        });
+
+        if (data.success) {
+            showSuccess('角色已恢复');
+            loadCharacters();
+        } else {
+            showError(data.error || '恢复失败');
+        }
+    } catch (error) {
+        showError('网络错误');
+    }
 }
 
 // ============ 创建角色 ============
 function openCreateDialog() {
     // 清空表单 - 基础字段
     document.getElementById('createName').value = '';
-    document.getElementById('createRole').value = 'supporting';
-    document.getElementById('createGender').value = 'unknown';
+    document.getElementById('createRole').value = '配角';
+    document.getElementById('createGender').value = '未知';
     document.getElementById('createAge').value = '';
     document.getElementById('createIdentity').value = '';
     document.getElementById('createPersonality').value = '';
@@ -242,20 +329,20 @@ function closeCreateDialog(e) {
 
 function switchCreateTab(tab) {
     document.querySelectorAll('.create-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('#createDialog .tab-content').forEach(c => c.classList.remove('active'));
 
     const aiActionBtn = document.getElementById('aiActionBtn');
     const saveCreateBtn = document.getElementById('saveCreateBtn');
 
     if (tab === 'manual') {
-        document.querySelector('.create-tab:nth-child(1)').classList.add('active');
+        document.querySelector('.create-tab[data-tab="manual"]').classList.add('active');
         document.getElementById('manualCreateTab').classList.add('active');
         aiActionBtn.innerHTML = '<i class="fas fa-star"></i> AI 润色';
         aiActionBtn.dataset.action = 'polish';
         saveCreateBtn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
         validateManualCreateButtons();
     } else if (tab === 'ai') {
-        document.querySelector('.create-tab:nth-child(2)').classList.add('active');
+        document.querySelector('.create-tab[data-tab="ai"]').classList.add('active');
         document.getElementById('aiCreateTab').classList.add('active');
         if (currentAiGenerated && Object.keys(currentAiGenerated).length > 0) {
             aiActionBtn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
@@ -266,7 +353,7 @@ function switchCreateTab(tab) {
         saveCreateBtn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
         validateAiGenerateButtons();
     } else if (tab === 'batch') {
-        document.querySelector('.create-tab:nth-child(3)').classList.add('active');
+        document.querySelector('.create-tab[data-tab="batch"]').classList.add('active');
         document.getElementById('batchCreateTab').classList.add('active');
         if (currentBatchGenerated && currentBatchGenerated.length > 0) {
             aiActionBtn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
@@ -321,13 +408,13 @@ function validateBatchCreateButtons() {
 
 async function submitCharacter() {
     const activeTab = document.querySelector('.create-tab.active');
-    const tabType = activeTab ? activeTab.textContent.trim() : 'manual';
+    const tabType = activeTab ? activeTab.dataset.tab : 'manual';
     
-    if (tabType.includes('手动')) {
+    if (tabType === 'manual') {
         await createCharacter();
-    } else if (tabType.includes('AI 生成')) {
+    } else if (tabType === 'ai') {
         await saveAiGeneratedCharacter();
-    } else if (tabType.includes('批量')) {
+    } else if (tabType === 'batch') {
         await saveBatchCharacters();
     }
 }
@@ -345,33 +432,28 @@ async function createCharacter() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 创建中...';
 
     try {
-        const data = await api.request(`/api/projects/${currentProjectId}/characters/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                name: name,
-                gender: document.getElementById('createGender').value,
-                role_type: document.getElementById('createRole').value,
-                age: document.getElementById('createAge').value,
-                identity: document.getElementById('createIdentity').value,
-                personality: document.getElementById('createPersonality').value,
-                backstory: document.getElementById('createBackground').value,
-                appearance: document.getElementById('createAppearance').value,
-                motivation: document.getElementById('createMotivation').value,
-                tagline: document.getElementById('createTags').value,
-                faction: normalizeFactionInput(document.getElementById('createFaction').value),
-                relationships: document.getElementById('createRelationships').value,
-                extra: {
-                    strengths: document.getElementById('createStrengths').value,
-                    flaws: document.getElementById('createFlaws').value,
-                    obsession: document.getElementById('createObsession').value,
-                    abilities: document.getElementById('createAbilities').value,
-                    taboos: document.getElementById('createTaboos').value,
-                    secrets: document.getElementById('createSecrets').value,
-                    dark_history: document.getElementById('createDarkHistory').value,
-                    development: document.getElementById('createDevelopment').value,
-                    weaknesses: document.getElementById('createWeaknesses').value
-                }
-            })
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/`, {
+            name: name,
+            gender: document.getElementById('createGender').value,
+            role_type: document.getElementById('createRole').value,
+            age: document.getElementById('createAge').value,
+            identity: document.getElementById('createIdentity').value,
+            personality: document.getElementById('createPersonality').value,
+            backstory: document.getElementById('createBackground').value,
+            appearance: document.getElementById('createAppearance').value,
+            motivation: document.getElementById('createMotivation').value,
+            tagline: document.getElementById('createTags').value,
+            faction: normalizeFactionInput(document.getElementById('createFaction').value),
+            relationships: document.getElementById('createRelationships').value,
+            strengths: document.getElementById('createStrengths').value,
+            flaws: document.getElementById('createFlaws').value,
+            obsession: document.getElementById('createObsession').value,
+            abilities: document.getElementById('createAbilities').value,
+            taboos: document.getElementById('createTaboos').value,
+            secrets: document.getElementById('createSecrets').value,
+            dark_history: document.getElementById('createDarkHistory').value,
+            development: document.getElementById('createDevelopment').value,
+            weaknesses: document.getElementById('createWeaknesses').value
         });
 
         if (data.success) {
@@ -379,7 +461,11 @@ async function createCharacter() {
             closeCreateDialog();
             loadCharacters();
         } else {
-            showError(data.error || '创建失败');
+            if (data.error_type === 'duplicate') {
+                showError('角色名称已存在');
+            } else {
+                showError(data.error || '创建失败');
+            }
         }
     } catch (error) {
         showError('网络错误');
@@ -391,8 +477,52 @@ async function createCharacter() {
 
 // ============ AI生成角色预览（流式） ============
 let currentAiGenerated = null;
-let streamingBuffer = '';  // 流式数据缓冲区
-let currentCharacterData = {};  // 当前角色数据
+
+// ============ 通用SSE流解析辅助函数 ============
+async function parseSSEStream(reader, onComplete, onError) {
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullContent = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        let searchStart = 0;
+        let dataStart;
+        while ((dataStart = buffer.indexOf('data: ', searchStart)) !== -1) {
+            const msgEnd = buffer.indexOf('\n\n', dataStart);
+            if (msgEnd === -1) break;
+
+            const dataContent = buffer.substring(dataStart + 6, msgEnd);
+            try {
+                const json = JSON.parse(dataContent);
+                if (json.type === 'chunk' && json.data) {
+                    fullContent += json.data;
+                } else if (json.type === 'complete' && json.data) {
+                    onComplete(json.data, fullContent);
+                    return;
+                } else if (json.type === 'error') {
+                    onError(json.message || '操作失败');
+                    return;
+                }
+            } catch (e) {
+                console.error('解析失败:', e);
+            }
+            searchStart = msgEnd + 2;
+        }
+        if (searchStart > 0) {
+            buffer = buffer.substring(searchStart);
+        }
+    }
+
+    // 流结束但未收到complete，尝试用fullContent
+    if (fullContent) {
+        onComplete(null, fullContent);
+    }
+}
 
 async function generateCharacterPreview() {
     const description = document.getElementById('aiDescription').value.trim();
@@ -411,8 +541,6 @@ async function generateCharacterPreview() {
     // 显示生成内容区域并清空
     document.getElementById('aiGeneratedContent').style.display = 'block';
     clearAiGeneratedFields();
-    currentCharacterData = {};
-    streamingBuffer = '';
 
     showLoading('正在生成角色...');
 
@@ -426,27 +554,19 @@ async function generateCharacterPreview() {
         });
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            let searchStart = 0;
-            let dataStart;
-            while ((dataStart = buffer.indexOf('data: ', searchStart)) !== -1) {
-                const msgEnd = buffer.indexOf('\n\n', dataStart);
-                if (msgEnd === -1) break;
-
-                const dataContent = buffer.substring(dataStart + 6, msgEnd);
+        await parseSSEStream(reader,
+            function(completeData, fullContent) {
+                hideLoading();
                 try {
-                    const json = JSON.parse(dataContent);
-                    if (json.type === 'complete' && json.data) {
-                        hideLoading();
-                        let result = JSON.parse(json.data);
+                    let result;
+                    if (completeData) {
+                        result = JSON.parse(completeData);
+                    } else if (fullContent) {
+                        const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) result = JSON.parse(jsonMatch[0]);
+                    }
+                    if (result) {
                         if (Array.isArray(result) && result.length > 0) {
                             result = result[0];
                         }
@@ -455,20 +575,17 @@ async function generateCharacterPreview() {
                         btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
                         saveBtn.disabled = false;
                         showSuccess('角色生成完成，请确认后保存');
-                    } else if (json.type === 'error') {
-                        hideLoading();
-                        showError(json.message || '生成失败');
                     }
                 } catch (e) {
                     console.error('解析失败:', e);
                     showError('解析失败，请重试');
                 }
-                searchStart = msgEnd + 2;
+            },
+            function(errorMessage) {
+                hideLoading();
+                showError(errorMessage || '生成失败');
             }
-            if (searchStart > 0) {
-                buffer = buffer.substring(searchStart);
-            }
-        }
+        );
     } catch (error) {
         console.error('生成角色失败:', error);
         showError('网络错误，请重试');
@@ -483,140 +600,10 @@ async function generateCharacterPreview() {
     }
 }
 
-function processStreamingBuffer() {
-    // 定义分隔符
-    const ITEM_START = '════ITEM_START════';
-    const ITEM_END = '════ITEM_END════';
-
-    // 处理所有完整的 item
-    let startIdx;
-    while ((startIdx = streamingBuffer.indexOf(ITEM_START)) !== -1) {
-        const rest = streamingBuffer.substring(startIdx + ITEM_START.length);
-        const endIdx = rest.indexOf(ITEM_END);
-        
-        if (endIdx === -1) {
-            // 不完整的 item，等待更多数据
-            break;
-        }
-        
-        // 找到完整的 item，解析并显示
-        const itemContent = rest.substring(0, endIdx);
-        streamingBuffer = streamingBuffer.substring(startIdx + ITEM_START.length + endIdx + ITEM_END.length);
-        
-        // 同步解析显示
-        parseItem(itemContent);
-        
-        // 让出主线程，让浏览器渲染
-        if (typeof requestAnimationFrame !== 'undefined') {
-            requestAnimationFrame(() => {});
-        }
-    }
-}
-
-// 处理 SSE 格式数据
-let sseBuffer = '';
-
-function processSSEBuffer() {
-    // 查找所有的 "data: " 并提取内容，直到 \n\n
-    // SSE 格式: data: {"type":"chunk","data":"..."}\n\n
-    let searchStart = 0;
-    let dataStart;
-    
-    while ((dataStart = sseBuffer.indexOf('data: ', searchStart)) !== -1) {
-        // 找到 data: 后，查找下一个 \n\n
-        const msgEnd = sseBuffer.indexOf('\n\n', dataStart);
-        
-        if (msgEnd === -1) {
-            // 不完整的消息，等待更多数据
-            break;
-        }
-        
-        // 提取 data: 后面的内容（到 \n\n 之前）
-        const dataContent = sseBuffer.substring(dataStart + 6, msgEnd);
-        
-        // 解析 JSON 获取 data 字段
-        try {
-            const json = JSON.parse(dataContent);
-            if (json.type === 'chunk' && json.data) {
-                streamingBuffer += json.data;
-                processStreamingBuffer();
-            }
-        } catch (e) {
-            // JSON 解析失败，可能是中间的数据
-        }
-        
-        searchStart = msgEnd + 2;
-    }
-    
-    // 保留未处理的部分
-    if (searchStart > 0) {
-        sseBuffer = sseBuffer.substring(searchStart);
-    }
-}
-
-function parseItem(itemContent) {
-    try {
-        // 查找第一个 { 和最后一个 }
-        const firstBrace = itemContent.indexOf('{');
-        const lastBrace = itemContent.lastIndexOf('}');
-
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-            let jsonStr = itemContent.substring(firstBrace, lastBrace + 1);
-            // 修复 LLM 可能输出的转义引号 \" -> "
-            jsonStr = jsonStr.replace(/\\"/g, '"');
-            const data = JSON.parse(jsonStr);
-            if (data.type && data.data !== undefined) {
-                // 映射字段名到表单ID
-                const fieldMap = {
-                    'name': 'aiGeneratedName',
-                    'role': 'aiGeneratedRole',
-                    'age': 'aiGeneratedAge',
-                    'identity': 'aiGeneratedIdentity',
-                    'personality': 'aiGeneratedPersonality',
-                    'strengths': 'aiGeneratedStrengths',
-                    'flaws': 'aiGeneratedFlaws',
-                    'obsession': 'aiGeneratedObsession',
-                    'motivation': 'aiGeneratedMotivation',
-                    'appearance': 'aiGeneratedAppearance',
-                    'faction': 'aiGeneratedFaction',
-                    'relationships': 'aiGeneratedRelationships',
-                    'abilities': 'aiGeneratedAbilities',
-                    'taboos': 'aiGeneratedTaboos',
-                    'dark_history': 'aiGeneratedDarkHistory',
-                    'secrets': 'aiGeneratedSecrets',
-                    'background': 'aiGeneratedBackground',
-                    'development': 'aiGeneratedDevelopment',
-                    'weaknesses': 'aiGeneratedWeaknesses',
-                    'tags': 'aiGeneratedTags'
-                };
-
-                const fieldId = fieldMap[data.type];
-                if (fieldId) {
-                    // 特殊处理 role 字段
-                    if (data.type === 'role') {
-                        const roleValue = mapRoleType(data.data);
-                        document.getElementById(fieldId).value = roleValue;
-                        currentCharacterData['role'] = data.data;
-                    } else {
-                        document.getElementById(fieldId).value += data.data;
-                        currentCharacterData[data.type] = (currentCharacterData[data.type] || '') + data.data;
-                    }
-                }
-            }
-        }
-    } catch (e) {
-        console.warn('解析item失败:', e, itemContent);
-    }
-}
-
-function parseFieldGroup(fieldGroup) {
-    // 字段组结束，清空当前角色数据，开始下一个
-    // 这里可以做一些收尾工作
-}
-
 function clearAiGeneratedFields() {
     document.getElementById('aiGeneratedName').value = '';
-    document.getElementById('aiGeneratedRole').value = 'supporting';
+    document.getElementById('aiGeneratedRole').value = '配角';
+    document.getElementById('aiGeneratedGender').value = '未知';
     document.getElementById('aiGeneratedAge').value = '';
     document.getElementById('aiGeneratedIdentity').value = '';
     document.getElementById('aiGeneratedStrengths').value = '';
@@ -641,7 +628,8 @@ function displayAiGeneratedCharacter(charData) {
 
     // 填充表单
     document.getElementById('aiGeneratedName').value = charData.name || '';
-    document.getElementById('aiGeneratedRole').value = mapRoleType(charData.role);
+    document.getElementById('aiGeneratedRole').value = charData.role || '配角';
+    document.getElementById('aiGeneratedGender').value = charData.gender || '未知';
     document.getElementById('aiGeneratedAge').value = charData.age || '';
     document.getElementById('aiGeneratedIdentity').value = charData.identity || '';
     document.getElementById('aiGeneratedStrengths').value = charData.strengths || '';
@@ -661,42 +649,6 @@ function displayAiGeneratedCharacter(charData) {
     document.getElementById('aiGeneratedTags').value = charData.tags || '';
 }
 
-function mapRoleType(role) {
-    const roleMap = {
-        '主角': 'protagonist',
-        '男主角': 'protagonist',
-        '女主角': 'protagonist',
-        '反派': 'antagonist',
-        '配角': 'supporting',
-        '导师': 'supporting',
-        '恋人': 'supporting',
-        '路人': 'minor',
-        'protagonist': 'protagonist',
-        'antagonist': 'antagonist',
-        'supporting': 'supporting',
-        'minor': 'minor'
-    };
-    return roleMap[role] || 'supporting';
-}
-
-function mapGender(gender) {
-    const genderMap = {
-        '男': 'male',
-        '女': 'female',
-        'male': 'male',
-        'female': 'female'
-    };
-    return genderMap[gender] || 'unknown';
-}
-
-async function regenerateCharacter() {
-    await generateCharacterPreview();
-}
-
-async function generateCharacter() {
-    await generateCharacterPreview();
-}
-
 async function saveAiGeneratedCharacter() {
     const name = document.getElementById('aiGeneratedName').value.trim();
 
@@ -710,42 +662,46 @@ async function saveAiGeneratedCharacter() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
 
     try {
-        const data = await api.request(`/api/projects/${currentProjectId}/characters/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                name: name,
-                role_type: document.getElementById('aiGeneratedRole').value,
-                personality: document.getElementById('aiGeneratedPersonality').value,
-                backstory: document.getElementById('aiGeneratedBackground').value,
-                appearance: document.getElementById('aiGeneratedAppearance').value,
-                motivation: document.getElementById('aiGeneratedMotivation').value,
-                tagline: document.getElementById('aiGeneratedTags').value,
-                faction: document.getElementById('aiGeneratedFaction').value,
-                extra: {
-                    age: document.getElementById('aiGeneratedAge').value,
-                    identity: document.getElementById('aiGeneratedIdentity').value,
-                    strengths: document.getElementById('aiGeneratedStrengths').value,
-                    flaws: document.getElementById('aiGeneratedFlaws').value,
-                    obsession: document.getElementById('aiGeneratedObsession').value,
-                    abilities: document.getElementById('aiGeneratedAbilities').value,
-                    taboos: document.getElementById('aiGeneratedTaboos').value,
-                    secrets: document.getElementById('aiGeneratedSecrets').value,
-                    dark_history: document.getElementById('aiGeneratedDarkHistory').value,
-                    development: document.getElementById('aiGeneratedDevelopment').value,
-                    weaknesses: document.getElementById('aiGeneratedWeaknesses').value
-                }
-            })
+        // 收集 relationships（LLM 可能返回对象数组或字符串）
+        let relationships = [];
+        if (currentAiGenerated && currentAiGenerated.relationships) {
+            relationships = parseRelationshipsFromLLM(currentAiGenerated.relationships);
+        }
+
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/`, {
+            name: name,
+            gender: document.getElementById('aiGeneratedGender').value,
+            role_type: document.getElementById('aiGeneratedRole').value,
+            personality: document.getElementById('aiGeneratedPersonality').value,
+            backstory: document.getElementById('aiGeneratedBackground').value,
+            appearance: document.getElementById('aiGeneratedAppearance').value,
+            motivation: document.getElementById('aiGeneratedMotivation').value,
+            tagline: document.getElementById('aiGeneratedTags').value,
+            faction: normalizeFactionInput(document.getElementById('aiGeneratedFaction').value),
+            age: document.getElementById('aiGeneratedAge').value,
+            identity: document.getElementById('aiGeneratedIdentity').value,
+            strengths: document.getElementById('aiGeneratedStrengths').value,
+            flaws: document.getElementById('aiGeneratedFlaws').value,
+            obsession: document.getElementById('aiGeneratedObsession').value,
+            abilities: document.getElementById('aiGeneratedAbilities').value,
+            taboos: document.getElementById('aiGeneratedTaboos').value,
+            secrets: document.getElementById('aiGeneratedSecrets').value,
+            dark_history: document.getElementById('aiGeneratedDarkHistory').value,
+            development: document.getElementById('aiGeneratedDevelopment').value,
+            weaknesses: document.getElementById('aiGeneratedWeaknesses').value,
+            relationships: relationships
         });
 
         if (data.success) {
             showSuccess('角色保存成功');
             closeCreateDialog();
-            document.getElementById('aiGeneratedContent').style.display = 'none';
-            document.getElementById('aiDescription').value = '';
-            currentAiGenerated = null;
             loadCharacters();
         } else {
-            showError(data.error || '保存失败');
+            if (data.error_type === 'duplicate') {
+                showError('角色名称已存在');
+            } else {
+                showError(data.error || '保存失败');
+            }
         }
     } catch (error) {
         console.error('保存角色失败:', error);
@@ -758,8 +714,6 @@ async function saveAiGeneratedCharacter() {
 
 // ============ 批量创建角色 ============
 let currentBatchGenerated = [];
-let batchStreamingBuffer = '';
-let batchSSEBuffer = '';
 
 async function generateBatchCharacters() {
     const description = document.getElementById('batchDescription').value.trim();
@@ -777,10 +731,8 @@ async function generateBatchCharacters() {
 
     document.getElementById('batchGeneratedContent').style.display = 'none';
     document.getElementById('batchCharactersList').innerHTML = '';
-    document.getElementById('popupGeneratedCount').textContent = '0';
     
     currentBatchGenerated = [];
-    batchStreamingBuffer = '';
 
     showLoading('正在生成角色...');
 
@@ -795,27 +747,19 @@ async function generateBatchCharacters() {
         });
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            let searchStart = 0;
-            let dataStart;
-            while ((dataStart = buffer.indexOf('data: ', searchStart)) !== -1) {
-                const msgEnd = buffer.indexOf('\n\n', dataStart);
-                if (msgEnd === -1) break;
-
-                const dataContent = buffer.substring(dataStart + 6, msgEnd);
+        await parseSSEStream(reader,
+            function(completeData, fullContent) {
+                hideLoading();
                 try {
-                    const json = JSON.parse(dataContent);
-                    if (json.type === 'complete' && json.data) {
-                        hideLoading();
-                        const results = JSON.parse(json.data);
+                    let results;
+                    if (completeData) {
+                        results = JSON.parse(completeData);
+                    } else if (fullContent) {
+                        const jsonMatch = fullContent.match(/\[[\s\S]*\]/);
+                        if (jsonMatch) results = JSON.parse(jsonMatch[0]);
+                    }
+                    if (results) {
                         if (Array.isArray(results)) {
                             currentBatchGenerated = results.map((char, index) => ({
                                 ...char,
@@ -824,103 +768,29 @@ async function generateBatchCharacters() {
                             }));
                             renderBatchCharacters();
                             document.getElementById('batchGeneratedContent').style.display = 'block';
-                            document.getElementById('popupGeneratedCount').textContent = currentBatchGenerated.length.toString();
                             btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
                             validateBatchCreateButtons();
                             showSuccess(`成功生成 ${currentBatchGenerated.length} 个角色`);
                         } else {
                             showError('生成失败，格式错误');
                         }
-                    } else if (json.type === 'error') {
-                        hideLoading();
-                        showError(json.message || '生成失败');
                     }
                 } catch (e) {
                     console.error('解析失败:', e);
                     showError('解析失败，请重试');
                 }
-                searchStart = msgEnd + 2;
+            },
+            function(errorMessage) {
+                hideLoading();
+                showError(errorMessage || '生成失败');
             }
-            if (searchStart > 0) {
-                buffer = buffer.substring(searchStart);
-            }
-        }
+        );
     } catch (error) {
         console.error('批量生成角色失败:', error);
         showError('网络错误，请重试');
     } finally {
         hideLoading();
         btn.disabled = false;
-    }
-}
-
-function processBatchSSEBuffer() {
-    let searchStart = 0;
-    let dataStart;
-    while ((dataStart = batchSSEBuffer.indexOf('data: ', searchStart)) !== -1) {
-        const msgEnd = batchSSEBuffer.indexOf('\n\n', dataStart);
-        if (msgEnd === -1) break;
-        const dataContent = batchSSEBuffer.substring(dataStart + 6, msgEnd);
-        try {
-            const json = JSON.parse(dataContent);
-            if (json.type === 'chunk' && json.data) {
-                batchStreamingBuffer += json.data;
-                processBatchStreamingBuffer();
-            }
-        } catch (e) {
-        }
-        searchStart = msgEnd + 2;
-    }
-    if (searchStart > 0) {
-        batchSSEBuffer = batchSSEBuffer.substring(searchStart);
-    }
-}
-
-function processBatchStreamingBuffer(isFinal = false) {
-    const CHAR_START = '════CHARACTER_START════';
-    const CHAR_END = '════CHARACTER_END════';
-
-    while (true) {
-        const startIdx = batchStreamingBuffer.indexOf(CHAR_START);
-        if (startIdx === -1) break;
-
-        const charContentStart = startIdx + CHAR_START.length;
-        const endIdx = batchStreamingBuffer.indexOf(CHAR_END, charContentStart);
-
-        if (endIdx === -1) {
-            if (isFinal) {
-                const remaining = batchStreamingBuffer.substring(charContentStart).trim();
-                if (remaining) tryParseBatchCharacter(remaining);
-                batchStreamingBuffer = '';
-            }
-            break;
-        }
-
-        const charContent = batchStreamingBuffer.substring(charContentStart, endIdx).trim();
-        tryParseBatchCharacter(charContent);
-
-        batchStreamingBuffer = batchStreamingBuffer.substring(endIdx + CHAR_END.length);
-    }
-}
-
-function tryParseBatchCharacter(content) {
-    try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) return;
-
-        const character = JSON.parse(jsonMatch[0]);
-        character.selected = true;
-        character.index = currentBatchGenerated.length;
-        currentBatchGenerated.push(character);
-
-        // 更新loading进度显示（弹窗）
-        document.getElementById('popupGeneratedCount').textContent = currentBatchGenerated.length.toString();
-        document.getElementById('popupLoadingStatus').textContent = `正在生成角色 ${character.name}...`;
-
-        renderBatchCharacters();
-        document.getElementById('batchGeneratedContent').style.display = 'block';
-    } catch (e) {
-        console.warn('解析角色失败:', e);
     }
 }
 
@@ -937,16 +807,16 @@ function renderBatchCharacters() {
             <div class="batch-character-content">
                 <div class="batch-character-header">
                     <span class="batch-character-name">${escapeHtml(char.name || '未命名')}</span>
-                    <span class="batch-character-role">${char.role || '配角'}</span>
+                    <span class="batch-character-role">${escapeHtml(char.role || '配角')}</span>
                 </div>
                 <div class="batch-character-info">
-                    ${char.age ? `<span class="info-item">年龄: ${char.age}</span>` : ''}
-                    ${char.identity ? `<span class="info-item">身份: ${char.identity}</span>` : ''}
-                    ${char.faction ? `<span class="info-item">势力: ${char.faction}</span>` : ''}
+                    ${char.age ? `<span class="info-item">年龄: ${escapeHtml(char.age)}</span>` : ''}
+                    ${char.identity ? `<span class="info-item">身份: ${escapeHtml(char.identity)}</span>` : ''}
+                    ${char.faction ? `<span class="info-item">势力: ${escapeHtml(char.faction)}</span>` : ''}
                 </div>
                 <div class="batch-character-description">
                     ${char.personality ? `<p><strong>性格:</strong> ${escapeHtml(char.personality)}</p>` : ''}
-                    ${char.background ? `<p><strong>背景:</strong> ${escapeHtml(char.background.substring(0, 100))}${char.background.length > 100 ? '...' : ''}</p>` : ''}
+                    ${char.background || char.backstory ? `<p><strong>背景:</strong> ${escapeHtml((char.background || char.backstory).substring(0, 100))}${(char.background || char.backstory).length > 100 ? '...' : ''}</p>` : ''}
                 </div>
             </div>
         </div>
@@ -962,7 +832,7 @@ function toggleBatchCharacterSelection(index) {
 
 async function saveBatchCharacters() {
     const selectedCharacters = currentBatchGenerated.filter(c => c.selected);
-    
+
     if (selectedCharacters.length === 0) {
         showError('请至少选择一个角色');
         return;
@@ -973,44 +843,41 @@ async function saveBatchCharacters() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
 
     try {
-        const savedCount = 0;
+        // 串行保存，避免并发请求过多
+        let successCount = 0;
         for (const char of selectedCharacters) {
-            const data = await api.request(`/api/projects/${currentProjectId}/characters/`, {
-                method: 'POST',
-                body: JSON.stringify({
+            try {
+                const result = await api.post(`/api/projects/${currentProjectId}/characters/`, {
                     name: char.name || `角色${Date.now()}`,
-                    gender: mapGender(char.gender),
-                    role_type: mapRoleType(char.role),
+                    gender: char.gender || '未知',
+                    role_type: char.role || '配角',
                     personality: char.personality || '',
                     backstory: char.background || char.backstory || '',
                     appearance: char.appearance || '',
                     motivation: char.motivation || '',
                     tagline: char.tags || '',
-                    faction: char.faction || '',
-                    extra: {
-                        age: char.age || '',
-                        identity: char.identity || '',
-                        strengths: char.strengths || '',
-                        flaws: char.flaws || '',
-                        obsession: char.obsession || '',
-                        abilities: char.abilities || '',
-                        taboos: char.taboos || '',
-                        secrets: char.secrets || '',
-                        dark_history: char.dark_history || '',
-                        development: char.development || '',
-                        weaknesses: char.weaknesses || ''
-                    }
-                })
-            });
-            
-            if (!data.success) {
-                console.warn(`保存角色 ${char.name} 失败:`, data.error);
+                    faction: normalizeFactionInput(char.faction || ''),
+                    age: char.age || '',
+                    identity: char.identity || '',
+                    strengths: char.strengths || '',
+                    flaws: char.flaws || '',
+                    obsession: char.obsession || '',
+                    abilities: char.abilities || '',
+                    taboos: char.taboos || '',
+                    secrets: char.secrets || '',
+                    dark_history: char.dark_history || '',
+                    development: char.development || '',
+                    weaknesses: char.weaknesses || '',
+                    relationships: parseRelationshipsFromLLM(char.relationships)
+                });
+                if (result && result.success) successCount++;
+            } catch (err) {
+                console.warn(`保存角色 ${char.name} 失败:`, err);
             }
         }
 
-        showSuccess(`成功保存 ${selectedCharacters.length} 个角色`);
+        showSuccess(`成功保存 ${successCount} 个角色`);
         closeCreateDialog();
-        currentBatchGenerated = null;
         loadCharacters();
     } catch (error) {
         console.error('批量保存角色失败:', error);
@@ -1021,11 +888,26 @@ async function saveBatchCharacters() {
     }
 }
 
-function clearBatchGenerated() {
-    currentBatchGenerated = null;
-    document.getElementById('batchGeneratedContent').style.display = 'none';
-    document.getElementById('batchDescription').value = '';
-    document.getElementById('batchCount').value = '5';
+// ============ 确认弹窗 ============
+let _confirmCallback = null;
+
+function showConfirmDialog(message, onConfirm) {
+    document.getElementById('confirmMessage').textContent = message;
+    _confirmCallback = onConfirm;
+    lockScroll();
+    document.getElementById('confirmDialog').classList.add('active');
+}
+
+function closeConfirmDialog() {
+    document.getElementById('confirmDialog').classList.remove('active');
+    _confirmCallback = null;
+    unlockScroll();
+}
+
+function confirmOk() {
+    const cb = _confirmCallback;
+    closeConfirmDialog();
+    if (cb) cb();
 }
 
 // ============ 编辑角色 ============
@@ -1039,32 +921,36 @@ async function openEditDialog(id) {
         }
         
         const character = data.character;
-        const extra = character.extra || {};
 
         document.getElementById('editCharacterId').value = character.id;
         document.getElementById('editName').value = character.name || '';
-        document.getElementById('editRole').value = character.role_type || 'supporting';
-        document.getElementById('editGender').value = character.gender || 'unknown';
-        document.getElementById('editAge').value = extra.age || '';
-        document.getElementById('editIdentity').value = extra.identity || '';
+        document.getElementById('editRole').value = character.role_type || '配角';
+        document.getElementById('editGender').value = character.gender || '未知';
+        document.getElementById('editAge').value = character.age || '';
+        document.getElementById('editIdentity').value = character.identity || '';
         document.getElementById('editTags').value = character.tagline || '';
         document.getElementById('editFaction').value = character.faction || '';
         document.getElementById('editAppearance').value = character.appearance || '';
         document.getElementById('editPersonality').value = character.personality || '';
         document.getElementById('editBackground').value = character.backstory || '';
-        document.getElementById('editMotivation').value = extra.motivation || character.motivation || '';
-        document.getElementById('editDevelopment').value = character.motivation || extra.development || '';
-        document.getElementById('editStrengths').value = extra.strengths || '';
-        document.getElementById('editFlaws').value = extra.flaws || '';
-        document.getElementById('editObsession').value = extra.obsession || '';
-        document.getElementById('editTaboos').value = extra.taboos || '';
-        document.getElementById('editAbilities').value = extra.abilities || '';
-        document.getElementById('editSecrets').value = extra.secrets || '';
-        document.getElementById('editDarkHistory').value = extra.dark_history || '';
+        document.getElementById('editMotivation').value = character.motivation || '';
+        document.getElementById('editDevelopment').value = character.development || '';
+        document.getElementById('editStrengths').value = character.strengths || '';
+        document.getElementById('editFlaws').value = character.flaws || '';
+        document.getElementById('editObsession').value = character.obsession || '';
+        document.getElementById('editTaboos').value = character.taboos || '';
+        document.getElementById('editAbilities').value = character.abilities || '';
+        document.getElementById('editSecrets').value = character.secrets || '';
+        document.getElementById('editDarkHistory').value = character.dark_history || '';
+        document.getElementById('editWeaknesses').value = character.weaknesses || '';
 
         // 加载关系数据
-        currentRelationships = extra.relationships ? parseRelationships(extra.relationships) : [];
+        currentRelationships = parseRelationshipsFromLLM(character.relationships);
         renderRelationshipsTable();
+
+        // 加载经历数据
+        currentExperiences = Array.isArray(character.experiences) ? character.experiences : [];
+        renderExperienceTable();
 
         // 切换到第一个标签页
         switchEditTab('basic');
@@ -1086,75 +972,54 @@ function closeEditDialog(e) {
 // 从编辑弹窗删除角色
 async function deleteCharacter() {
     const id = document.getElementById('editCharacterId').value;
-    if (!confirm('确定要删除这个角色吗？')) return;
+    showConfirmDialog('确定要删除这个角色吗？', async () => {
+        try {
+            const data = await api.delete(`/api/projects/${currentProjectId}/characters/${id}/`);
 
-    try {
-        const data = await api.request(`/api/projects/${currentProjectId}/characters/${id}/`, {
-            method: 'DELETE'
-        });
-
-        if (data.success) {
-            showSuccess('角色已删除');
-            closeEditDialog();
-            loadCharacters();
-        } else {
-            showError(data.error || '删除失败');
+            if (data.success) {
+                showSuccess('角色已删除');
+                closeEditDialog();
+                loadCharacters();
+            } else {
+                showError(data.error || '删除失败');
+            }
+        } catch (error) {
+            showError('网络错误');
         }
-    } catch (error) {
-        showError('网络错误');
-    }
+    });
 }
 
 // ==================== 人际关系表格 ====================
-// 关系类型映射（包含反向关系）
+// 关系类型（直接使用中文，数据库保存中文）
+// 约定：以本人为基准，描述"对方相对于本人"的角色
 const RELATIONSHIP_TYPES = [
-    { value: 'friend', label: '朋友', reverse: 'friend' },
-    { value: 'lover', label: '恋人', reverse: 'lover' },
-    { value: 'spouse', label: '配偶', reverse: 'spouse' },
-    { value: 'parent', label: '父母', reverse: 'child' },
-    { value: 'child', label: '子女', reverse: 'parent' },
-    { value: 'sibling', label: '兄弟姐妹', reverse: 'sibling' },
-    { value: 'master', label: '师父', reverse: 'apprentice' },
-    { value: 'apprentice', label: '徒弟', reverse: 'master' },
-    { value: 'enemy', label: '敌人', reverse: 'enemy' },
-    { value: 'rival', label: '对手', reverse: 'rival' },
-    { value: 'mentor', label: '导师', reverse: 'protégé' },
-    { value: 'protégé', label: '门生', reverse: 'mentor' },
-    { value: 'ally', label: '盟友', reverse: 'ally' },
-    { value: 'family', label: '亲属', reverse: 'family' },
-    { value: 'other', label: '其他', reverse: 'other' },
+    '朋友', '恋人', '配偶', '父母', '子女', '兄弟姐妹',
+    '师父', '徒弟', '敌人', '对手', '导师', '门生',
+    '盟友', '亲属', '君主', '臣子', '其他'
 ];
 
-// 解析关系数据（支持字符串和数组格式）
-function parseRelationships(data) {
-    if (Array.isArray(data)) {
-        // 确保每个关系都有 createReverse 标志
-        return data.map(rel => {
-            if (typeof rel === 'object' && rel !== null) {
-                return {
-                    ...rel,
-                    createReverse: rel.createReverse !== false // 默认 true，除非显式 false
-                };
-            }
-            return rel;
-        });
-    }
-    if (typeof data === 'string' && data.trim()) {
-        // 尝试从旧格式解析
-        return data.split(/[,，]/).map(rel => {
-            const parts = rel.split(/[-—]/);
-            if (parts.length >= 2) {
-                return {
-                    targetName: parts[0].trim(),
-                    relationshipType: parts[1].trim(),
-                    description: parts.length > 2 ? parts.slice(2).join('-').trim() : '',
-                    createReverse: true // 旧数据也默认创建反向
-                };
-            }
-            return null;
-        }).filter(r => r !== null);
-    }
-    return [];
+// 英文→中文映射（兼容 LLM 返回英文或数据库旧数据）
+const RELATIONSHIP_EN_TO_CN = {
+    'friend': '朋友', 'lover': '恋人', 'spouse': '配偶',
+    'parent': '父母', 'child': '子女', 'sibling': '兄弟姐妹',
+    'master': '师父', 'apprentice': '徒弟', 'disciple': '徒弟',
+    'enemy': '敌人', 'rival': '对手', 'mentor': '导师',
+    'protégé': '门生', 'protege': '门生', 'partner': '盟友',
+    'ally': '盟友', 'family': '亲属', 'other': '其他',
+};
+
+/**
+ * 归一化关系类型：英文→中文，不在白名单中的→'其他'
+ */
+function normalizeRelationshipType(type) {
+    if (!type) return '其他';
+    // 已经是中文白名单中的值
+    if (RELATIONSHIP_TYPES.includes(type)) return type;
+    // 英文→中文映射
+    const cn = RELATIONSHIP_EN_TO_CN[type.toLowerCase()];
+    if (cn) return cn;
+    // 未知类型兜底
+    return '其他';
 }
 
 // 渲染关系表格
@@ -1181,24 +1046,17 @@ function createRelationshipRow(rel, index, availableCharacters) {
     // 对方角色（下拉框+输入）
     const targetCell = document.createElement('td');
     const targetSelect = document.createElement('select');
-    targetSelect.style.width = '100%';
-    targetSelect.style.padding = '8px 12px';
-    targetSelect.style.border = '1px solid #e2e8f0';
-    targetSelect.style.borderRadius = '8px';
     targetSelect.innerHTML = `
         <option value="">选择角色...</option>
         <option value="custom" ${rel.targetName && !availableCharacters.find(c => c.name === rel.targetName) ? 'selected' : ''}>自定义...</option>
-        ${availableCharacters.map(c => `<option value="${c.name}" ${rel.targetName === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
+        ${availableCharacters.map(c => `<option value="${escapeHtml(c.name)}" ${rel.targetName === c.name ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
     `;
 
     const customInput = document.createElement('input');
-    customInput.style.width = '100%';
-    customInput.style.marginTop = '8px';
-    customInput.style.padding = '8px 12px';
-    customInput.style.border = '1px solid #e2e8f0';
-    customInput.style.borderRadius = '8px';
+    customInput.type = 'text';
     customInput.placeholder = '输入角色名';
     customInput.value = rel.targetName || '';
+    customInput.className = 'rel-custom-input';
     customInput.style.display = rel.targetName && !availableCharacters.find(c => c.name === rel.targetName) ? 'block' : 'none';
     
     targetSelect.addEventListener('change', function() {
@@ -1223,33 +1081,43 @@ function createRelationshipRow(rel, index, availableCharacters) {
     // 关系类型
     const typeCell = document.createElement('td');
     const typeSelect = document.createElement('select');
-    typeSelect.style.width = '100%';
-    typeSelect.style.padding = '8px 12px';
-    typeSelect.style.border = '1px solid #e2e8f0';
-    typeSelect.style.borderRadius = '8px';
-    typeSelect.innerHTML = RELATIONSHIP_TYPES.map(t => 
-        `<option value="${t.value}" ${rel.relationshipType === t.value ? 'selected' : ''}>${t.label}</option>`
-    ).join('');
+    const isCustomType = rel.relationshipType && !RELATIONSHIP_TYPES.includes(rel.relationshipType);
+    typeSelect.innerHTML = RELATIONSHIP_TYPES.map(t =>
+        `<option value="${escapeHtml(t)}" ${rel.relationshipType === t ? 'selected' : ''}>${escapeHtml(t)}</option>`
+    ).join('') + `<option value="custom" ${isCustomType ? 'selected' : ''}>自定义...</option>`;
+
+    const customTypeInput = document.createElement('input');
+    customTypeInput.type = 'text';
+    customTypeInput.placeholder = '输入关系类型';
+    customTypeInput.value = isCustomType ? rel.relationshipType : '';
+    customTypeInput.className = 'rel-custom-input';
+    customTypeInput.style.display = isCustomType ? 'block' : 'none';
+
     typeSelect.addEventListener('change', function() {
-        currentRelationships[index].relationshipType = this.value;
-        const typeInfo = RELATIONSHIP_TYPES.find(t => t.value === this.value);
-        if (typeInfo) {
-            currentRelationships[index].reverseRelationship = typeInfo.reverse;
+        if (this.value === 'custom') {
+            customTypeInput.style.display = 'block';
+            customTypeInput.focus();
+            currentRelationships[index].relationshipType = customTypeInput.value || '其他';
+        } else {
+            customTypeInput.style.display = 'none';
+            customTypeInput.value = '';
+            currentRelationships[index].relationshipType = this.value;
         }
     });
+
+    customTypeInput.addEventListener('input', function() {
+        currentRelationships[index].relationshipType = this.value || '其他';
+    });
+
     typeCell.appendChild(typeSelect);
+    typeCell.appendChild(customTypeInput);
     row.appendChild(typeCell);
 
     // 关系描述
     const descCell = document.createElement('td');
-    const descInput = document.createElement('textarea');
-    descInput.style.width = '100%';
-    descInput.style.padding = '8px 12px';
-    descInput.style.border = '1px solid #e2e8f0';
-    descInput.style.borderRadius = '8px';
-    descInput.style.minHeight = '40px';
+    const descInput = document.createElement('input');
+    descInput.type = 'text';
     descInput.placeholder = '描述关系...';
-    descInput.rows = 1;
     descInput.value = rel.description || '';
     descInput.addEventListener('input', function() {
         currentRelationships[index].description = this.value;
@@ -1276,10 +1144,9 @@ function createRelationshipRow(rel, index, availableCharacters) {
 function addRelationship() {
     currentRelationships.push({
         targetName: '',
-        relationshipType: 'friend',
+        relationshipType: '朋友',
         description: '',
-        createReverse: true, // 默认创建反向关系
-        reverseRelationship: 'friend'
+        createReverse: true
     });
     renderRelationshipsTable();
 }
@@ -1289,8 +1156,7 @@ function switchEditTab(tab) {
     document.querySelectorAll('.edit-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('#editDialog .tab-content').forEach(c => c.classList.remove('active'));
 
-    const tabIndex = ['basic', 'social', 'ability', 'other'].indexOf(tab);
-    document.querySelectorAll('.edit-tab')[tabIndex].classList.add('active');
+    document.querySelector(`.edit-tab[data-tab="${tab}"]`).classList.add('active');
     document.getElementById('edit' + tab.charAt(0).toUpperCase() + tab.slice(1) + 'Tab').classList.add('active');
 }
 
@@ -1308,32 +1174,39 @@ async function saveCharacter() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
 
     try {
-        const data = await api.request(`/api/projects/${currentProjectId}/characters/${id}/`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                name: name,
-                role_type: document.getElementById('editRole').value,
-                gender: document.getElementById('editGender').value,
-                tagline: document.getElementById('editTags').value,
-                faction: normalizeFactionInput(document.getElementById('editFaction').value),
-                appearance: document.getElementById('editAppearance').value,
-                personality: document.getElementById('editPersonality').value,
-                backstory: document.getElementById('editBackground').value,
-                motivation: document.getElementById('editMotivation').value,
-                extra: {
-                    age: document.getElementById('editAge').value,
-                    identity: document.getElementById('editIdentity').value,
-                    relationships: currentRelationships,
-                    development: document.getElementById('editDevelopment').value,
-                    strengths: document.getElementById('editStrengths').value,
-                    flaws: document.getElementById('editFlaws').value,
-                    obsession: document.getElementById('editObsession').value,
-                    taboos: document.getElementById('editTaboos').value,
-                    abilities: document.getElementById('editAbilities').value,
-                    secrets: document.getElementById('editSecrets').value,
-                    dark_history: document.getElementById('editDarkHistory').value
-                }
-            })
+        // 清理关系数据：只保留后端需要的字段，过滤空目标
+        const cleanedRelationships = currentRelationships
+            .filter(r => r.targetName && r.targetName.trim())
+            .map(r => ({
+                targetName: r.targetName.trim(),
+                relationshipType: r.relationshipType || '其他',
+                description: r.description || '',
+                createReverse: r.createReverse !== false
+            }));
+
+        const data = await api.put(`/api/projects/${currentProjectId}/characters/${id}/`, {
+            name: name,
+            role_type: document.getElementById('editRole').value,
+            gender: document.getElementById('editGender').value,
+            tagline: document.getElementById('editTags').value,
+            faction: normalizeFactionInput(document.getElementById('editFaction').value),
+            appearance: document.getElementById('editAppearance').value,
+            personality: document.getElementById('editPersonality').value,
+            backstory: document.getElementById('editBackground').value,
+            motivation: document.getElementById('editMotivation').value,
+            age: document.getElementById('editAge').value,
+            identity: document.getElementById('editIdentity').value,
+            relationships: cleanedRelationships,
+            experiences: currentExperiences,
+            development: document.getElementById('editDevelopment').value,
+            strengths: document.getElementById('editStrengths').value,
+            flaws: document.getElementById('editFlaws').value,
+            obsession: document.getElementById('editObsession').value,
+            taboos: document.getElementById('editTaboos').value,
+            abilities: document.getElementById('editAbilities').value,
+            secrets: document.getElementById('editSecrets').value,
+            dark_history: document.getElementById('editDarkHistory').value,
+            weaknesses: document.getElementById('editWeaknesses').value
         });
 
         if (data.success) {
@@ -1347,177 +1220,121 @@ async function saveCharacter() {
         showError('网络错误');
     } finally {
         btn.disabled = false;
-        btn.innerHTML = '保存修改';
+        btn.innerHTML = '<i class="fas fa-save"></i> 保存修改';
     }
 }
 
 // ============ AI润色 ============
-// 创建角色弹窗的AI润色
-async function polishCharacter() {
-    const name = document.getElementById('createName').value.trim();
-    const gender = document.getElementById('createGender')?.value || '';
-    const role = document.getElementById('createRole')?.value || '';
-    const age = document.getElementById('createAge')?.value || '';
-    const identity = document.getElementById('createIdentity')?.value || '';
-    const personality = document.getElementById('createPersonality').value.trim();
-    const strengths = document.getElementById('createStrengths')?.value || '';
-    const flaws = document.getElementById('createFlaws')?.value || '';
-    const obsession = document.getElementById('createObsession')?.value || '';
-    const motivation = document.getElementById('createMotivation')?.value || '';
-    const appearance = document.getElementById('createAppearance').value.trim();
-    const faction = document.getElementById('createFaction').value.trim();
-    const relationships = document.getElementById('createRelationships')?.value || '';
-    const abilities = document.getElementById('createAbilities')?.value || '';
-    const taboos = document.getElementById('createTaboos')?.value || '';
-    const darkHistory = document.getElementById('createDarkHistory')?.value || '';
-    const secrets = document.getElementById('createSecrets')?.value || '';
-    const backstory = document.getElementById('createBackground').value.trim();
-    const development = document.getElementById('createDevelopment').value.trim();
-    const weaknesses = document.getElementById('createWeaknesses').value.trim();
-    const tags = document.getElementById('createTags')?.value || '';
 
+// ============ 通用润色结果应用 ============
+function applyPolishResult(formPrefix, data) {
+    // 默认值映射
+    const defaults = { 'gender': '未知', 'role': '配角' };
+
+    for (const [key, suffix] of Object.entries(CHARACTER_FIELD_MAP)) {
+        if (data[key] !== undefined) {
+            const el = document.getElementById(formPrefix + suffix);
+            if (el) {
+                el.value = data[key] !== undefined ? data[key] : (defaults[key] || '');
+            }
+        }
+    }
+
+    // 创建表单的 relationships：对象数组转为可读文本写入 textarea
+    if (formPrefix === 'create' && data.relationships) {
+        const el = document.getElementById('createRelationships');
+        if (el) {
+            if (Array.isArray(data.relationships)) {
+                el.value = data.relationships.map(r => {
+                    if (typeof r === 'object' && r !== null) {
+                        return `${r.relationshipType || '其他'}-${r.targetName || ''}-${r.description || ''}`;
+                    }
+                    return String(r);
+                }).join(',');
+            } else {
+                el.value = data.relationships || '';
+            }
+        }
+    }
+
+    // 编辑表单的 relationships：更新 currentRelationships 并重新渲染
+    if (formPrefix === 'edit' && data.relationships) {
+        currentRelationships = parseRelationshipsFromLLM(data.relationships);
+        renderRelationshipsTable();
+    }
+}
+
+// 通用润色函数（合并 polishCharacter 和 polishEditCharacter）
+async function _doPolishCharacter(formPrefix, btnId) {
+    const name = document.getElementById(formPrefix + 'Name').value.trim();
     if (!name) {
         showError('请先输入角色名称');
         return;
     }
 
-    const btn = document.getElementById('aiActionBtn');
+    const btn = document.getElementById(btnId);
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 润色中...';
 
-    let fullContent = '';
-    let isCompleted = false;
-
     showLoading('正在润色角色...');
+
+    // 收集表单数据
+    const fieldIds = {};
+    for (const [key, suffix] of Object.entries(CHARACTER_FIELD_MAP)) {
+        fieldIds[key] = formPrefix + suffix;
+    }
+    if (formPrefix === 'create') {
+        fieldIds.relationships = 'createRelationships';
+    }
+
+    const bodyData = { name: name };
+    for (const [key, id] of Object.entries(fieldIds)) {
+        const el = document.getElementById(id);
+        bodyData[key] = el ? el.value.trim() : '';
+    }
+
+    // 编辑表单的 relationships 使用 currentRelationships 数组
+    if (formPrefix === 'edit' && currentRelationships.length > 0) {
+        bodyData.relationships = currentRelationships;
+    }
 
     try {
         const response = await api.request(`/api/projects/${currentProjectId}/characters/polish/`, {
             method: 'POST',
             stream: true,
-            body: JSON.stringify({
-                name: name,
-                gender: gender,
-                role: role,
-                age: age,
-                identity: identity,
-                personality: personality,
-                strengths: strengths,
-                flaws: flaws,
-                obsession: obsession,
-                motivation: motivation,
-                appearance: appearance,
-                faction: faction,
-                relationships: relationships,
-                abilities: abilities,
-                taboos: taboos,
-                dark_history: darkHistory,
-                secrets: secrets,
-                backstory: backstory,
-                development: development,
-                weaknesses: weaknesses,
-                tags: tags
-            })
+            body: JSON.stringify(bodyData)
         });
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let sseBuffer = '';
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            sseBuffer += decoder.decode(value, { stream: true });
-            
-            // 解析SSE
-            let searchStart = 0;
-            let dataStart;
-            while ((dataStart = sseBuffer.indexOf('data: ', searchStart)) !== -1) {
-                const msgEnd = sseBuffer.indexOf('\n\n', dataStart);
-                if (msgEnd === -1) break;
-                const dataContent = sseBuffer.substring(dataStart + 6, msgEnd);
+        await parseSSEStream(reader,
+            function(completeData, fullContent) {
+                hideLoading();
                 try {
-                    const json = JSON.parse(dataContent);
-                    
-                    if (json.type === 'chunk' && json.data) {
-                        fullContent += json.data;
-                    } else if (json.type === 'complete') {
-                        hideLoading();
-                        try {
-                            let contentStr = json.data || '';
-                            const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
-                            if (jsonMatch) contentStr = jsonMatch[0];
-                            const result = JSON.parse(contentStr);
-                            if (result.gender !== undefined && document.getElementById('createGender')) document.getElementById('createGender').value = mapGenderToSelect(result.gender);
-                            if (result.role !== undefined && document.getElementById('createRole')) document.getElementById('createRole').value = mapRoleToSelect(result.role);
-                            if (result.age !== undefined && document.getElementById('createAge')) document.getElementById('createAge').value = result.age;
-                            if (result.identity !== undefined && document.getElementById('createIdentity')) document.getElementById('createIdentity').value = result.identity;
-                            if (result.personality !== undefined) document.getElementById('createPersonality').value = result.personality;
-                            if (result.strengths !== undefined && document.getElementById('createStrengths')) document.getElementById('createStrengths').value = result.strengths;
-                            if (result.flaws !== undefined && document.getElementById('createFlaws')) document.getElementById('createFlaws').value = result.flaws;
-                            if (result.obsession !== undefined && document.getElementById('createObsession')) document.getElementById('createObsession').value = result.obsession;
-                            if (result.motivation !== undefined && document.getElementById('createMotivation')) document.getElementById('createMotivation').value = result.motivation;
-                            if (result.appearance !== undefined) document.getElementById('createAppearance').value = result.appearance;
-                            if (result.faction !== undefined) document.getElementById('createFaction').value = result.faction;
-                            if (result.relationships !== undefined && document.getElementById('createRelationships')) document.getElementById('createRelationships').value = result.relationships;
-                            if (result.abilities !== undefined && document.getElementById('createAbilities')) document.getElementById('createAbilities').value = result.abilities;
-                            if (result.taboos !== undefined && document.getElementById('createTaboos')) document.getElementById('createTaboos').value = result.taboos;
-                            if (result.dark_history !== undefined && document.getElementById('createDarkHistory')) document.getElementById('createDarkHistory').value = result.dark_history;
-                            if (result.secrets !== undefined && document.getElementById('createSecrets')) document.getElementById('createSecrets').value = result.secrets;
-                            if (result.backstory !== undefined) document.getElementById('createBackground').value = result.backstory;
-                            if (result.development !== undefined) document.getElementById('createDevelopment').value = result.development;
-                            if (result.weaknesses !== undefined) document.getElementById('createWeaknesses').value = result.weaknesses;
-                            if (result.tags !== undefined && document.getElementById('createTags')) document.getElementById('createTags').value = result.tags;
-                            showSuccess('AI润色完成');
-                            isCompleted = true;
-                        } catch (e) {
-                            console.error('解析完整结果失败:', e);
-                            showError('解析结果失败');
-                        }
-                    } else if (json.type === 'error') {
-                        hideLoading();
-                        showError(json.message || '润色失败');
+                    let result;
+                    if (completeData) {
+                        let contentStr = completeData;
+                        const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) contentStr = jsonMatch[0];
+                        result = JSON.parse(contentStr);
+                    } else if (fullContent) {
+                        const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) result = JSON.parse(jsonMatch[0]);
+                    }
+                    if (result) {
+                        applyPolishResult(formPrefix, result);
+                        showSuccess('AI润色完成');
                     }
                 } catch (e) {
-                }
-                searchStart = msgEnd + 2;
-            }
-            if (searchStart > 0) {
-                sseBuffer = sseBuffer.substring(searchStart);
-            }
-        }
-        
-        // 如果没收到final，尝试解析完整内容
-        if (!isCompleted && fullContent) {
-            const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                try {
-                    const data = JSON.parse(jsonMatch[0]);
-                    if (data.gender && document.getElementById('createGender')) document.getElementById('createGender').value = mapGenderToSelect(data.gender);
-                    if (data.role && document.getElementById('createRole')) document.getElementById('createRole').value = mapRoleToSelect(data.role);
-                    if (data.age && document.getElementById('createAge')) document.getElementById('createAge').value = data.age;
-                    if (data.identity && document.getElementById('createIdentity')) document.getElementById('createIdentity').value = data.identity;
-                    if (data.personality) document.getElementById('createPersonality').value = data.personality;
-                    if (data.strengths && document.getElementById('createStrengths')) document.getElementById('createStrengths').value = data.strengths;
-                    if (data.flaws && document.getElementById('createFlaws')) document.getElementById('createFlaws').value = data.flaws;
-                    if (data.obsession && document.getElementById('createObsession')) document.getElementById('createObsession').value = data.obsession;
-                    if (data.motivation && document.getElementById('createMotivation')) document.getElementById('createMotivation').value = data.motivation;
-                    if (data.appearance) document.getElementById('createAppearance').value = data.appearance;
-                    if (data.faction) document.getElementById('createFaction').value = data.faction;
-                    if (data.relationships && document.getElementById('createRelationships')) document.getElementById('createRelationships').value = data.relationships;
-                    if (data.abilities && document.getElementById('createAbilities')) document.getElementById('createAbilities').value = data.abilities;
-                    if (data.taboos && document.getElementById('createTaboos')) document.getElementById('createTaboos').value = data.taboos;
-                    if (data.dark_history && document.getElementById('createDarkHistory')) document.getElementById('createDarkHistory').value = data.dark_history;
-                    if (data.secrets && document.getElementById('createSecrets')) document.getElementById('createSecrets').value = data.secrets;
-                    if (data.backstory) document.getElementById('createBackground').value = data.backstory;
-                    if (data.development) document.getElementById('createDevelopment').value = data.development;
-                    if (data.weaknesses) document.getElementById('createWeaknesses').value = data.weaknesses;
-                    if (data.tags && document.getElementById('createTags')) document.getElementById('createTags').value = data.tags;
-                    showSuccess('AI润色完成');
-                } catch (e) {
+                    console.error('解析完整结果失败:', e);
                     showError('解析结果失败');
                 }
+            },
+            function(errorMessage) {
+                hideLoading();
+                showError(errorMessage || '润色失败');
             }
-        }
+        );
     } catch (error) {
         console.error('AI润色失败:', error);
         showError('网络错误');
@@ -1528,191 +1345,14 @@ async function polishCharacter() {
     }
 }
 
-function mapGenderToSelect(gender) {
-    const genderMap = {
-        '男': 'male',
-        '女': 'female',
-        'male': 'male',
-        'female': 'female'
-    };
-    return genderMap[gender] || 'unknown';
-}
-
-function mapRoleToSelect(role) {
-    const roleMap = {
-        '主角': 'protagonist',
-        '男主角': 'protagonist',
-        '女主角': 'protagonist',
-        '反派': 'antagonist',
-        '配角': 'supporting',
-        '导师': 'supporting',
-        '恋人': 'supporting',
-        '路人': 'minor',
-        'protagonist': 'protagonist',
-        'antagonist': 'antagonist',
-        'supporting': 'supporting',
-        'minor': 'minor'
-    };
-    return roleMap[role] || 'supporting';
+// 创建角色弹窗的AI润色
+async function polishCharacter() {
+    await _doPolishCharacter('create', 'aiActionBtn');
 }
 
 // 编辑角色弹窗的AI润色
 async function polishEditCharacter() {
-    const name = document.getElementById('editName').value.trim();
-    const gender = document.getElementById('editGender')?.value || '';
-    const role = document.getElementById('editRole')?.value || '';
-    const age = document.getElementById('editAge')?.value || '';
-    const identity = document.getElementById('editIdentity')?.value || '';
-    const personality = document.getElementById('editPersonality').value.trim();
-    const strengths = document.getElementById('editStrengths')?.value || '';
-    const flaws = document.getElementById('editFlaws')?.value || '';
-    const obsession = document.getElementById('editObsession')?.value || '';
-    const motivation = document.getElementById('editMotivation')?.value || '';
-    const appearance = document.getElementById('editAppearance').value.trim();
-    const faction = document.getElementById('editFaction')?.value || '';
-    const abilities = document.getElementById('editAbilities')?.value || '';
-    const taboos = document.getElementById('editTaboos')?.value || '';
-    const darkHistory = document.getElementById('editDarkHistory')?.value || '';
-    const secrets = document.getElementById('editSecrets')?.value || '';
-    const backstory = document.getElementById('editBackground').value.trim();
-    const development = document.getElementById('editDevelopment').value.trim();
-    const weaknesses = document.getElementById('editWeaknesses')?.value || '';
-    const tags = document.getElementById('editTags')?.value || '';
-
-    if (!name) {
-        showError('请先输入角色名称');
-        return;
-    }
-
-    const btn = document.getElementById('polishEditBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 润色中...';
-
-    let fullContent = '';
-    let isCompleted = false;
-
-    showLoading('正在润色角色...');
-
-    try {
-        const response = await api.request(`/api/projects/${currentProjectId}/characters/polish/`, {
-            method: 'POST',
-            stream: true,
-            body: JSON.stringify({
-                name: name,
-                gender: gender,
-                role: role,
-                age: age,
-                identity: identity,
-                personality: personality,
-                strengths: strengths,
-                flaws: flaws,
-                obsession: obsession,
-                motivation: motivation,
-                appearance: appearance,
-                faction: faction,
-                abilities: abilities,
-                taboos: taboos,
-                dark_history: darkHistory,
-                secrets: secrets,
-                backstory: backstory,
-                development: development,
-                weaknesses: weaknesses,
-                tags: tags
-            })
-        });
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let sseBuffer = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            sseBuffer += decoder.decode(value, { stream: true });
-
-            // 解析SSE
-            let searchStart = 0;
-            let dataStart;
-            while ((dataStart = sseBuffer.indexOf('data: ', searchStart)) !== -1) {
-                const msgEnd = sseBuffer.indexOf('\n\n', dataStart);
-                if (msgEnd === -1) break;
-                const dataContent = sseBuffer.substring(dataStart + 6, msgEnd);
-                try {
-                    const json = JSON.parse(dataContent);
-
-                    if (json.type === 'chunk' && json.data) {
-                        fullContent += json.data;
-                    } else if (json.type === 'complete') {
-                        hideLoading();
-                        try {
-                            let contentStr = json.data || '';
-                            const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
-                            if (jsonMatch) contentStr = jsonMatch[0];
-                            const result = JSON.parse(contentStr);
-                            applyPolishResultToEditForm(result);
-                            showSuccess('AI润色完成');
-                            isCompleted = true;
-                        } catch (e) {
-                            console.error('解析完整结果失败:', e);
-                            showError('解析结果失败');
-                        }
-                    } else if (json.type === 'error') {
-                        hideLoading();
-                        showError(json.message || '润色失败');
-                    }
-                } catch (e) {
-                }
-                searchStart = msgEnd + 2;
-            }
-            if (searchStart > 0) {
-                sseBuffer = sseBuffer.substring(searchStart);
-            }
-        }
-
-        // 如果没收到final，尝试解析完整内容
-        if (!isCompleted && fullContent) {
-            const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                try {
-                    const data = JSON.parse(jsonMatch[0]);
-                    applyPolishResultToEditForm(data);
-                    showSuccess('AI润色完成');
-                } catch (e) {
-                    showError('解析结果失败');
-                }
-            }
-        }
-    } catch (error) {
-        console.error('AI润色失败:', error);
-        showError('网络错误');
-    } finally {
-        hideLoading();
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-star"></i> AI 润色';
-    }
-}
-
-function applyPolishResultToEditForm(data) {
-    if (data.name !== undefined) document.getElementById('editName').value = data.name;
-    if (data.gender !== undefined && document.getElementById('editGender')) document.getElementById('editGender').value = mapGenderToSelect(data.gender);
-    if (data.role !== undefined && document.getElementById('editRole')) document.getElementById('editRole').value = mapRoleToSelect(data.role);
-    if (data.age !== undefined && document.getElementById('editAge')) document.getElementById('editAge').value = data.age;
-    if (data.identity !== undefined && document.getElementById('editIdentity')) document.getElementById('editIdentity').value = data.identity;
-    if (data.personality !== undefined) document.getElementById('editPersonality').value = data.personality;
-    if (data.strengths !== undefined && document.getElementById('editStrengths')) document.getElementById('editStrengths').value = data.strengths;
-    if (data.flaws !== undefined && document.getElementById('editFlaws')) document.getElementById('editFlaws').value = data.flaws;
-    if (data.obsession !== undefined && document.getElementById('editObsession')) document.getElementById('editObsession').value = data.obsession;
-    if (data.motivation !== undefined && document.getElementById('editMotivation')) document.getElementById('editMotivation').value = data.motivation;
-    if (data.appearance !== undefined) document.getElementById('editAppearance').value = data.appearance;
-    if (data.faction !== undefined && document.getElementById('editFaction')) document.getElementById('editFaction').value = data.faction;
-    if (data.abilities !== undefined && document.getElementById('editAbilities')) document.getElementById('editAbilities').value = data.abilities;
-    if (data.taboos !== undefined && document.getElementById('editTaboos')) document.getElementById('editTaboos').value = data.taboos;
-    if (data.dark_history !== undefined && document.getElementById('editDarkHistory')) document.getElementById('editDarkHistory').value = data.dark_history;
-    if (data.secrets !== undefined && document.getElementById('editSecrets')) document.getElementById('editSecrets').value = data.secrets;
-    if (data.backstory !== undefined) document.getElementById('editBackground').value = data.backstory;
-    if (data.development !== undefined) document.getElementById('editDevelopment').value = data.development;
-    if (data.weaknesses !== undefined && document.getElementById('editWeaknesses')) document.getElementById('editWeaknesses').value = data.weaknesses;
-    if (data.tags !== undefined && document.getElementById('editTags')) document.getElementById('editTags').value = data.tags;
+    await _doPolishCharacter('edit', 'polishEditBtn');
 }
 
 // ============ 工具函数 ============
@@ -1730,4 +1370,536 @@ function normalizeFactionInputField(inputField) {
     inputField.value = normalizeFactionInput(inputField.value);
 }
 
+// ==================== 经历表格 ====================
 
+// 渲染经历表格
+function renderExperienceTable() {
+    const tbody = document.getElementById('experienceTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    currentExperiences.forEach((exp, index) => {
+        const row = createExperienceRow(exp, index);
+        tbody.appendChild(row);
+    });
+}
+
+// 创建经历行
+function createExperienceRow(exp, index) {
+    const row = document.createElement('tr');
+    row.dataset.index = index;
+
+    // 章节范围
+    const chapterCell = document.createElement('td');
+    const chapterInput = document.createElement('input');
+    chapterInput.type = 'text';
+    chapterInput.placeholder = '如：第3章、第1-5章';
+    chapterInput.value = exp.chapter || '';
+    chapterInput.addEventListener('input', function() {
+        currentExperiences[index].chapter = this.value;
+    });
+    chapterCell.appendChild(chapterInput);
+    row.appendChild(chapterCell);
+
+    // 事件描述
+    const descCell = document.createElement('td');
+    const descInput = document.createElement('textarea');
+    descInput.placeholder = '描述该章节发生的重要事件...';
+    descInput.rows = 2;
+    descInput.value = exp.event || '';
+    descInput.addEventListener('input', function() {
+        currentExperiences[index].event = this.value;
+    });
+    descCell.appendChild(descInput);
+    row.appendChild(descCell);
+
+    // 删除按钮
+    const deleteCell = document.createElement('td');
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'delete-experience-btn';
+    deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+    deleteBtn.addEventListener('click', function() {
+        currentExperiences.splice(index, 1);
+        renderExperienceTable();
+    });
+    deleteCell.appendChild(deleteBtn);
+    row.appendChild(deleteCell);
+
+    return row;
+}
+
+// 添加新经历
+function addExperience() {
+    currentExperiences.push({
+        chapter: '',
+        event: ''
+    });
+    renderExperienceTable();
+    // 滚动到新添加的行
+    const tbody = document.getElementById('experienceTableBody');
+    if (tbody && tbody.lastElementChild) {
+        tbody.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+// ==================== AI角色检测 ====================
+
+const CHECK_TYPE_LABELS = {
+    'contradiction': '设定矛盾',
+    'duplicate': '角色重复',
+    'conflict': '关系冲突',
+    'missing': '设定缺失',
+    'unreasonable': '逻辑不合理'
+};
+
+// 当前检测结果的问题列表（供优化使用）
+let currentCheckIssues = [];
+
+async function checkAllCharacters() {
+    if (characters.length === 0) {
+        showError('暂无角色可检测');
+        return;
+    }
+
+    const btn = document.getElementById('checkBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 检测中...';
+
+    // 隐藏优化按钮并重置文字
+    const optimizeBtn = document.getElementById('optimizeCheckBtn');
+    optimizeBtn.hidden = true;
+    optimizeBtn.innerHTML = '<i class="fas fa-magic"></i> AI优化';
+    optimizeBtn.onclick = optimizeFromCheck;
+    currentCheckIssues = [];
+
+    showLoading('正在检测所有角色...');
+
+    try {
+        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/check/`, {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+
+        hideLoading();
+
+        if (!resultStr) {
+            showError('检测结果为空');
+            return;
+        }
+
+        // resultStr 是 streamRequest 拼接返回的纯文本字符串
+        let contentStr = resultStr;
+        const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) contentStr = jsonMatch[0];
+        const result = JSON.parse(contentStr);
+        currentCheckIssues = result.issues || [];
+        lockScroll();
+        document.getElementById('checkDialog').classList.add('active');
+        renderCheckResult(result);
+        showSuccess('检测完成');
+    } catch (error) {
+        hideLoading();
+        console.error('角色检测失败:', error);
+        showError('网络错误，请重试');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-search-plus"></i> AI检测';
+    }
+}
+
+function renderCheckResult(result) {
+    const body = document.getElementById('checkResultBody');
+    const issues = result.issues || [];
+
+    if (issues.length === 0) {
+        body.innerHTML = `
+            <div class="check-no-issues">
+                <i class="fas fa-check-circle"></i>
+                <h3 style="margin-bottom: 8px;">所有角色设定良好</h3>
+                <p style="color: #9ca3af;">未发现设定矛盾、角色重复或其他问题</p>
+            </div>`;
+        document.getElementById('optimizeCheckBtn').hidden = true;
+        document.getElementById('checkCloseBtn').textContent = '关闭';
+        return;
+    }
+
+    // 显示优化按钮，关闭按钮改为取消
+    document.getElementById('optimizeCheckBtn').hidden = false;
+    document.getElementById('checkCloseBtn').textContent = '取消';
+
+    // 统计
+    const highCount = issues.filter(i => i.severity === 'high').length;
+    const mediumCount = issues.filter(i => i.severity === 'medium').length;
+    const lowCount = issues.filter(i => i.severity === 'low').length;
+
+    let html = '<div class="check-summary">';
+    html += `<div class="check-summary-item">共 <span>${issues.length}</span> 个问题</div>`;
+    if (highCount > 0) html += `<div class="check-summary-item high">严重 <span>${highCount}</span></div>`;
+    if (mediumCount > 0) html += `<div class="check-summary-item medium">中等 <span>${mediumCount}</span></div>`;
+    if (lowCount > 0) html += `<div class="check-summary-item low">轻微 <span>${lowCount}</span></div>`;
+    html += '</div>';
+
+    // 按严重程度排序
+    const severityOrder = { high: 0, medium: 1, low: 2 };
+    issues.sort((a, b) => (severityOrder[a.severity] || 2) - (severityOrder[b.severity] || 2));
+
+    issues.forEach((issue, index) => {
+        const typeLabel = CHECK_TYPE_LABELS[issue.type] || issue.type;
+        const charNames = (issue.characters || []).map(n => escapeHtml(n)).join('、');
+        html += `
+            <div class="check-result-item" data-issue-index="${index}">
+                <div class="check-result-header">
+                    <span class="check-result-type ${issue.type}">${typeLabel}</span>
+                    <span class="check-result-severity ${issue.severity}">${issue.severity === 'high' ? '严重' : issue.severity === 'medium' ? '中等' : '轻微'}</span>
+                    ${charNames ? `<span class="check-result-chars">${charNames}</span>` : ''}
+                </div>
+                <div class="check-result-desc">${escapeHtml(issue.description)}</div>
+                ${issue.suggestion ? `<div class="check-result-suggestion"><strong>建议：</strong>${escapeHtml(issue.suggestion)}</div>` : ''}
+                <div class="check-result-input">
+                    <input type="text" class="opt-instruction-input" data-index="${index}" placeholder="输入优化指示（留空则自动优化）">
+                </div>
+            </div>`;
+    });
+
+    body.innerHTML = html;
+}
+
+// ==================== AI优化（从检测结果） ====================
+
+let currentOptimizeResult = null;
+
+async function optimizeFromCheck() {
+    if (currentCheckIssues.length === 0) {
+        showError('没有需要优化的问题');
+        return;
+    }
+
+    // 收集每个问题的用户指示
+    const issuesWithInstructions = currentCheckIssues.map((issue, index) => {
+        const input = document.querySelector(`.opt-instruction-input[data-index="${index}"]`);
+        const instruction = input ? input.value.trim() : '';
+        return {
+            type: issue.type,
+            characters: issue.characters || [],
+            description: issue.description || '',
+            instruction: instruction || issue.suggestion || '请自动优化'
+        };
+    });
+
+    showLoading('正在AI优化角色...');
+
+    try {
+        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/optimize/`, {
+            method: 'POST',
+            body: JSON.stringify({ issues: issuesWithInstructions })
+        });
+
+        hideLoading();
+
+        if (!resultStr) {
+            showError('优化结果为空');
+            return;
+        }
+
+        // resultStr 是 streamRequest 拼接返回的 JSON 数组字符串
+        let contentStr = resultStr;
+        // 如果是 JSON 数组，直接用 JSON.parse
+        const trimmed = contentStr.trim();
+        if (trimmed.startsWith('[')) {
+            currentOptimizeResult = JSON.parse(trimmed);
+        } else {
+            // 兼容对象格式的 fallback
+            const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
+            if (jsonMatch) contentStr = jsonMatch[0];
+            const obj = JSON.parse(contentStr);
+            currentOptimizeResult = obj.optimizations || obj.data || obj;
+        }
+        renderOptimizeResult(currentOptimizeResult);
+        showSuccess('优化完成');
+    } catch (error) {
+        console.error('AI优化失败:', error);
+        showError('网络错误，请重试');
+    } finally {
+        hideLoading();
+    }
+}
+
+// 字段名中文映射
+const FIELD_LABELS = {
+    'personality': '性格特点',
+    'appearance': '外貌特征',
+    'backstory': '背景故事',
+    'motivation': '核心动机',
+    'faction': '势力/阵营',
+    'strengths': '优点',
+    'flaws': '缺点',
+    'obsession': '执念/软肋',
+    'abilities': '能力',
+    'taboos': '禁忌',
+    'secrets': '秘密',
+    'dark_history': '过往黑历史',
+    'development': '成长轨迹',
+    'weaknesses': '弱点代价',
+    'relationships': '人际关系',
+    'experiences': '经历'
+};
+
+const TYPE_LABELS = {
+    'modify': '修改',
+    'add': '新增',
+    'delete': '删除'
+};
+
+/**
+ * 将 LLM 返回的 relationships 解析为标准对象数组
+ * 支持格式：
+ * - 对象数组: [{targetName, relationshipType, description}]
+ * - 字符串: "师父-青云门掌门-亦师亦父,兄弟姐妹-李若兰-亲如姐妹"
+ * - 混合: [对象, 字符串, ...]
+ */
+function parseRelationshipsFromLLM(rels) {
+    if (!rels) return [];
+
+    // 字符串格式：逗号分隔的 "类型-目标名-描述"
+    if (typeof rels === 'string') {
+        return rels.split(',').map(s => s.trim()).filter(Boolean).map(s => {
+            const parts = s.split('-', 3);
+            if (parts.length >= 2) {
+                return {
+                    targetName: parts[1].trim(),
+                    relationshipType: normalizeRelationshipType(parts[0].trim()),
+                    description: parts.length > 2 ? parts[2].trim() : '',
+                    createReverse: true
+                };
+            }
+            return null;
+        }).filter(Boolean);
+    }
+
+    // 数组格式
+    if (Array.isArray(rels)) {
+        return rels.map(r => {
+            if (typeof r === 'object' && r !== null) {
+                return {
+                    targetName: r.targetName || '',
+                    relationshipType: normalizeRelationshipType(r.relationshipType),
+                    description: r.description || '',
+                    createReverse: r.createReverse !== false
+                };
+            }
+            // 数组中的字符串元素
+            if (typeof r === 'string') {
+                const parts = r.split('-', 3);
+                if (parts.length >= 2) {
+                    return {
+                        targetName: parts[1].trim(),
+                        relationshipType: normalizeRelationshipType(parts[0].trim()),
+                        description: parts.length > 2 ? parts[2].trim() : '',
+                        createReverse: true
+                    };
+                }
+            }
+            return null;
+        }).filter(Boolean);
+    }
+
+    return [];
+}
+
+/**
+ * 将关系数据格式化为可读文本
+ * 支持格式：
+ * - 对象: {targetName, relationshipType, description}
+ * - 字符串: "刘禅是我的父母" 或 "父母-刘禅-描述"
+ */
+function formatRelForDisplay(r) {
+    if (typeof r === 'object' && r !== null) {
+        const type = r.relationshipType || '其他';
+        const target = r.targetName || '';
+        const desc = r.description ? ` (${r.description})` : '';
+        return `${target} → ${type}${desc}`;
+    }
+    if (typeof r === 'string') {
+        // 尝试解析 "XXX是我的YYY" 格式
+        const match = r.match(/(.+?)是我的(.+?)(?:\s*-\s*(.+))?$/);
+        if (match) {
+            const target = match[1];
+            const type = match[2];
+            const desc = match[3] ? ` (${match[3]})` : '';
+            return `${target} → ${type}${desc}`;
+        }
+        return r;
+    }
+    return String(r);
+}
+
+function renderOptimizeResult(items) {
+    const body = document.getElementById('checkResultBody');
+    const list = Array.isArray(items) ? items : (items.optimizations || []);
+
+    if (list.length === 0) {
+        body.innerHTML = `
+            <div class="check-no-issues">
+                <i class="fas fa-info-circle" style="color: #818cf8;"></i>
+                <h3 style="margin-bottom: 8px; color: #d1d5db;">无需优化</h3>
+                <p style="color: #9ca3af;">AI未找到需要修改的内容</p>
+            </div>`;
+        document.getElementById('optimizeCheckBtn').hidden = true;
+        return;
+    }
+
+    let html = '<div class="check-summary"><div class="check-summary-item">AI优化建议 <span>' + list.length + '</span> 项</div></div>';
+    html += '<p style="font-size: 13px; color: #9ca3af; margin-bottom: 16px;">勾选要应用的优化，点击「保存优化」按钮确认</p>';
+
+    list.forEach((item, index) => {
+        const typeLabel = TYPE_LABELS[item.type] || item.type;
+        const params = item.params || [];
+        const typeIcon = item.type === 'add' ? 'fa-plus-circle' : item.type === 'delete' ? 'fa-minus-circle' : 'fa-pen';
+        const typeColor = item.type === 'add' ? '#22c55e' : item.type === 'delete' ? '#f87171' : '#a5b4fc';
+
+        html += `<div class="check-result-item" data-opt-index="${index}">`;
+        html += `<div class="check-result-header">
+            <label class="opt-item-header">
+                <input type="checkbox" class="opt-checkbox" data-index="${index}" checked>
+                <span class="check-result-chars">${escapeHtml(item.name)}</span>
+                <i class="fas ${typeIcon}" style="color: ${typeColor};"></i>
+                <span style="color: ${typeColor}; font-weight: 600;">${typeLabel}</span>
+            </label>
+        </div>`;
+
+        if (params.length > 0) {
+            html += `<div class="opt-params-container">`;
+            params.forEach(p => {
+                const fieldLabel = FIELD_LABELS[p.param] || p.param;
+                const isRelationships = p.param === 'relationships';
+                if (item.type === 'add') {
+                    if (isRelationships) {
+                        html += `<div class="opt-field-block">
+                            <span class="opt-field-block-label">${fieldLabel}：</span>
+                            <div class="opt-rel-container">`;
+                        const rels = Array.isArray(p.new) ? p.new : (p.new ? [p.new] : []);
+                        rels.forEach(r => {
+                            const rText = formatRelForDisplay(r);
+                            html += `<span class="opt-value-add">${escapeHtml(rText)}</span>`;
+                        });
+                        html += `</div></div>`;
+                    } else {
+                        const displayVal = typeof p.new === 'object' ? JSON.stringify(p.new, null, 2) : String(p.new);
+                        html += `<div class="opt-field-row">
+                            <span class="opt-field-label">${fieldLabel}：</span>
+                            <span class="opt-field-value">${escapeHtml(displayVal)}</span>
+                        </div>`;
+                    }
+                } else {
+                    if (isRelationships) {
+                        html += `<div class="opt-field-block">
+                            <span class="opt-field-block-label">${fieldLabel}：</span>
+                            <div style="margin-top: 4px;">`;
+                        const origRels = Array.isArray(p.origin) ? p.origin : (p.origin ? [p.origin] : []);
+                        const newRels = Array.isArray(p.new) ? p.new : (p.new ? [p.new] : []);
+                        if (origRels.length > 0) {
+                            html += `<div class="opt-field-sublabel">原值：</div>`;
+                            origRels.forEach(r => {
+                                const rText = formatRelForDisplay(r);
+                                html += `<div class="opt-value-old">${escapeHtml(rText)}</div>`;
+                            });
+                        }
+                        if (newRels.length > 0) {
+                            html += `<div class="opt-field-sublabel-top">新值：</div>`;
+                            newRels.forEach(r => {
+                                const rText = formatRelForDisplay(r);
+                                html += `<div class="opt-value-new">${escapeHtml(rText)}</div>`;
+                            });
+                        }
+                        html += `</div></div>`;
+                    } else {
+                        const origVal = typeof p.origin === 'object' ? JSON.stringify(p.origin, null, 2) : String(p.origin || '');
+                        const newVal = typeof p.new === 'object' ? JSON.stringify(p.new, null, 2) : String(p.new);
+                        html += `<div class="opt-field-block">
+                            <span class="opt-field-block-label">${fieldLabel}：</span>
+                            <div class="opt-change-row">
+                                <span class="opt-value-old">${escapeHtml(origVal)}</span>
+                                <i class="fas fa-arrow-right opt-change-arrow"></i>
+                                <span class="opt-value-new">${escapeHtml(newVal)}</span>
+                            </div>
+                        </div>`;
+                    }
+                }
+            });
+            html += `</div>`;
+        } else if (item.type === 'delete') {
+            html += `<div class="opt-delete-notice">该角色将被删除</div>`;
+        }
+
+        html += `</div>`;
+    });
+
+    body.innerHTML = html;
+
+    // 切换按钮为保存
+    const optimizeBtn = document.getElementById('optimizeCheckBtn');
+    optimizeBtn.innerHTML = '<i class="fas fa-save"></i> 保存优化';
+    optimizeBtn.onclick = saveOptimizeResult;
+}
+
+async function saveOptimizeResult() {
+    if (!currentOptimizeResult) {
+        showError('优化结果已失效，请重新优化');
+        return;
+    }
+
+    const list = Array.isArray(currentOptimizeResult) ? currentOptimizeResult : (currentOptimizeResult.optimizations || []);
+    const checkboxes = document.querySelectorAll('.opt-checkbox');
+    const saveItems = [];
+
+    checkboxes.forEach(cb => {
+        if (!cb.checked) return;
+        const index = parseInt(cb.dataset.index);
+        const item = list[index];
+        if (!item) return;
+        saveItems.push(item);
+    });
+
+    if (saveItems.length === 0) {
+        showError('请至少选择一项优化');
+        return;
+    }
+
+    const btn = document.getElementById('optimizeCheckBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+
+    try {
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/optimize/save/`, {
+            optimizations: saveItems
+        });
+
+        if (data.success) {
+            showSuccess(`已保存 ${data.saved_count} 个角色的优化`);
+            closeCheckDialog();
+            loadCharacters();
+        } else {
+            showError(data.error || '保存失败');
+        }
+    } catch (error) {
+        console.error('保存优化失败:', error);
+        showError('网络错误');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save"></i> 保存优化';
+    }
+}
+
+function closeCheckDialog(e) {
+    if (e) e.stopPropagation();
+    document.getElementById('checkDialog').classList.remove('active');
+    unlockScroll();
+    // 重置优化按钮
+    const optimizeBtn = document.getElementById('optimizeCheckBtn');
+    optimizeBtn.innerHTML = '<i class="fas fa-magic"></i> AI优化';
+    optimizeBtn.onclick = optimizeFromCheck;
+    optimizeBtn.hidden = true;
+    document.getElementById('checkCloseBtn').textContent = '关闭';
+    currentCheckIssues = [];
+    currentOptimizeResult = null;
+}

@@ -321,6 +321,21 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// 安全的 Markdown 解析：DOMPurify 消毒 + 错误兜底
+function safeMarkdownParse(text) {
+    if (!text) return '';
+    try {
+        if (typeof marked !== 'undefined') {
+            const rawHtml = marked.parse(text);
+            return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(rawHtml) : rawHtml;
+        }
+        return escapeHtml(text).replace(/\n/g, '<br>');
+    } catch (e) {
+        console.error('Markdown 解析失败:', e);
+        return escapeHtml(text).replace(/\n/g, '<br>');
+    }
+}
+
 // 显示成功提示
 function showSuccess(message, duration = 3000) {
     showToast(message, 'success', duration);
@@ -370,6 +385,27 @@ function hideLoading() {
     }
 }
 
+// ==================== 认证检查 ====================
+
+// 统一认证检查：校验 token 有效性，失败时弹窗登录
+async function checkAuth() {
+    if (!api.isAuthenticated()) {
+        api.forceReLogin();
+        return false;
+    }
+    try {
+        const data = await api.get('/api/auth/user/');
+        if (!data || !data.success) {
+            api.forceReLogin();
+            return false;
+        }
+        return true;
+    } catch (error) {
+        api.forceReLogin();
+        return false;
+    }
+}
+
 // ==================== 退出登录 ====================
 
 function logout(redirectUrl = null, saveData = false) {
@@ -391,6 +427,35 @@ function logout(redirectUrl = null, saveData = false) {
     }
 
     window.location.href = redirectUrl;
+}
+
+// ==================== 确认弹窗相关 ====================
+
+let modalAction = null;
+
+// 显示确认弹窗
+function showModal(title, message, action) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-message').textContent = message;
+    // 隐藏可能存在的 modal-input
+    const modalInput = document.getElementById('modal-input');
+    if (modalInput) modalInput.style.display = 'none';
+    document.getElementById('confirm-modal').classList.add('show');
+    modalAction = action;
+}
+
+// 关闭确认弹窗
+function closeModal() {
+    document.getElementById('confirm-modal').classList.remove('show');
+    modalAction = null;
+    document.body.style.overflow = '';
+}
+
+// 执行确认弹窗的操作
+function executeModalAction() {
+    if (modalAction) {
+        modalAction();
+    }
 }
 
 // ==================== API 请求封装 ====================
@@ -445,6 +510,11 @@ const api = {
             }
 
             if (!response.ok) {
+                const contentType = response.headers.get('content-type');
+                // 4xx 且返回 JSON 时，返回 JSON 让调用方处理业务错误
+                if (response.status >= 400 && response.status < 500 && contentType && contentType.includes('application/json')) {
+                    return await response.json();
+                }
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.message || `请求失败: ${response.status}`);
             }

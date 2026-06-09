@@ -30,7 +30,12 @@ class VolumeList(models.Model):
     volume_number = models.IntegerField(verbose_name='卷号')
     title = models.CharField(max_length=255, verbose_name='卷标题')
     summary = models.TextField(blank=True, verbose_name='卷摘要')
+    content = models.TextField(blank=True, default='', verbose_name='卷大纲')
+    chapter_count = models.IntegerField(default=0, verbose_name='预估章节数')
+    chapters = models.JSONField(blank=True, default=list, verbose_name='章节列表')
+    is_locked = models.BooleanField(default=False, verbose_name='是否锁定')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
     class Meta:
         db_table = 'volume_list'

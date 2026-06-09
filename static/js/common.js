@@ -277,14 +277,16 @@ async function _handleLoginSubmit(e) {
 function showToast(message, type = 'success', duration = null) {
     const container = document.getElementById('api-toast-container') || _createToastContainer();
     const toast = document.createElement('div');
-    toast.className = 'api-toast-item' + (type === 'error' ? ' api-toast-error' : '');
+    const typeClass = type === 'error' ? ' api-toast-error' : type === 'warning' ? ' api-toast-warning' : '';
+    toast.className = 'api-toast-item' + typeClass;
 
     let closeBtnHtml = '';
-    if (type === 'error') {
+    if (type === 'error' || type === 'warning') {
         closeBtnHtml = '<button class="api-toast-close">&times;</button>';
     }
 
-    toast.innerHTML = `<i>${type === 'success' ? '&#x2705;' : '&#x274C;'}</i><span class="api-toast-message">${message}</span>${closeBtnHtml}`;
+    const icon = type === 'success' ? '&#x2705;' : type === 'warning' ? '&#x26A0;&#xFE0F;' : '&#x274C;';
+    toast.innerHTML = `<i>${icon}</i><span class="api-toast-message">${message}</span>${closeBtnHtml}`;
     container.appendChild(toast);
 
     const closeBtn = toast.querySelector('.api-toast-close');
@@ -344,6 +346,10 @@ function showSuccess(message, duration = 3000) {
 // 显示错误提示
 function showError(message, duration = null) {
     showToast(message, 'error', duration);
+}
+
+function showWarning(message, duration = null) {
+    showToast(message, 'warning', duration);
 }
 
 // ==================== 加载动画相关 ====================
@@ -476,6 +482,10 @@ const api = {
     // 通用请求方法
     async request(url, options = {}) {
         const token = getToken();
+        if (!token) {
+            this.forceReLogin();
+            return null;
+        }
         const headers = {
             'Content-Type': options.contentType || 'application/json',
             'X-CSRFToken': getCookie('csrftoken'),
@@ -500,7 +510,7 @@ const api = {
             const response = await fetch(url, config);
 
             if (response.status === 401) {
-                forceReLogin(() => {
+                api.forceReLogin(() => {
                     if (options.onUnauthorizedRetry && options.onUnauthorizedRetry === false) {
                         return;
                     }
@@ -560,6 +570,10 @@ const api = {
     // 流式请求（聚合返回）
     async streamRequest(url, options = {}) {
         const token = getToken();
+        if (!token) {
+            this.forceReLogin();
+            return null;
+        }
         const headers = {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCookie('csrftoken'),
@@ -580,6 +594,11 @@ const api = {
                 headers,
                 body,
             });
+
+            if (response.status === 401) {
+                this.forceReLogin();
+                return null;
+            }
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
@@ -631,6 +650,10 @@ const api = {
     // 流式请求（实时回调）
     async streamRequestRaw(url, options = {}, onChunk) {
         const token = getToken();
+        if (!token) {
+            this.forceReLogin();
+            return null;
+        }
         const headers = {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCookie('csrftoken'),
@@ -651,6 +674,11 @@ const api = {
                 headers,
                 body,
             });
+
+            if (response.status === 401) {
+                this.forceReLogin();
+                return null;
+            }
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));

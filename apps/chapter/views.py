@@ -1,644 +1,491 @@
 import json
-import time
 from loguru import logger
 from django.http import JsonResponse, StreamingHttpResponse
-from django.views import View
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from langchain_core.messages import SystemMessage, HumanMessage
+from django.utils import timezone
+
 from langchain_core.prompts import ChatPromptTemplate
 
-from apps.chapter.models import ChapterList, ChapterVersion
-from apps.ai.llm import get_llm
-from apps.ai.prompts import (
-    CHAPTER_SUMMARY_PROMPT,
-    CHAPTER_CONTENT_PROMPT,
-    CHAPTER_VERIFY_PROMPT,
-    CHAPTER_SPLIT_PROMPT,
-    CHAPTER_CONTINUE_PROMPT,
-    CHAPTER_OPTIMIZE_CONTENT_PROMPT,
-    CHAPTER_OPTIMIZE_PROMPT,
+from apps.project.base import BaseAPIView
+from apps.chapter.models import ChapterList
+from apps.volume.models import VolumeList
+from apps.ai.llm import get_llm, call_llm_with_retry, log_token_usage
+from utils.constants import MAX_CONTENT_LENGTH, MAX_TITLE_LENGTH, MAX_SUMMARY_LENGTH, PREV_CHAPTER_TAIL_LENGTH, MAX_CHAT_MESSAGE_LENGTH, MAX_CHAT_HISTORY_LENGTH
+from utils.helpers import safe_parse_json
+from apps.chapter.prompts import (
+    CHAPTER_OUTLINE_SYSTEM_PROMPT,
+    CHAPTER_OUTLINE_USER_PROMPT,
+    CHAPTER_CONTENT_GEN_SYSTEM_PROMPT,
+    CHAPTER_CONTENT_GEN_USER_PROMPT,
+    CHAPTER_CONTENT_SYSTEM_PROMPT,
+    CHAPTER_CONTENT_USER_PROMPT,
+    CHAPTER_VERIFY_SYSTEM_PROMPT,
+    CHAPTER_VERIFY_USER_PROMPT,
+    CHAPTER_VERIFY_FIX_SYSTEM_PROMPT,
+    CHAPTER_VERIFY_FIX_USER_PROMPT,
+    CHAPTER_SPLIT_SYSTEM_PROMPT,
+    CHAPTER_SPLIT_USER_PROMPT,
+    CHAPTER_SPLIT_BY_PLOT_USER_PROMPT,
+    CHAPTER_CHAT_WRITE_SYSTEM_PROMPT,
+    CHAPTER_CHAT_WRITE_USER_PROMPT,
 )
-from apps.user.models import TokenUsageLog
 
 
-def log_token_usage(task_type: str, prompt_tokens: int, completion_tokens: int, user=None, project=None):
-    try:
-        TokenUsageLog.objects.create(
-            user=user,
-            project=project,
-            model_name='',
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens,
-        )
-    except Exception as e:
-        logger.error(f"记录Token使用失败: {e}")
+# ========== 基础视图类 ==========
 
+class BaseChapterAPIView(BaseAPIView):
+    """章节API基础类 - 继承项目基础类，添加章节相关工具方法"""
 
-def _call_with_retry(messages, stream=False, timeout=None, user=None, scene="default"):
-    from django.conf import settings
-    
-    max_retries = settings.LLM_RETRY
-    retry_interval = settings.LLM_RETRY_INTERVAL
-
-    llm = get_llm(user=user, scene=scene, timeout=timeout)
-
-    prompt_messages = []
-    for msg in messages:
-        if isinstance(msg, dict):
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
-            prompt_messages.append((role, content))
-        else:
-            if hasattr(msg, 'content'):
-                if hasattr(msg, 'role'):
-                    prompt_messages.append((msg.role, msg.content))
-                elif isinstance(msg, SystemMessage):
-                    prompt_messages.append(('system', msg.content))
-                elif isinstance(msg, HumanMessage):
-                    prompt_messages.append(('user', msg.content))
-    
-    prompt = ChatPromptTemplate.from_messages(prompt_messages)
-    chain = prompt | llm
-
-    for retry_count in range(max_retries):
+    def get_chapter(self, request, chapter_id=None):
+        """获取章节对象，验证权限"""
+        if chapter_id is None:
+            chapter_id = request.data.get('chapter_id')
+        if not chapter_id:
+            return None, JsonResponse({'success': False, 'message': '缺少chapter_id'}, status=400)
         try:
-            if stream:
-                def gen():
-                    for chunk in chain.stream({}):
-                        if hasattr(chunk, 'content'):
-                            yield chunk.content
-                        else:
-                            yield str(chunk)
-                    return gen()
-            else:
-                result = chain.invoke({})
-                if hasattr(result, 'content'):
-                    return result.content
-                return str(result)
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"LLM调用失败: {error_msg}, 重试 {retry_count + 1}/{max_retries}")
-            if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                retry_interval *= 2
-            if retry_count < max_retries - 1:
-                time.sleep(retry_interval)
-
-    raise Exception(f"LLM调用失败，已重试 {max_retries} 次")
-
-
-def generate_chapter_summaries(outline, volume_number, volume_title, volume_summary, user=None, project=None):
-    prompt = CHAPTER_SUMMARY_PROMPT.format(
-        outline=outline,
-        volume_number=volume_number,
-        volume_title=volume_title,
-        volume_summary=volume_summary
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的小说章节设计助手，请严格按照JSON格式返回。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = _call_with_retry(messages, user=user, scene="chapter_generate")
-    
-    if hasattr(response, 'usage_metadata'):
-        log_token_usage('chapter', 
-                      response.usage_metadata.get('input_tokens', 0),
-                      response.usage_metadata.get('output_tokens', 0),
-                      user, project)
-    
-    try:
-        result = json.loads(response)
-        return result.get('chapters', [])
-    except json.JSONDecodeError:
-        logger.error(f"解析章节概要响应失败: {response}")
-        return []
-
-
-def generate_chapter_summaries_stream(outline, volume_number, volume_title, volume_summary, user=None, project=None):     
-    prompt = CHAPTER_SUMMARY_PROMPT.format(
-        outline=outline,
-        volume_number=volume_number,
-        volume_title=volume_title,
-        volume_summary=volume_summary
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的小说章节设计助手，请严格按照JSON格式返回。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    total_output_tokens = 0
-    for chunk in _call_with_retry(messages, stream=True, user=user, scene="chapter_generate"):
-        if chunk:
-            total_output_tokens += len(chunk) // 4
-            yield chunk
-    
-    log_token_usage('chapter', len(prompt) // 4, total_output_tokens, user, project)
-
-
-def optimize_chapter_summaries(volume_title, volume_summary, current_chapters, user_feedback, user=None, project=None):
-    prompt = CHAPTER_OPTIMIZE_PROMPT.format(
-        current_chapters=current_chapters,
-        volume_title=volume_title,
-        volume_summary=volume_summary,
-        user_feedback=user_feedback
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的小说章节设计助手，请严格按照JSON格式返回。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = _call_with_retry(messages, user=user, scene="chapter_generate")
-    
-    if hasattr(response, 'usage_metadata'):
-        log_token_usage('chapter', 
-                      response.usage_metadata.get('input_tokens', 0),
-                      response.usage_metadata.get('output_tokens', 0),
-                      user, project)
-    
-    try:
-        result = json.loads(response)
-        return result.get('chapters', [])
-    except json.JSONDecodeError:
-        logger.error(f"解析章节优化响应失败: {response}")
-        return []
-
-
-def generate_chapter_content(outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_summary, reference_content=None, user=None, project=None):
-    reference_context = ""
-    if reference_content:
-        reference_context = f"上一章节的内容（作为写作参考，保持风格和情节连续性）:\n{reference_content}\n\n"
-    
-    prompt = CHAPTER_CONTENT_PROMPT.format(
-        outline=outline,
-        volume_title=volume_title,
-        volume_summary=volume_summary,
-        chapter_number=chapter_number,
-        chapter_title=chapter_title,
-        chapter_summary=chapter_summary,
-        reference_context=reference_context
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的小说创作家，擅长写精彩的小说章节。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = _call_with_retry(messages, user=user, scene="content_generate")
-    
-    if hasattr(response, 'usage_metadata'):
-        log_token_usage('content', 
-                      response.usage_metadata.get('input_tokens', 0),
-                      response.usage_metadata.get('output_tokens', 0),
-                      user, project)
-    
-    return response
-
-
-def generate_chapter_content_stream(outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_summary, reference_content=None, user=None, project=None):
-    reference_context = ""
-    if reference_content:
-        reference_context = f"上一章节的内容（作为写作参考，保持风格和情节连续性）:\n{reference_content}\n\n"
-    
-    prompt = CHAPTER_CONTENT_PROMPT.format(
-        outline=outline,
-        volume_title=volume_title,
-        volume_summary=volume_summary,
-        chapter_number=chapter_number,
-        chapter_title=chapter_title,
-        chapter_summary=chapter_summary,
-        reference_context=reference_context
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的小说创作家，擅长写精彩的小说章节。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    total_output_tokens = 0
-    for chunk in _call_with_retry(messages, stream=True, user=user, scene="content_generate"):
-        if chunk:
-            total_output_tokens += len(chunk) // 4
-            yield chunk
-    
-    log_token_usage('content', len(prompt) // 4, total_output_tokens, user, project)
-
-
-def verify_chapter_flow(outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_content, prev_chapter_content="", user=None, project=None):
-    prompt = CHAPTER_VERIFY_PROMPT.format(
-        outline=outline,
-        volume_title=volume_title,
-        volume_summary=volume_summary,
-        prev_chapter_content=prev_chapter_content,
-        chapter_number=chapter_number,
-        chapter_title=chapter_title,
-        chapter_content=chapter_content
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的小说审核编辑，擅长校验小说内容的连贯性和逻辑性。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = _call_with_retry(messages, user=user, scene="default")
-    
-    if hasattr(response, 'usage_metadata'):
-        log_token_usage('content', 
-                      response.usage_metadata.get('input_tokens', 0),
-                      response.usage_metadata.get('output_tokens', 0),
-                      user, project)
-    
-    return response
-
-
-def split_chapter(outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_content, user=None, project=None):
-    prompt = CHAPTER_SPLIT_PROMPT.format(
-        outline=outline,
-        volume_title=volume_title,
-        volume_summary=volume_summary,
-        chapter_number=chapter_number,
-        chapter_title=chapter_title,
-        chapter_content=chapter_content
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的小说编辑，擅长合理地拆分过长的章节。请严格按照JSON格式返回。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = _call_with_retry(messages, user=user, scene="chapter_generate")
-    
-    if hasattr(response, 'usage_metadata'):
-        log_token_usage('content', 
-                      response.usage_metadata.get('input_tokens', 0),
-                      response.usage_metadata.get('output_tokens', 0),
-                      user, project)
-    
-    try:
-        return json.loads(response)
-    except json.JSONDecodeError:
-        logger.error(f"解析章节拆分响应失败: {response}")
-        return None
-
-
-def continue_chapter(outline, volume_title, volume_summary, chapter_number, chapter_title, kept_content, next_chapter_number, user=None, project=None):
-    prompt = CHAPTER_CONTINUE_PROMPT.format(
-        outline=outline,
-        volume_title=volume_title,
-        volume_summary=volume_summary,
-        chapter_number=chapter_number,
-        chapter_title=chapter_title,
-        kept_content=kept_content,
-        next_chapter_number=next_chapter_number
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的小说创作家，擅长续写和延伸章节内容。请严格按照JSON格式返回。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = _call_with_retry(messages, user=user, scene="content_generate")
-    
-    if hasattr(response, 'usage_metadata'):
-        log_token_usage('content', 
-                      response.usage_metadata.get('input_tokens', 0),
-                      response.usage_metadata.get('output_tokens', 0),
-                      user, project)
-    
-    try:
-        return json.loads(response)
-    except json.JSONDecodeError:
-        logger.error(f"解析章节延续响应失败: {response}")
-        return None
-
-
-def optimize_chapter_content(outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_content, user=None, project=None):
-    prompt = CHAPTER_OPTIMIZE_CONTENT_PROMPT.format(
-        outline=outline,
-        volume_title=volume_title,
-        volume_summary=volume_summary,
-        chapter_number=chapter_number,
-        chapter_title=chapter_title,
-        chapter_content=chapter_content
-    )
-    
-    messages = [
-        SystemMessage(content="你是一位专业的文学编辑，擅长优化和润色小说章节内容。"),
-        HumanMessage(content=prompt)
-    ]
-    
-    response = _call_with_retry(messages, user=user, scene="content_generate")
-    
-    if hasattr(response, 'usage_metadata'):
-        log_token_usage('content', 
-                      response.usage_metadata.get('input_tokens', 0),
-                      response.usage_metadata.get('output_tokens', 0),
-                      user, project)
-    
-    return response
-
-
-class GenerateChapterSummariesView(View):
-    def post(self, request):
-        from apps.volume.models import Volume
-        
-        volume_id = request.POST.get('volume_id')
-        volume = get_object_or_404(Volume, pk=volume_id, volume_version__project__user=request.user)
-        
-        chapters_data = generate_chapter_summaries(
-            volume.volume_version.outline_version.content,
-            volume.volume_number,
-            volume.title,
-            volume.summary,
-            user=request.user,
-            project=volume.volume_version.project
-        )
-        
-        latest_version = volume.chapter_versions.filter(is_deleted=False).order_by('-version_number').first()
-        new_version_number = latest_version.version_number + 1 if latest_version else 1
-        
-        chapter_version = ChapterVersion.objects.create(
-            volume=volume,
-            version_number=new_version_number
-        )
-        
-        for chap_data in chapters_data:
-            ChapterList.objects.create(
-                chapter_version=chapter_version,
-                chapter_number=chap_data['chapter_number'],
-                title=chap_data['title'],
-                summary=chap_data['summary']
+            chapter = ChapterList.objects.select_related('volume', 'volume__volume_version', 'volume__volume_version__project').get(
+                pk=chapter_id, volume__volume_version__project__user=request.user
             )
-        
-        return JsonResponse({
-            'success': True,
-            'version_id': chapter_version.pk,
-            'version_number': chapter_version.version_number,
-            'chapters': chapters_data
-        })
+            return chapter, None
+        except ChapterList.DoesNotExist:
+            return None, JsonResponse({'success': False, 'message': '章节不存在'}, status=404)
+
+    def get_adjacent_context(self, chapter):
+        """获取章节的上下文（上一章末尾、下一章概述）"""
+        volume = chapter.volume
+        prev_chapter_tail = ""
+        next_chapter_summary = ""
+
+        prev_chapter = ChapterList.objects.filter(
+            volume=volume,
+            chapter_number=chapter.chapter_number - 1,
+            state=ChapterList.STATE_NORMAL
+        ).first()
+        if prev_chapter and prev_chapter.content:
+            prev_chapter_tail = f"【上一章末尾】\n{prev_chapter.content[-PREV_CHAPTER_TAIL_LENGTH:]}"
+
+        next_chapter = ChapterList.objects.filter(
+            volume=volume,
+            chapter_number=chapter.chapter_number + 1,
+            state=ChapterList.STATE_NORMAL
+        ).first()
+        if next_chapter and next_chapter.summary:
+            next_chapter_summary = f"【下一章概述】\n第{next_chapter.chapter_number}章 {next_chapter.title}：{next_chapter.summary}"
+
+        return prev_chapter_tail, next_chapter_summary
+
+    def validate_chapter_id(self, request):
+        """校验 chapter_id 参数（仅校验参数存在性，不查询数据库）"""
+        chapter_id = request.data.get('chapter_id')
+        if not chapter_id:
+            return None, JsonResponse({'success': False, 'message': '缺少chapter_id'}, status=400)
+        return chapter_id, None
 
 
-class GenerateChapterSummariesStreamView(View):
+class ApiChapterGenerateView(BaseChapterAPIView):
+    """两阶段章节生成：阶段1生成标题+概述，阶段2逐章生成正文"""
+
     def post(self, request):
-        from apps.volume.models import Volume
-        
-        volume_id = request.POST.get('volume_id')
-        volume = get_object_or_404(Volume, pk=volume_id, volume_version__project__user=request.user)
-        
+
+        volume_id = request.data.get('volume_id')
+        if not volume_id:
+            return JsonResponse({'success': False, 'message': '缺少volume_id'}, status=400)
+        volume = get_object_or_404(
+            VolumeList.objects.select_related('volume_version__project'),
+            pk=volume_id,
+            volume_version__project__user=request.user
+        )
+        project = volume.volume_version.project
+
+        # 检查是否已有章节，避免重复生成
+        existing_count = ChapterList.objects.filter(volume=volume).count()
+        if existing_count > 0:
+            return JsonResponse({'success': False, 'message': f'该卷已有{existing_count}个章节，请先删除后再生成'}, status=400)
+
         def stream():
-            full_response = ""
-            chunk_count = 0
-            logger.info(f"开始流式生成章节，volume_id: {volume_id}")
-            
             try:
-                for chunk in generate_chapter_summaries_stream(
-                    volume.volume_version.outline_version.content,
-                    volume.volume_number,
-                    volume.title,
-                    volume.summary,
-                    user=request.user,
-                    project=volume.volume_version.project
-                ):
-                    full_response += chunk
-                    chunk_count += 1
-                    logger.info(f"收到第 {chunk_count} 个 chunk，长度: {len(chunk)}")
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-                
-                logger.info(f"流式接收完成，总长度: {len(full_response)}")
-                
-                try:
-                    result = json.loads(full_response)
-                    chapters_data = result.get('chapters', [])
-                    
-                    latest_version = volume.chapter_versions.filter(is_deleted=False).order_by('-version_number').first()
-                    new_version_number = latest_version.version_number + 1 if latest_version else 1
-                    
-                    chapter_version = ChapterVersion.objects.create(
-                        volume=volume,
-                        version_number=new_version_number
-                    )
-                    
-                    for chap_data in chapters_data:
-                        ChapterList.objects.create(
-                            chapter_version=chapter_version,
-                            chapter_number=chap_data['chapter_number'],
-                            title=chap_data['title'],
-                            summary=chap_data['summary']
-                        )
-                    
-                    logger.info(f"章节保存完成，共 {len(chapters_data)} 章")
-                    yield f"data: {json.dumps({'type': 'complete', 'version_id': chapter_version.pk, 'version_number': chapter_version.version_number, 'chapters_count': len(chapters_data)})}\n\n"
-                except json.JSONDecodeError as e:
-                    logger.error(f"解析JSON失败: {e}")
-                    yield f"data: {json.dumps({'type': 'error', 'message': '解析响应失败'})}\n\n"
+                # 章节数量规划
+                if volume.chapter_count:
+                    chapter_count_section = f"预估章节数：{volume.chapter_count}章"
+                    chapter_count_requirement = f"请严格按照预估章节数生成章节，"
+                    chapter_count_rule = f"章节数量必须为{volume.chapter_count}章，不能多也不能少"
+                    total_chapters = volume.chapter_count
+                else:
+                    chapter_count_section = ""
+                    chapter_count_requirement = "请根据卷大纲合理规划章节数量，"
+                    chapter_count_rule = "根据卷大纲的情节走向和节奏，合理确定章节数量"
+                    total_chapters = None
+
+                # ========== 阶段1：生成标题+概述 ==========
+                yield self.sse_event('progress', {'message': '思考中...', 'phase': 'outline'})
+
+                llm = get_llm(user=request.user, scene="chapter_generate")
+
+                outline_input_vars = {
+                    "volume_outline": volume.content or volume.summary or "",
+                    "volume_number": volume.volume_number,
+                    "volume_title": volume.title,
+                    "volume_summary": volume.summary or "",
+                    "chapter_count_section": chapter_count_section,
+                    "chapter_count_requirement": chapter_count_requirement,
+                    "chapter_count_rule": chapter_count_rule,
+                }
+                outline_prompt = ChatPromptTemplate.from_messages([
+                    ("system", CHAPTER_OUTLINE_SYSTEM_PROMPT),
+                    ("human", CHAPTER_OUTLINE_USER_PROMPT),
+                ])
+                outline_chain = outline_prompt | llm
+
+                yield self.sse_event('progress', {'message': '拆分卷内容中...', 'phase': 'outline'})
+
+                # 流式接收阶段1，按分隔符切割
+                buffer = ""
+                in_content = False
+                outline_chapters = []  # 存储阶段1结果
+                chapter_number_counter = 0  # 章节计数器，确保连续
+
+                for chunk in outline_chain.stream(outline_input_vars):
+                    chunk_content = self.get_chunk_text(chunk)
+                    buffer += chunk_content
+
+                    while True:
+                        if not in_content:
+                            start_idx = buffer.find('════CONTENT_START════')
+                            if start_idx == -1:
+                                break
+                            in_content = True
+                            buffer = buffer[start_idx + len('════CONTENT_START════'):]
+                        else:
+                            end_idx = buffer.find('════CONTENT_END════')
+                            if end_idx == -1:
+                                break
+                            current_json = buffer[:end_idx].strip()
+                            buffer = buffer[end_idx + len('════CONTENT_END════'):]
+
+                            chapter_number_counter += 1
+                            chap_data = safe_parse_json(current_json)
+                            if chap_data:
+                                chap_number = chap_data.get('chapter_number', chapter_number_counter)
+                                chap_title = chap_data.get('title', f'第{chap_number}章')
+                                chap_summary = chap_data.get('summary', '')
+
+                                # 保存到数据库，状态为 summary
+                                ChapterList.objects.create(
+                                    volume=volume,
+                                    chapter_number=chap_number,
+                                    title=chap_title,
+                                    summary=chap_summary,
+                                    status=ChapterList.STATUS_SUMMARY,
+                                    word_count=0,
+                                )
+
+                                outline_chapters.append({
+                                    'chapter_number': chap_number,
+                                    'title': chap_title,
+                                    'summary': chap_summary,
+                                })
+
+                                # 推送概述到前端
+                                yield self.sse_event('outline', {
+                                    'chapter': {
+                                        'chapter_number': chap_number,
+                                        'title': chap_title,
+                                        'summary': chap_summary,
+                                    },
+                                    'current': len(outline_chapters),
+                                    'total': total_chapters or 0,
+                                })
+                            else:
+                                # JSON解析失败，仍然创建空章节占位
+                                chap_number = chapter_number_counter
+                                chap_title = f'第{chap_number}章'
+                                ChapterList.objects.create(
+                                    volume=volume,
+                                    chapter_number=chap_number,
+                                    title=chap_title,
+                                    summary='',
+                                    status=ChapterList.STATUS_SUMMARY,
+                                    word_count=0,
+                                )
+                                outline_chapters.append({
+                                    'chapter_number': chap_number,
+                                    'title': chap_title,
+                                    'summary': '',
+                                })
+                                logger.warning(f"阶段1：第{chap_number}章JSON解析失败，创建空占位章节")
+
+                                yield self.sse_event('outline', {
+                                    'chapter': {
+                                        'chapter_number': chap_number,
+                                        'title': chap_title,
+                                        'summary': '',
+                                    },
+                                    'current': len(outline_chapters),
+                                    'total': total_chapters or 0,
+                                })
+
+                            in_content = False
+
+                if not outline_chapters:
+                    yield self.sse_event('error', {'message': '未生成任何章节概述'})
+                    return
+
+                # 更新总数（如果之前未知）
+                if not total_chapters:
+                    total_chapters = len(outline_chapters)
+
+                # ========== 阶段2：逐章生成正文 ==========
+                yield self.sse_event('progress', {'message': '生成中...', 'phase': 'content'})
+
+                worldview = self.get_worldview_context(project)
+                characters = self.get_characters_context(project)
+                volume_outline = volume.content or volume.summary or ""
+
+                for i, chap_info in enumerate(outline_chapters):
+                    chap_number = chap_info['chapter_number']
+                    chap_title = chap_info['title']
+                    chap_summary = chap_info['summary']
+
+                    # 上一章内容
+                    if i > 0:
+                        prev_chap = outline_chapters[i - 1]
+                        prev_chapter_tail = f"【上一章末尾】\n{prev_chap.get('last_content', '')[-PREV_CHAPTER_TAIL_LENGTH:]}"
+                    else:
+                        prev_chapter_tail = ""
+
+                    # 下一章概述
+                    if i < len(outline_chapters) - 1:
+                        next_chap = outline_chapters[i + 1]
+                        next_chapter_summary = f"【下一章概述】\n第{next_chap['chapter_number']}章 {next_chap['title']}：{next_chap['summary']}"
+                    else:
+                        next_chapter_summary = ""
+
+                    yield self.sse_event('progress', {
+                        'message': f'正在生成第{chap_number}章: {chap_title}',
+                        'phase': 'content',
+                        'current': i + 1,
+                        'total': total_chapters,
+                    })
+
+                    content_input_vars = {
+                        "worldview": worldview,
+                        "characters": characters,
+                        "volume_title": volume.title,
+                        "volume_summary": volume.summary or "",
+                        "volume_outline": volume_outline,
+                        "chapter_number": chap_number,
+                        "chapter_title": chap_title,
+                        "chapter_summary": chap_summary,
+                        "prev_chapter_tail": prev_chapter_tail,
+                        "next_chapter_summary": next_chapter_summary,
+                    }
+                    content_prompt = ChatPromptTemplate.from_messages([
+                        ("system", CHAPTER_CONTENT_GEN_SYSTEM_PROMPT),
+                        ("human", CHAPTER_CONTENT_GEN_USER_PROMPT),
+                    ])
+                    content_chain = content_prompt | llm
+
+                    try:
+                        # 流式生成正文
+                        full_content = ""
+                        for chunk in content_chain.stream(content_input_vars):
+                            chunk_content = self.get_chunk_text(chunk)
+                            full_content += chunk_content
+
+                        word_count = len(full_content) if full_content else 0
+
+                        # 更新数据库
+                        chapter_obj = ChapterList.objects.filter(
+                            volume=volume,
+                            chapter_number=chap_number
+                        ).first()
+                        if chapter_obj:
+                            chapter_obj.content = full_content
+                            chapter_obj.word_count = word_count
+                            chapter_obj.status = ChapterList.STATUS_DRAFT
+                            chapter_obj.save()
+
+                        # 记录内容用于下章衔接
+                        chap_info['last_content'] = full_content
+
+                        # 推送到前端
+                        yield self.sse_event('chapter', {
+                            'chapter': {
+                                'chapter_number': chap_number,
+                                'title': chap_title,
+                                'content': full_content,
+                                'word_count': word_count,
+                                'status': 'draft',
+                            },
+                            'current': i + 1,
+                            'total': total_chapters,
+                        })
+
+                    except Exception as e:
+                        logger.error(f"生成第{chap_number}章内容失败: {e}")
+                        # 标记为生成失败，但保留章节记录
+                        chapter_obj = ChapterList.objects.filter(
+                            volume=volume,
+                            chapter_number=chap_number
+                        ).first()
+                        if chapter_obj:
+                            chapter_obj.status = ChapterList.STATUS_FAILED
+                            chapter_obj.save()
+
+                        yield self.sse_event('chapter_failed', {
+                            'chapter_number': chap_number,
+                            'title': chap_title,
+                            'message': str(e),
+                        })
+
+                # 完成
+                yield self.sse_event('complete', {
+                    'volume_id': volume.pk,
+                    'volume_version_id': volume.volume_version.pk,
+                    'chapters_count': len(outline_chapters),
+                })
+
             except Exception as e:
                 logger.error(f"流式生成章节失败: {e}")
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-        
-        response = StreamingHttpResponse(stream(), content_type='text/event-stream')
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'
-        return response
+                yield self.sse_event('error', {'message': '章节生成失败，请稍后重试'})
+
+        return self.sse_response(stream)
 
 
-class OptimizeChapterSummariesView(View):
+class ApiChapterContentView(BaseChapterAPIView):
+    def _generate_chapter_content_stream(self, volume_outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_summary, reference_content=None, user=None, project=None, worldview="", characters=""):
+        reference_context = ""
+        if reference_content:
+            reference_context = f"上一章节的内容（作为写作参考，保持风格和情节连续性）:\n{reference_content}\n\n"
+
+        llm = get_llm(user=user, scene="content_generate")
+
+        input_vars = {
+            "volume_outline": volume_outline,
+            "volume_title": volume_title,
+            "volume_summary": volume_summary,
+            "chapter_number": chapter_number,
+            "chapter_title": chapter_title,
+            "chapter_summary": chapter_summary,
+            "reference_context": reference_context,
+            "worldview": worldview,
+            "characters": characters,
+        }
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", CHAPTER_CONTENT_SYSTEM_PROMPT),
+            ("human", CHAPTER_CONTENT_USER_PROMPT),
+        ])
+        chain = prompt | llm
+
+        for chunk in call_llm_with_retry(chain, input_vars=input_vars, stream=True, user=user, scene="content_generate", project=project):
+            if chunk:
+                yield chunk
+
     def post(self, request):
-        from apps.volume.models import Volume
-        
-        volume_id = request.POST.get('volume_id')
-        chapter_version_id = request.POST.get('chapter_version_id')
-        user_feedback = request.POST.get('feedback')
-        
-        volume = get_object_or_404(Volume, pk=volume_id, volume_version__project__user=request.user)
-        chapter_version = get_object_or_404(ChapterVersion, pk=chapter_version_id, volume=volume)
-        
-        current_chapters = []
-        for chap in chapter_version.chapters.all():
-            current_chapters.append({
-                'chapter_number': chap.chapter_number,
-                'title': chap.title,
-                'summary': chap.summary
-            })
-        
-        chapters_data = optimize_chapter_summaries(
-            volume.title,
-            volume.summary,
-            json.dumps(current_chapters),
-            user_feedback,
-            user=request.user,
-            project=volume.volume_version.project
+        chapter_id = request.data.get('chapter_id')
+        if not chapter_id:
+            return JsonResponse({'success': False, 'message': '缺少chapter_id'}, status=400)
+        reference_chapter_id = request.data.get('reference_chapter_id')
+
+        chapter = get_object_or_404(
+            ChapterList.objects.select_related('volume', 'volume__volume_version', 'volume__volume_version__project'),
+            pk=chapter_id, volume__volume_version__project__user=request.user
         )
-        
-        new_version_number = chapter_version.version_number + 1
-        
-        new_chapter_version = ChapterVersion.objects.create(
-            volume=volume,
-            version_number=new_version_number
-        )
-        
-        for chap_data in chapters_data:
-            ChapterList.objects.create(
-                chapter_version=new_chapter_version,
-                chapter_number=chap_data['chapter_number'],
-                title=chap_data['title'],
-                summary=chap_data['summary']
-            )
-        
-        return JsonResponse({
-            'success': True,
-            'version_id': new_chapter_version.pk,
-            'version_number': new_chapter_version.version_number,
-            'chapters': chapters_data
-        })
 
+        # 内容长度校验
+        if chapter.content and len(chapter.content) >= MAX_CONTENT_LENGTH:
+            return JsonResponse({'success': False, 'message': f'章节内容已达上限{MAX_CONTENT_LENGTH}字'}, status=400)
 
-class FinalizeChapterVersionView(View):
-    def post(self, request):
-        version_id = request.POST.get('version_id')
-        chapter_version = get_object_or_404(ChapterVersion, pk=version_id, volume__volume_version__project__user=request.user)
-        chapter_version.is_finalized = True
-        chapter_version.save()
-        return JsonResponse({'success': True})
-
-
-class GenerateChapterContentView(View):
-    def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        reference_chapter_id = request.POST.get('reference_chapter_id')
-        
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
         reference_content = ""
         if reference_chapter_id:
-            ref_chapter = get_object_or_404(ChapterList, pk=reference_chapter_id, chapter_version__volume__volume_version__project__user=request.user)
+            ref_chapter = get_object_or_404(ChapterList, pk=reference_chapter_id, volume__volume_version__project__user=request.user)
             reference_content = ref_chapter.content
-        
-        content = generate_chapter_content(
-            chapter.chapter_version.volume.volume_version.outline_version.content,
-            chapter.chapter_version.volume.title,
-            chapter.chapter_version.volume.summary,
-            chapter.chapter_number,
-            chapter.title,
-            chapter.summary,
-            reference_content,
-            user=request.user,
-            project=chapter.chapter_version.volume.volume_version.project
-        )
-        
-        chapter.content = content
-        chapter.save()
-        
-        return JsonResponse({'success': True, 'content': content})
 
+        project = chapter.volume.volume_version.project
+        worldview = self.get_worldview_context(project)
+        characters = self.get_characters_context(project)
 
-class GenerateChapterContentStreamView(View):
-    def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        reference_chapter_id = request.POST.get('reference_chapter_id')
-        
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
-        reference_content = ""
-        if reference_chapter_id:
-            ref_chapter = get_object_or_404(ChapterList, pk=reference_chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-            reference_content = ref_chapter.content
-        
         def generate():
             full_content = ""
-            logger.info(f"开始流式生成章节内容，chapter_id: {chapter_id}")
+            # logger.info(f"开始流式生成章节内容，chapter_id: {chapter_id}")
             try:
-                for chunk in generate_chapter_content_stream(
-                    chapter.chapter_version.volume.volume_version.outline_version.content,
-                    chapter.chapter_version.volume.title,
-                    chapter.chapter_version.volume.summary,
+                volume = chapter.volume
+                for chunk in self._generate_chapter_content_stream(
+                    volume.content or volume.summary,
+                    volume.title,
+                    volume.summary,
                     chapter.chapter_number,
                     chapter.title,
                     chapter.summary,
                     reference_content,
                     user=request.user,
-                    project=chapter.chapter_version.volume.volume_version.project
+                    project=project,
+                    worldview=worldview,
+                    characters=characters,
                 ):
                     full_content += chunk
-                    logger.debug(f"发送 chunk，长度: {len(chunk)}")
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-                
-                logger.info(f"流式内容生成完成，总长度: {len(full_content)}")
+                    yield self.sse_event('chunk', {'content': chunk})
+
+                # logger.info(f"流式内容生成完成，总长度: {len(full_content)}")
+                word_count = len(full_content) if full_content else 0
                 chapter.content = full_content
+                chapter.word_count = word_count
+                chapter.status = ChapterList.STATUS_DRAFT
                 chapter.save()
-                yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+                yield self.sse_event('complete', {'word_count': word_count})
             except Exception as e:
                 logger.error(f"流式生成章节内容失败: {e}")
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-        
-        response = StreamingHttpResponse(generate(), content_type='text/event-stream')
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'
-        return response
+                yield self.sse_event('error', {'message': '章节内容生成失败，请稍后重试'})
+
+        return self.sse_response(generate)
 
 
-class GenerateChaptersBatchView(View):
+
+class ApiChapterVerifyView(BaseChapterAPIView):
+    def _verify_chapter_flow(self, volume_outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_content, prev_chapter_content="", user=None, project=None, stream=False):
+        input_vars = {
+            "volume_outline": volume_outline,
+            "volume_title": volume_title,
+            "volume_summary": volume_summary,
+            "prev_chapter_content": prev_chapter_content,
+            "chapter_number": chapter_number,
+            "chapter_title": chapter_title,
+            "chapter_content": chapter_content,
+        }
+
+        llm = get_llm(user=user, scene="default")
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", CHAPTER_VERIFY_SYSTEM_PROMPT),
+            ("human", CHAPTER_VERIFY_USER_PROMPT),
+        ])
+        chain = prompt | llm
+
+        if stream:
+            return call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="default", project=project, task_type='content', stream=True)
+        else:
+            response = call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="default", project=project, task_type='content')
+            return response
+
     def post(self, request):
-        chapter_version_id = request.POST.get('chapter_version_id')
-        start_chapter = int(request.POST.get('start_chapter', 1))
-        end_chapter = int(request.POST.get('end_chapter', 10))
-        
-        chapter_version = get_object_or_404(ChapterVersion, pk=chapter_version_id, volume__volume_version__project__user=request.user)
-        
-        chapters = list(chapter_version.chapters.all())
-        chapters.sort(key=lambda x: x.chapter_number)
-        
-        reference_chapter = None
-        results = []
-        
-        for chap in chapters:
-            if start_chapter <= chap.chapter_number <= end_chapter:
-                reference_content = reference_chapter.content if reference_chapter else ""
-                
-                content = generate_chapter_content(
-                    chapter_version.volume.volume_version.outline_version.content,
-                    chapter_version.volume.title,
-                    chapter_version.volume.summary,
-                    chap.chapter_number,
-                    chap.title,
-                    chap.summary,
-                    reference_content,
-                    user=request.user,
-                    project=chapter_version.volume.volume_version.project
-                )
-                
-                chap.content = content
-                chap.save()
-                
-                reference_chapter = chap
-                results.append({
-                    'chapter_number': chap.chapter_number,
-                    'title': chap.title,
-                    'content_length': len(content)
-                })
-        
-        return JsonResponse({'success': True, 'chapters': results})
+        chapter, err = self.get_chapter(request)
+        if err:
+            return err
 
+        volume = chapter.volume
+        volume_outline = volume.content or volume.summary
 
-class VerifyChapterView(View):
-    def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
-        volume = chapter.chapter_version.volume
-        outline = volume.volume_version.outline_version.content
-        
-        prev_chapter = chapter.chapter_version.chapters.filter(
-            chapter_number=chapter.chapter_number - 1
+        prev_chapter = ChapterList.objects.filter(
+            volume=volume,
+            chapter_number=chapter.chapter_number - 1,
+            state=ChapterList.STATE_NORMAL
         ).first()
-        
+
         prev_content = prev_chapter.content if prev_chapter else ""
-        
-        verification_result = verify_chapter_flow(
-            outline,
+
+        result_generator = self._verify_chapter_flow(
+            volume_outline,
             volume.title,
             volume.summary,
             chapter.chapter_number,
@@ -646,166 +493,289 @@ class VerifyChapterView(View):
             chapter.content,
             prev_content,
             user=request.user,
-            project=volume.volume_version.project
+            project=volume.volume_version.project,
+            stream=True
         )
-        
-        return JsonResponse({'success': True, 'verification': verification_result})
+
+        def generate():
+            full_verification = ""
+            try:
+                for chunk in result_generator:
+                    if chunk:
+                        full_verification += chunk
+                        yield self.sse_event('chunk', {'content': chunk})
+
+                yield self.sse_event('complete', {'verification': full_verification})
+
+            except Exception as e:
+                logger.error(f"流式校验章节失败: {e}")
+                yield self.sse_event('error', {'message': str(e)})
+
+        return self.sse_response(generate)
 
 
-class SplitChapterView(View):
+class ApiChapterVerifyFixView(BaseChapterAPIView):
+    """章节校验修复 - 根据选中的校验问题+用户意见，流式生成修复后的内容"""
+
     def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
+        chapter, err = self.get_chapter(request)
+        if err:
+            return err
+
+        volume = chapter.volume
+        volume_outline = volume.content or volume.summary
+
+        issues_text = request.data.get('issues_text', '')
+        if not issues_text:
+            return JsonResponse({'success': False, 'message': '缺少校验问题信息'}, status=400)
+
+        input_vars = {
+            "volume_title": volume.title,
+            "volume_summary": volume.summary,
+            "volume_outline": volume_outline,
+            "chapter_number": chapter.chapter_number,
+            "chapter_title": chapter.title,
+            "chapter_content": chapter.content or '',
+            "issues_text": issues_text,
+        }
+
+        llm = get_llm(user=request.user, scene="default")
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", CHAPTER_VERIFY_FIX_SYSTEM_PROMPT),
+            ("human", CHAPTER_VERIFY_FIX_USER_PROMPT),
+        ])
+        chain = prompt | llm
+
+        result_generator = call_llm_with_retry(
+            chain, input_vars=input_vars,
+            user=request.user, scene="default",
+            project=volume.volume_version.project,
+            task_type='content', stream=True
+        )
+
+        def generate():
+            full_content = ""
+            try:
+                for chunk in result_generator:
+                    if chunk:
+                        full_content += chunk
+                        yield self.sse_event('chunk', {'content': chunk})
+
+                yield self.sse_event('complete', {'content': full_content})
+            except Exception as e:
+                logger.error(f"流式修复章节失败: {e}")
+                yield self.sse_event('error', {'message': str(e)})
+
+        return self.sse_response(generate)
+
+
+class ApiChapterSplitView(BaseChapterAPIView):
+    """章节拆分 - 流式响应，返回拆分对比数据，不自动保存"""
+
+    def post(self, request):
+        chapter, err = self.get_chapter(request)
+        if err:
+            return err
+
         if chapter.status == ChapterList.STATUS_PUBLISHED:
             return JsonResponse({'success': False, 'message': '已发布章节不能拆分'})
-        
-        volume = chapter.chapter_version.volume
-        outline = volume.volume_version.outline_version.content
-        
-        result = split_chapter(
-            outline,
-            volume.title,
-            volume.summary,
-            chapter.chapter_number,
-            chapter.title,
-            chapter.content,
-            user=request.user,
-            project=volume.volume_version.project
-        )
-        
-        if not result or 'split_chapters' not in result:
-            return JsonResponse({'success': False, 'message': '拆分失败，请重试'})
-        
-        with transaction.atomic():
-            chapter_version = chapter.chapter_version
-            later_chapters = chapter_version.chapters.filter(
-                chapter_number__gt=chapter.chapter_number
+
+        split_mode = request.data.get('split_mode', 'word_count')
+
+        volume = chapter.volume
+        volume_outline = volume.content or volume.summary
+        original_content = chapter.content or ""
+        original_title = chapter.title or ""
+
+        input_vars = {
+            "volume_outline": volume_outline,
+            "volume_title": volume.title,
+            "volume_summary": volume.summary,
+            "chapter_number": chapter.chapter_number,
+            "chapter_title": chapter.title,
+            "chapter_content": chapter.content,
+            "next_chapter_number": chapter.chapter_number + 1,
+        }
+
+        llm = get_llm(user=request.user, scene="chapter_generate")
+
+        if split_mode == 'plot':
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", CHAPTER_SPLIT_SYSTEM_PROMPT),
+                ("human", CHAPTER_SPLIT_BY_PLOT_USER_PROMPT),
+            ])
+        else:
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", CHAPTER_SPLIT_SYSTEM_PROMPT),
+                ("human", CHAPTER_SPLIT_USER_PROMPT),
+            ])
+        chain = prompt | llm
+
+        def generate():
+            buffer = ""
+            in_content = False
+            content_acc = ""  # 累积完整 JSON，不受 TAIL_RESERVE 影响
+            split_chapters = []
+            CONTENT_START = "══CONTENT_START════"
+            CONTENT_END = "════CONTENT_END════"
+            # 保留结尾字符防止分片切除标记前缀
+            TAIL_RESERVE = max(len(CONTENT_START), len(CONTENT_END)) - 1
+
+            try:
+                for chunk in chain.stream(input_vars):
+                    chunk_content = self.get_chunk_text(chunk)
+                    buffer += chunk_content
+
+                    while True:
+                        if not in_content:
+                            idx = buffer.find(CONTENT_START)
+                            if idx == -1:
+                                # Skip pre-start garbage but reserve tail
+                                if len(buffer) > TAIL_RESERVE:
+                                    buffer = buffer[-TAIL_RESERVE:]
+                                break
+                            in_content = True
+                            content_acc = ""
+                            buffer = buffer[idx + len(CONTENT_START):]
+                            break  # 等下一个 LLM chunk，让内容流式发送
+                        else:
+                            idx = buffer.find(CONTENT_END)
+                            if idx == -1:
+                                # 流式发送安全部分（保留结尾防止分片）
+                                safe_len = len(buffer) - TAIL_RESERVE
+                                if safe_len > 0:
+                                    safe_part = buffer[:safe_len]
+                                    content_acc += safe_part
+                                    yield self.sse_event('chunk', {'content': safe_part})
+                                    buffer = buffer[safe_len:]
+                                break
+                            # 找到结束标记 — 尾部剩余也要计入 content_acc
+                            content_acc += buffer[:idx]
+                            buffer = buffer[idx + len(CONTENT_END):]
+                            in_content = False
+
+                            chap_data = safe_parse_json(content_acc.strip())
+                            if chap_data:
+                                split_chapters.append(chap_data)
+                                yield self.sse_event('split_chapter', chap_data)
+                            else:
+                                logger.warning(f"拆分JSON解析失败: {content_acc[:200]}")
+
+                # Flush remaining buffer
+                if in_content and buffer:
+                    yield self.sse_event('chunk', {'content': buffer})
+
+                if len(split_chapters) < 2:
+                    yield self.sse_event('error', {'message': '拆分结果不完整，请重试'})
+                    return
+
+                yield self.sse_event('complete', {
+                    'original': {
+                        'chapter_id': chapter.pk,
+                        'chapter_number': chapter.chapter_number,
+                        'title': original_title,
+                        'content': original_content,
+                    },
+                    'split_chapters': split_chapters,
+                })
+            except Exception as e:
+                logger.error(f"流式拆分章节失败: {e}")
+                yield self.sse_event('error', {'message': str(e)})
+
+        return self.sse_response(generate)
+
+
+class ApiChapterSaveView(BaseChapterAPIView):
+    def post(self, request):
+        chapter_id = request.data.get('chapter_id')
+
+        # 新建章节模式（拆分产生的新章节）
+        if not chapter_id or chapter_id == 0:
+            volume_id = request.data.get('volume_id')
+            chapter_number = request.data.get('chapter_number')
+            title = request.data.get('title')
+            content = request.data.get('content')
+
+            if not volume_id:
+                return JsonResponse({'success': False, 'message': '新建章节缺少volume_id'}, status=400)
+            if not title or not title.strip():
+                return JsonResponse({'success': False, 'message': '标题不能为空'}, status=400)
+            if not chapter_number:
+                return JsonResponse({'success': False, 'message': '缺少chapter_number'}, status=400)
+
+            volume = get_object_or_404(
+                VolumeList.objects.select_related('volume_version__project'),
+                pk=volume_id,
+                volume_version__project__user=request.user
+            )
+
+            # 后续章节序号后移
+            later_chapters = ChapterList.objects.filter(
+                volume=volume,
+                chapter_number__gte=chapter_number
             ).order_by('-chapter_number')
-            
             for chap in later_chapters:
                 chap.chapter_number += 1
                 chap.save()
-            
-            first_chap = result['split_chapters'][0]
-            chapter.title = first_chap['title']
-            chapter.content = first_chap['content']
-            chapter.save()
-            
-            second_chap = result['split_chapters'][1]
-            ChapterList.objects.create(
-                chapter_version=chapter_version,
-                chapter_number=second_chap['chapter_number'],
-                title=second_chap['title'],
+
+            chapter = ChapterList.objects.create(
+                volume=volume,
+                chapter_number=chapter_number,
+                title=title.strip(),
                 summary="",
-                content=second_chap['content'],
-                status=ChapterList.STATUS_DRAFT
+                content=content or "",
+                word_count=len(content) if content else 0,
+                status=ChapterList.STATUS_DRAFT,
             )
-        
-        return JsonResponse({'success': True, 'message': '拆分成功'})
 
+            return JsonResponse({
+                'success': True,
+                'chapter': {
+                    'id': chapter.pk,
+                    'title': chapter.title,
+                    'content': chapter.content,
+                    'word_count': chapter.word_count,
+                    'chapter_number': chapter.chapter_number,
+                    'updated_at': chapter.updated_at.isoformat()
+                }
+            })
 
-class ContinueChapterView(View):
-    def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
-        if chapter.status == ChapterList.STATUS_PUBLISHED:
-            return JsonResponse({'success': False, 'message': '已发布章节不能延续'})
-        
-        volume = chapter.chapter_version.volume
-        outline = volume.volume_version.outline_version.content
-        
-        kept_length = min(len(chapter.content), 3100)
-        kept_content = chapter.content[:kept_length]
-        
-        result = continue_chapter(
-            outline,
-            volume.title,
-            volume.summary,
-            chapter.chapter_number,
-            chapter.title,
-            kept_content,
-            chapter.chapter_number + 1,
-            user=request.user,
-            project=volume.volume_version.project
-        )
-        
-        if not result or 'original_chapter' not in result or 'new_chapter' not in result:
-            return JsonResponse({'success': False, 'message': '延续失败，请重试'})
-        
-        with transaction.atomic():
-            chapter_version = chapter.chapter_version
-            later_chapters = chapter_version.chapters.filter(
-                chapter_number__gt=chapter.chapter_number
-            ).order_by('-chapter_number')
-            
-            for chap in later_chapters:
-                chap.chapter_number += 1
-                chap.save()
-            
-            chapter.title = result['original_chapter']['title']
-            chapter.content = result['original_chapter']['content']
-            chapter.save()
-            
-            new_chap = result['new_chapter']
-            ChapterList.objects.create(
-                chapter_version=chapter_version,
-                chapter_number=new_chap['chapter_number'],
-                title=new_chap['title'],
-                summary="",
-                content=new_chap['content'],
-                status=ChapterList.STATUS_DRAFT
-            )
-        
-        return JsonResponse({'success': True, 'message': '延续成功'})
+        # 现有章节更新模式
+        chapter, err = self.get_chapter(request)
+        if err:
+            return err
 
+        title = request.data.get('title')
+        summary = request.data.get('summary')
+        content = request.data.get('content')
 
-class OptimizeChapterContentView(View):
-    def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
-        if chapter.status == ChapterList.STATUS_PUBLISHED:
-            return JsonResponse({'success': False, 'message': '已发布章节不能优化'})
-        
-        volume = chapter.chapter_version.volume
-        outline = volume.volume_version.outline_version.content
-        
-        optimized_content = optimize_chapter_content(
-            outline,
-            volume.title,
-            volume.summary,
-            chapter.chapter_number,
-            chapter.title,
-            chapter.content,
-            user=request.user,
-            project=volume.volume_version.project
-        )
-        
-        chapter.content = optimized_content
-        chapter.save()
-        
-        return JsonResponse({'success': True, 'content': optimized_content})
-
-
-class SaveChapterView(View):
-    def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        title = request.POST.get('title')
-        summary = request.POST.get('summary')
-        content = request.POST.get('content')
-        
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
         if chapter.status == ChapterList.STATUS_PUBLISHED:
             return JsonResponse({'success': False, 'message': '已发布章节不能修改'})
-        
-        chapter.title = title
-        chapter.summary = summary
-        chapter.content = content
+
+        if chapter.state == ChapterList.STATE_LOCKED:
+            return JsonResponse({'success': False, 'message': '章节已锁定，无法修改'})
+
+        if chapter.state == ChapterList.STATE_DELETED:
+            return JsonResponse({'success': False, 'message': '章节已删除，无法修改'})
+
+        # 字段长度校验
+        if title is not None:
+            if not title.strip():
+                return JsonResponse({'success': False, 'message': '标题不能为空'}, status=400)
+            if len(title) > MAX_TITLE_LENGTH:
+                return JsonResponse({'success': False, 'message': f'标题长度不能超过{MAX_TITLE_LENGTH}字'}, status=400)
+            chapter.title = title
+        if summary is not None:
+            if len(summary) > MAX_SUMMARY_LENGTH:
+                return JsonResponse({'success': False, 'message': f'摘要长度不能超过{MAX_SUMMARY_LENGTH}字'}, status=400)
+            chapter.summary = summary
+        if content is not None:
+            if len(content) > MAX_CONTENT_LENGTH:
+                return JsonResponse({'success': False, 'message': f'内容长度不能超过{MAX_CONTENT_LENGTH}字'}, status=400)
+            chapter.content = content
+            chapter.word_count = len(content) if content else 0
         chapter.save()
-        
+
         return JsonResponse({
             'success': True,
             'chapter': {
@@ -819,158 +789,295 @@ class SaveChapterView(View):
         })
 
 
-class PublishChapterView(View):
+class ApiChapterStatusView(BaseChapterAPIView):
+    """章节状态操作：发布、归档、锁定/解锁、软删除、恢复"""
+    VALID_ACTIONS = {'publish', 'archive', 'lock', 'unlock', 'soft_delete', 'restore'}
+
     def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
-        from django.utils import timezone
-        
-        chapter.status = ChapterList.STATUS_PUBLISHED
-        chapter.published_at = timezone.now()
-        chapter.save()
-        
-        return JsonResponse({'success': True})
+        chapter, err = self.get_chapter(request)
+        if err:
+            return err
+        action = request.data.get('action')
+        if not action:
+            return JsonResponse({'success': False, 'message': '缺少action参数'}, status=400)
+        if action not in self.VALID_ACTIONS:
+            return JsonResponse({'success': False, 'message': f'无效的操作: {action}'}, status=400)
+
+        if action == 'publish':
+            if not chapter.content:
+                return JsonResponse({'success': False, 'message': '章节无内容，无法发布'})
+            if chapter.state != ChapterList.STATE_LOCKED:
+                return JsonResponse({'success': False, 'message': '请先锁定章节再发布'})
+            chapter.status = ChapterList.STATUS_PUBLISHED
+            chapter.published_at = timezone.now()
+            chapter.save()
+            return JsonResponse({'success': True, 'state': chapter.state, 'status': chapter.status})
+
+        elif action == 'archive':
+            chapter.status = ChapterList.STATUS_ARCHIVED
+            chapter.save()
+            return JsonResponse({'success': True, 'state': chapter.state, 'status': chapter.status})
+
+        elif action == 'lock':
+            if chapter.state == ChapterList.STATE_DELETED:
+                return JsonResponse({'success': False, 'message': '已删除章节无法锁定'})
+            if chapter.state == ChapterList.STATE_LOCKED:
+                return JsonResponse({'success': False, 'message': '章节已锁定'})
+            chapter.state = ChapterList.STATE_LOCKED
+            chapter.save()
+            return JsonResponse({'success': True, 'state': chapter.state})
+
+        elif action == 'unlock':
+            if chapter.state != ChapterList.STATE_LOCKED:
+                return JsonResponse({'success': False, 'message': '章节未锁定'})
+            chapter.state = ChapterList.STATE_NORMAL
+            chapter.save()
+            return JsonResponse({'success': True, 'state': chapter.state})
+
+        elif action == 'soft_delete':
+            if chapter.state == ChapterList.STATE_LOCKED:
+                return JsonResponse({'success': False, 'message': '章节已锁定，无法删除'})
+            if chapter.state == ChapterList.STATE_DELETED:
+                return JsonResponse({'success': False, 'message': '章节已删除'})
+            chapter.state = ChapterList.STATE_DELETED
+            chapter.save()
+            return JsonResponse({'success': True, 'state': chapter.state})
+
+        elif action == 'restore':
+            if chapter.state != ChapterList.STATE_DELETED:
+                return JsonResponse({'success': False, 'message': '该章节未被删除，无需恢复'})
+            chapter.state = ChapterList.STATE_NORMAL
+            chapter.save()
+            return JsonResponse({'success': True, 'state': chapter.state, 'status': chapter.status})
 
 
-class ArchiveChapterView(View):
-    def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
-        chapter.status = ChapterList.STATUS_ARCHIVED
-        chapter.save()
-        
-        return JsonResponse({'success': True})
+class ApiChapterLoadView(BaseChapterAPIView):
+    """按卷加载章节列表（不含正文内容，减少传输量）"""
+    def get(self, request, volume_id):
 
+        volume = get_object_or_404(VolumeList, pk=volume_id, volume_version__project__user=request.user)
 
-class LoadChapterVersionsView(View):
-    def get(self, request, volume_version_id):
-        from apps.volume.models import VolumeVersion
-        volume_version = get_object_or_404(VolumeVersion, pk=volume_version_id, project__user=request.user)
-        
-        chapter_versions = []
-        all_chapters = []
-        
-        for volume in volume_version.volumes.all():
-            for cv in volume.chapter_versions.filter(is_deleted=False).order_by('-version_number'):
-                if cv.pk not in [v['id'] for v in chapter_versions]:
-                    chapters = []
-                    for chap in cv.chapters.all():
-                        chapters.append({
-                            'id': chap.pk,
-                            'chapter_number': chap.chapter_number,
-                            'title': chap.title,
-                            'summary': chap.summary,
-                            'content': chap.content,
-                            'status': chap.status,
-                            'word_count': chap.word_count,
-                            'published_at': chap.published_at.isoformat() if chap.published_at else None,
-                            'created_at': chap.created_at.isoformat(),
-                            'updated_at': chap.updated_at.isoformat()
-                        })
-                        all_chapters.extend(chapters)
-                    
-                    chapter_versions.append({
-                        'id': cv.pk,
-                        'version_number': cv.version_number,
-                        'volume_id': volume.pk,
-                        'volume_title': volume.title,
-                        'chapters': chapters,
-                        'created_at': cv.created_at.isoformat()
-                    })
-        
+        chapters = []
+        for chap in volume.chapter_list.all().order_by('chapter_number'):
+            chapters.append({
+                'id': chap.pk,
+                'chapter_number': chap.chapter_number,
+                'title': chap.title,
+                'summary': chap.summary,
+                'status': chap.status,
+                'state': chap.state,
+                'word_count': chap.word_count,
+                'updated_at': chap.updated_at.isoformat(),
+            })
+
         return JsonResponse({
             'success': True,
-            'versions': chapter_versions,
-            'all_chapters': all_chapters
+            'chapters': chapters,
         })
 
 
-class SetCurrentChapterVersionView(View):
+class ApiChapterDetailView(BaseChapterAPIView):
+    """获取单个章节详细信息（含正文）"""
+    def get(self, request, chapter_id):
+        chapter, err = self.get_chapter(request, chapter_id)
+        if err:
+            return err
+
+        return JsonResponse({
+            'success': True,
+            'chapter': {
+                'id': chapter.pk,
+                'chapter_number': chapter.chapter_number,
+                'title': chapter.title,
+                'summary': chapter.summary,
+                'content': chapter.content,
+                'status': chapter.status,
+                'state': chapter.state,
+                'word_count': chapter.word_count,
+                'updated_at': chapter.updated_at.isoformat(),
+            }
+        })
+
+
+class ApiChapterChatView(BaseChapterAPIView):
+    """章节对话写作 - 流式响应，返回修改前后对比，不再自动保存"""
+
+    def _build_chat_context(self, chapter, current_title=None, current_content=None, current_summary=None):
+        """构建对话上下文，支持前端传入的当前内容覆盖数据库"""
+        volume = chapter.volume
+        volume_outline = volume.content or volume.summary or ""
+
+        chapter_title = current_title or chapter.title or "未命名章节"
+        chapter_content = current_content or chapter.content or ""
+        chapter_summary = current_summary or chapter.summary or ""
+
+        prev_chapter_tail, next_chapter_summary = self.get_adjacent_context(chapter)
+
+        return chapter_title, chapter_content, chapter_summary, volume, volume_outline, prev_chapter_tail, next_chapter_summary
+
     def post(self, request):
-        chapter_version_id = request.POST.get('chapter_version_id')
-        chapter_version = get_object_or_404(ChapterVersion, pk=chapter_version_id, volume__volume_version__project__user=request.user)
-        
-        chapter_version.is_current = True
-        chapter_version.save()
-        
-        ChapterVersion.objects.filter(
-            volume=chapter_version.volume,
-            is_current=True
-        ).exclude(pk=chapter_version.pk).update(is_current=False)
-        
+        chapter, err = self.get_chapter(request)
+        if err:
+            return err
+
+        if chapter.status == ChapterList.STATUS_PUBLISHED:
+            return JsonResponse({'success': False, 'message': '已发布章节不能对话修改'})
+
+        user_message = request.data.get('message')
+        if not user_message:
+            return JsonResponse({'success': False, 'message': '缺少message参数'}, status=400)
+        if len(user_message) > MAX_CHAT_MESSAGE_LENGTH:
+            return JsonResponse({'success': False, 'message': f'消息长度不能超过{MAX_CHAT_MESSAGE_LENGTH}字'}, status=400)
+
+        chat_history_raw = request.data.get('history', [])
+
+        # 校验聊天历史格式
+        try:
+            chat_history = chat_history_raw if isinstance(chat_history_raw, list) else json.loads(chat_history_raw)
+            if not isinstance(chat_history, list):
+                chat_history = []
+            # 过滤无效条目，确保每条都有 role 和 content
+            chat_history = [
+                msg for msg in chat_history
+                if isinstance(msg, dict) and 'role' in msg and 'content' in msg
+            ]
+        except (json.JSONDecodeError, TypeError):
+            chat_history = []
+
+        # 限制聊天历史长度，只保留最近的消息
+        if len(chat_history) > MAX_CHAT_HISTORY_LENGTH:
+            chat_history = chat_history[-MAX_CHAT_HISTORY_LENGTH:]
+
+        # 获取前端传入的当前内容（弹窗模式下使用修改后的内容继续对话）
+        current_title = request.data.get('current_title')
+        current_content = request.data.get('current_content')
+        current_summary = request.data.get('current_summary')
+
+        chapter_title, chapter_content, chapter_summary, volume, volume_outline, prev_chapter_tail, next_chapter_summary = \
+            self._build_chat_context(chapter, current_title, current_content, current_summary)
+
+        # 记录原始数据（用于对比展示）
+        original_title = chapter.title or "未命名章节"
+        original_content = chapter.content or ""
+
+        history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history])
+
+        input_vars = {
+            "volume_title": volume.title,
+            "volume_summary": volume.summary,
+            "volume_outline": volume_outline,
+            "chapter_number": chapter.chapter_number,
+            "chapter_title": chapter_title,
+            "chapter_summary": chapter_summary,
+            "chapter_content": chapter_content,
+            "prev_chapter_tail": prev_chapter_tail,
+            "next_chapter_summary": next_chapter_summary,
+            "history": history_str,
+            "user_message": user_message,
+        }
+
+        llm = get_llm(user=request.user, scene="content_generate")
+        chat_prompt = ChatPromptTemplate.from_messages([
+            ("system", CHAPTER_CHAT_WRITE_SYSTEM_PROMPT),
+            ("human", CHAPTER_CHAT_WRITE_USER_PROMPT),
+        ])
+        chain = chat_prompt | llm
+
+        def generate():
+            full_response = ""
+            try:
+                for chunk in chain.stream(input_vars):
+                    chunk_content = self.get_chunk_text(chunk)
+                    full_response += chunk_content
+                    yield self.sse_event('chunk', {'content': chunk_content})
+
+                # 尝试解析 JSON 响应（支持纯JSON或包裹在文本/markdown中）
+                try:
+                    result = safe_parse_json(full_response)
+                    if not result or not isinstance(result, dict):
+                        raise ValueError("JSON解析结果非法")
+
+                    response_text = result.get('response', '')
+                    new_content = result.get('content', '')
+                    new_title = result.get('title', '')
+
+                    # 不再自动保存到数据库
+                    final_content = new_content if new_content else chapter_content
+                    final_title = new_title if new_title else chapter_title
+
+                    yield self.sse_event('complete', {
+                        'response': response_text,
+                        'content': final_content,
+                        'title': final_title,
+                        'original_content': original_content,
+                        'original_title': original_title,
+                        'chapter_id': chapter.pk,
+                        'chapter_number': chapter.chapter_number,
+                    })
+                except (json.JSONDecodeError, TypeError):
+                    # LLM 返回非 JSON，直接作为文本响应
+                    yield self.sse_event('complete', {
+                        'response': full_response,
+                        'content': chapter_content,
+                        'title': chapter_title,
+                        'original_content': original_content,
+                        'original_title': original_title,
+                        'chapter_id': chapter.pk,
+                        'chapter_number': chapter.chapter_number,
+                    })
+            except Exception as e:
+                logger.error(f"流式对话写作失败: {e}")
+                yield self.sse_event('error', {'message': 'AI对话写作失败，请稍后重试'})
+
+        return self.sse_response(generate)
+
+
+class ApiChapterHardDeleteView(BaseChapterAPIView):
+    """永久删除章节（需确认标题）"""
+    def post(self, request):
+        chapter, err = self.get_chapter(request)
+        if err:
+            return err
+
+        confirm_title = request.data.get('confirm_title')
+        if not confirm_title:
+            return JsonResponse({'success': False, 'message': '缺少confirm_title参数'}, status=400)
+
+        if confirm_title != chapter.title:
+            return JsonResponse({'success': False, 'message': '确认标题不匹配'}, status=400)
+
+        chapter.delete()
+
         return JsonResponse({'success': True})
 
 
-class ChatChapterWriteView(View):
+class ApiChapterReorderView(BaseChapterAPIView):
+    """重新排列卷内章节序号"""
     def post(self, request):
-        chapter_id = request.POST.get('chapter_id')
-        user_message = request.POST.get('message')
-        chat_history_json = request.POST.get('history', '[]')
-        
-        try:
-            chat_history = json.loads(chat_history_json)
-        except json.JSONDecodeError:
-            chat_history = []
-        
-        chapter = get_object_or_404(ChapterList, pk=chapter_id, chapter_version__volume__volume_version__project__user=request.user)
-        
-        chapter_title = chapter.title or "未命名章节"
-        chapter_content = chapter.content or ""
-        
-        history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history])
-        
-        prompt = f"""
-小说大纲：{chapter.chapter_version.volume.volume_version.outline_version.content[:500]}...
+        volume_id = request.data.get('volume_id')
+        if not volume_id:
+            return JsonResponse({'success': False, 'message': '缺少volume_id'}, status=400)
 
-卷标题：{chapter.chapter_version.volume.title}
-卷摘要：{chapter.chapter_version.volume.summary[:300]}...
+        volume = get_object_or_404(
+            VolumeList,
+            pk=volume_id,
+            volume_version__project__user=request.user
+        )
 
-当前章节：
-标题：{chapter_title}
-内容：{chapter_content[:500]}...
+        chapters = ChapterList.objects.filter(
+            volume=volume,
+            state__in=[ChapterList.STATE_NORMAL, ChapterList.STATE_LOCKED]
+        ).order_by('chapter_number')
 
-历史对话：
-{history_str}
+        with transaction.atomic():
+            # 先将所有 chapter_number 设为负值，避免 unique_together 冲突
+            for idx, chap in enumerate(chapters):
+                chap.chapter_number = -(idx + 1)
+                chap.save()
 
-用户指令：{user_message}
+            # 再按顺序设置正确的 chapter_number
+            for idx, chap in enumerate(chapters):
+                chap.chapter_number = idx + 1
+                chap.save()
 
-请根据用户指令对章节内容进行修改或续写。请严格按照JSON格式返回：
-{{
-  "response": "对用户的回复",
-  "content": "修改后的章节内容",
-  "title": "新的章节标题（如果需要修改）"
-}}
-"""
-        
-        response = _call_with_retry([
-            SystemMessage(content="你是一位专业的小说创作助手，擅长根据用户指令创作和修改章节内容。请严格按照JSON格式返回。"),
-            HumanMessage(content=prompt)
-        ], user=request.user, scene="content_generate")
-        
-        try:
-            result = json.loads(response)
-            response_text = result.get('response', '')
-            new_content = result.get('content', '')
-            new_title = result.get('title', '')
-            
-            if new_content and new_content != chapter_content:
-                chapter.content = new_content
-                chapter.save()
-            
-            if new_title and new_title != chapter_title:
-                chapter.title = new_title
-                chapter.save()
-            
-            return JsonResponse({
-                'success': True,
-                'response': response_text,
-                'content': chapter.content,
-                'title': chapter.title
-            })
-        except json.JSONDecodeError:
-            return JsonResponse({
-                'success': False,
-                'message': '解析响应失败'
-            })
+        return JsonResponse({'success': True, 'chapters_count': chapters.count()})

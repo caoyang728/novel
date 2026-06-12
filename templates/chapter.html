@@ -7,665 +7,14 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="/static/css/common.css" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #818cf8;
-            --primary-dark: #6366f1;
-            --purple: #8b5cf6;
-            --success: #22c55e;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-        }
-        body {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-            background-attachment: fixed;
-            min-height: 100vh;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            color: #f9fafb;
-        }
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #4b5563;
-            border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #6b7280;
-        }
-        ::selection {
-            background: rgba(129, 140, 248, 0.3);
-        }
-        .text-muted {
-            color: #9ca3af !important;
-        }
-        .bg-light {
-            background-color: #1f2937 !important;
-        }
-        .bg-secondary {
-            background-color: #4b5563 !important;
-        }
-        .bg-info {
-            background-color: #1e3a5f !important;
-        }
-        .btn-close {
-            filter: brightness(0) invert(1);
-            opacity: 0.8;
-        }
-        .btn-close:hover {
-            opacity: 1;
-        }
-        .loading-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(8px);
-            z-index: 9999;
-            align-items: center;
-            justify-content: center;
-        }
-        .loading-overlay.active {
-            display: flex;
-        }
-        .main-content-full {
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .content-header {
-            padding: 0.6rem 1.5rem;
-            border-bottom: 1px solid #374151;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-shrink: 0;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-            background: #1f2937;
-        }
-        .content-header h5 {
-            margin: 0;
-            font-size: 1rem;
-            font-weight: 600;
-            color: #f9fafb;
-        }
-        .btn-back {
-            border-radius: 10px;
-            padding: 0.5rem 1rem;
-            font-weight: 500;
-        }
-        .btn-outline-secondary {
-            border: 1.5px solid #4b5563;
-            color: #d1d5db;
-            background: transparent;
-            border-radius: 10px;
-        }
-        .btn-outline-secondary:hover {
-            background: rgba(255,255,255,0.08);
-            border-color: #6b7280;
-            color: #f9fafb;
-        }
-        .split-view {
-            flex: 1;
-            display: flex;
-            overflow: hidden;
-        }
-        .chapter-list-panel {
-            width: 360px;
-            background: #1f2937;
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-            margin: 1rem 0 1rem 1rem;
-            border-radius: 16px;
-            overflow: hidden;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
-            border: 1px solid #374151;
-        }
-        .panel-header {
-            padding: 0.875rem 1rem;
-            background: #1f2937;
-            border-bottom: 1px solid #374151;
-            font-weight: 600;
-            font-size: 0.9rem;
-            color: #f9fafb;
-        }
-        .panel-toolbar {
-            padding: 0.5rem 1rem;
-            border-bottom: 1px solid #374151;
-            background: #1f2937;
-        }
-        .chapter-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 0.5rem;
-        }
-        .chapter-item {
-            padding: 0.75rem;
-            border-radius: 10px;
-            margin-bottom: 0.4rem;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 1px solid transparent;
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-        .chapter-item:hover {
-            background: #374151;
-            border-color: #4b5563;
-        }
-        .chapter-item.active {
-            background: linear-gradient(135deg, rgba(129, 140, 248, 0.1) 0%, rgba(99, 102, 241, 0.06) 100%);
-            border-color: rgba(129, 140, 248, 0.25);
-        }
-        .chapter-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .chapter-number {
-            font-weight: 600;
-            font-size: 0.9rem;
-            color: #f9fafb;
-        }
-        .chapter-title {
-            font-weight: 500;
-            color: #d1d5db;
-            font-size: 0.9rem;
-        }
-        .chapter-meta {
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
-            font-size: 0.75rem;
-            color: #9ca3af;
-        }
-        .badge {
-            padding: 0.15rem 0.5rem;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            font-weight: 600;
-        }
-        .badge-draft {
-            background: #78350f;
-            color: #fbbf24;
-        }
-        .badge-published {
-            background: #064e3b;
-            color: #34d399;
-        }
-        .badge-archived {
-            background: #374151;
-            color: #9ca3af;
-        }
-        .editor-panel {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            margin: 1rem;
-            background: #1f2937;
-            border-radius: 16px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
-            border: 1px solid #374151;
-            overflow: hidden;
-        }
-        .editor-header {
-            padding: 0.875rem 1.25rem;
-            border-bottom: 1px solid #374151;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #1f2937;
-        }
-        .editor-body {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            padding: 1.25rem;
-            overflow: hidden;
-        }
-        .editor-form-group {
-            margin-bottom: 0.75rem;
-        }
-        .form-label {
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #d1d5db;
-            margin-bottom: 0.25rem;
-        }
-        .form-control {
-            border-radius: 10px;
-            border-color: #4b5563;
-            font-size: 0.9rem;
-            padding: 0.6rem 0.85rem;
-            background: #111827;
-            color: #f9fafb;
-        }
-        .form-control:focus {
-            border-color: #818cf8;
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
-            background: #111827;
-            color: #f9fafb;
-        }
-        .form-control::placeholder {
-            color: #6b7280;
-        }
-        .form-select {
-            border-radius: 10px;
-            border-color: #4b5563;
-            background: #111827;
-            color: #f9fafb;
-            padding: 0.6rem 0.85rem;
-        }
-        .form-select:focus {
-            border-color: #818cf8;
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
-        }
-        .form-select option {
-            background: #1f2937;
-            color: #f9fafb;
-        }
-        .editor-textarea {
-            flex: 1;
-            resize: none;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.7;
-            font-size: 0.95rem;
-            padding: 0.85rem;
-        }
-        .btn-toolbar {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-        .btn-gradient {
-            border: none;
-            border-radius: 10px;
-            padding: 0.5rem 0.9rem;
-            font-weight: 600;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-            cursor: pointer;
-        }
-        .btn-gradient:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .btn-gradient-primary {
-            background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-            color: #fff;
-        }
-        .btn-gradient-primary:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-        }
-        .btn-gradient-success {
-            background: linear-gradient(135deg, var(--success) 0%, #16a34a 100%);
-            color: #fff;
-        }
-        .btn-gradient-success:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35);
-        }
-        .btn-outline-gradient {
-            border-radius: 10px;
-            padding: 0.5rem 0.9rem;
-            font-weight: 600;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.375rem;
-            cursor: pointer;
-        }
-        .btn-outline-gradient:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .btn-outline-primary {
-            border: 1.5px solid #818cf8;
-            color: #818cf8;
-            background: transparent;
-        }
-        .btn-outline-primary:hover:not(:disabled) {
-            background: rgba(129, 140, 248, 0.1);
-        }
-        .btn-outline-warning {
-            border: 1.5px solid var(--warning);
-            color: var(--warning);
-            background: transparent;
-        }
-        .btn-outline-warning:hover:not(:disabled) {
-            background: rgba(245, 158, 11, 0.1);
-        }
-        .btn-outline-danger {
-            border: 1.5px solid var(--danger);
-            color: var(--danger);
-            background: transparent;
-        }
-        .btn-outline-danger:hover:not(:disabled) {
-            background: rgba(239, 68, 68, 0.1);
-        }
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(8px);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal-overlay.show {
-            display: flex;
-        }
-        .modal-content {
-            background: #1f2937;
-            border: 1px solid #374151;
-            border-radius: 16px;
-            width: 90%;
-            max-width: 520px;
-            overflow: hidden;
-            animation: modalFadeIn 0.2s ease;
-        }
-        .modal-lg {
-            max-width: 700px;
-        }
-        @keyframes modalFadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .modal-header {
-            padding: 1rem 1.25rem;
-            border-bottom: 1px solid #374151;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .modal-header h5 {
-            margin: 0;
-            font-size: 1rem;
-            font-weight: 600;
-            color: #f9fafb;
-        }
-        .modal-body {
-            padding: 1.25rem;
-            color: #d1d5db;
-        }
-        .modal-body pre {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            background: #111827;
-            color: #d1d5db;
-            padding: 1rem;
-            border-radius: 10px;
-            font-size: 0.9rem;
-            line-height: 1.6;
-            max-height: 450px;
-            overflow-y: auto;
-            border: 1px solid #374151;
-        }
-        .modal-footer {
-            padding: 1rem 1.25rem;
-            border-top: 1px solid #374151;
-            display: flex;
-            justify-content: flex-end;
-            gap: 0.5rem;
-        }
-        .modal-footer .btn {
-            padding: 0.5rem 1.25rem;
-            border-radius: 10px;
-        }
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 2000;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        .toast-item {
-            background: #1f2937;
-            color: #f9fafb;
-            padding: 0.875rem 1.25rem;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-            animation: toastSlideIn 0.3s ease;
-            font-size: 0.9rem;
-            font-weight: 500;
-            min-width: 280px;
-            border: 1px solid #374151;
-        }
-        .toast-item.toast-success {
-            background: linear-gradient(135deg, #059669 0%, #047857 100%);
-            color: #fff;
-            border-color: #059669;
-        }
-        .toast-item.toast-error {
-            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-            color: #fff;
-            border-color: #dc2626;
-        }
-        @keyframes toastSlideIn {
-            from { opacity: 0; transform: translateX(100%); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes toastSlideOut {
-            from { opacity: 1; transform: translateX(0); }
-            to { opacity: 0; transform: translateX(100%); }
-        }
-        .loading-spinner {
-            display: inline-block;
-            width: 18px;
-            height: 18px;
-            border: 2px solid rgba(255,255,255,0.4);
-            border-top-color: white;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        .select-form {
-            display: flex;
-            gap: 0.5rem;
-        }
-        .stats-bar {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-            font-size: 0.8rem;
-            color: #9ca3af;
-        }
-        .ai-chat-panel {
-            margin-top: 1rem;
-            border-top: 1px dashed #374151;
-            padding-top: 1rem;
-        }
-        .ai-chat-header {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #818cf8;
-        }
-        .ai-chat-messages {
-            max-height: 150px;
-            overflow-y: auto;
-            margin-bottom: 0.5rem;
-        }
-        .ai-message {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 0.5rem;
-            font-size: 0.85rem;
-        }
-        .ai-message.user {
-            justify-content: flex-end;
-        }
-        .ai-message-avatar {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.65rem;
-            flex-shrink: 0;
-        }
-        .ai-message.user .ai-message-avatar {
-            background: linear-gradient(135deg, #818cf8, #6366f1);
-            color: white;
-        }
-        .ai-message.assistant .ai-message-avatar {
-            background: linear-gradient(135deg, rgba(129,140,248,0.15), rgba(99,102,241,0.15));
-            color: #818cf8;
-        }
-        .ai-message-bubble {
-            padding: 0.5rem 0.75rem;
-            border-radius: 10px;
-            max-width: 85%;
-            line-height: 1.5;
-        }
-        .ai-message.user .ai-message-bubble {
-            background: linear-gradient(135deg, #818cf8, #6366f1);
-            color: white;
-        }
-        .ai-message.assistant .ai-message-bubble {
-            background: #374151;
-            color: #d1d5db;
-        }
-        .ai-input-row {
-            display: flex;
-            gap: 0.5rem;
-            align-items: flex-end;
-        }
-        .ai-input-row textarea {
-            flex: 1;
-            border-radius: 10px;
-            border-color: #4b5563;
-            padding: 0.6rem 0.85rem;
-            font-size: 0.875rem;
-            resize: none;
-            min-height: 42px;
-            max-height: 120px;
-            transition: border-color 0.2s, box-shadow 0.2s;
-            background: #111827;
-            color: #f9fafb;
-        }
-        .ai-input-row textarea::placeholder {
-            color: #6b7280;
-        }
-        .ai-input-row textarea:focus {
-            outline: none;
-            border-color: #818cf8;
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
-        }
-        .btn-ai-send {
-            width: 42px;
-            height: 42px;
-            border-radius: 10px;
-            border: none;
-            background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            flex-shrink: 0;
-            transition: all 0.2s;
-        }
-        .btn-ai-send:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-        }
-        .btn-ai-send:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .quick-prompts {
-            display: flex;
-            gap: 0.375rem;
-            flex-wrap: wrap;
-            margin-bottom: 0.5rem;
-        }
-        .quick-prompt-btn {
-            padding: 0.25rem 0.625rem;
-            border-radius: 6px;
-            border: 1px solid #374151;
-            background: #1f2937;
-            font-size: 0.75rem;
-            color: #9ca3af;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .quick-prompt-btn:hover {
-            border-color: #818cf8;
-            color: #818cf8;
-            background: rgba(129,140,248,0.1);
-        }
-        .progress-container {
-            background: #1f2937;
-            border: 1px solid #374151;
-            border-radius: 8px;
-        }
-        .progress-text {
-            color: #d1d5db;
-        }
-        .progress-bar-wrapper {
-            width: 100%;
-            height: 6px;
-            background: #374151;
-            border-radius: 3px;
-            overflow: hidden;
-        }
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(135deg, #818cf8, #6366f1);
-            border-radius: 3px;
-            transition: width 0.3s ease;
-        }
-        .output-preview {
-            background: #111827;
-            color: #d1d5db;
-            border: 1px solid #374151;
-            border-radius: 8px;
-            font-size: 0.8rem;
-        }
-        #current-chapter-label {
-            color: #f9fafb;
-        }
-    </style>
+    <link href="/static/css/chapter.css" rel="stylesheet">
 </head>
 <body>
-    <div id="loadingOverlay" class="loading-overlay">
-        <div class="loading-spinner" style="width: 40px; height: 40px; border-width: 3px;"></div>
-    </div>
 
     <div class="main-content-full">
         <div class="content-header">
             <div class="d-flex align-items-center gap-3">
-                <button class="btn btn-outline-secondary btn-back" onclick="goBack()">
+                <button class="btn btn-outline-secondary btn-back">
                     <i class="fas fa-arrow-left"></i>
                 </button>
                 <div>
@@ -674,15 +23,17 @@
                 </div>
             </div>
             <div class="d-flex gap-2 align-items-center select-form">
+                <label class="select-label" for="volume-version-select">卷版本</label>
                 <select class="form-select" id="volume-version-select" style="width: 180px;">
                     <option value="">请选择卷版本</option>
                 </select>
+                <label class="select-label" for="volume-select">卷</label>
                 <select class="form-select" id="volume-select" style="width: 180px;" disabled>
                     <option value="">请选择卷</option>
                 </select>
-                <button class="btn btn-gradient-primary" id="generate-chapters-btn" onclick="generateChapterSummaries()" disabled>
-                    <i class="fas fa-magic"></i>
-                    <span>生成章节</span>
+                <button class="btn btn-gradient-primary generate-chapters-btn" id="generate-chapters-btn" onclick="generateChapterSummaries()" disabled>
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                    <span>AI 生成章节</span>
                 </button>
             </div>
         </div>
@@ -691,15 +42,18 @@
             <!-- 左侧：章节列表 -->
             <div class="chapter-list-panel">
                 <div class="panel-header">
-                    <i class="fas fa-book-open me-2"></i>
-                    章节列表
-                </div>
-                <div class="panel-toolbar">
-                    <div class="btn-toolbar justify-content-between">
-                        <select class="form-select form-select-sm" id="chapter-version-select" style="width: auto; min-width: 150px;">
-                            <option value="">版本选择</option>
+                    <div class="d-flex align-items-center justify-content-between">
+                        <span><i class="fas fa-book-open me-2"></i>章节列表 <span class="badge bg-secondary text-white" id="total-chapters-count">-章</span></span>
+                        <select class="form-select form-select-sm status-filter-select" id="chapter-status-filter" onchange="filterChaptersByStatus()">
+                            <option value="">全部</option>
+                            <option value="summary">已生成概述</option>
+                            <option value="draft">草稿</option>
+                            <option value="failed">生成失败</option>
+                            <option value="locked">已锁定</option>
+                            <option value="published">已发布</option>
+                            <option value="archived">已归档</option>
+                            <option value="deleted">已删除</option>
                         </select>
-                        <span class="badge bg-secondary text-white" id="total-chapters-count">-章</span>
                     </div>
                 </div>
                 <div class="chapter-list" id="chapter-list">
@@ -715,52 +69,75 @@
                 <div class="editor-header">
                     <div class="d-flex align-items-center gap-2">
                         <span class="fw-bold" id="current-chapter-label">请选择章节</span>
-                        <span class="stats-bar" id="current-chapter-stats"></span>
+                        <i class="fas fa-pen-to-square chapter-title-edit-icon" id="chapter-title-edit-icon" onclick="startEditTitle()" style="display:none; cursor:pointer; color:#818cf8; font-size:0.8rem;" title="编辑标题"></i>
+                        <input type="text" class="form-control chapter-title-inline-input" id="chapter-title-input" style="display:none;" placeholder="输入章节标题">
+                        <button class="btn btn-sm chapter-title-save-btn" id="chapter-title-save-btn" onclick="finishEditTitle()" style="display:none;"><i class="fas fa-check"></i></button>
                     </div>
                     <div class="btn-toolbar">
-                        <button class="btn btn-outline-gradient btn-outline-primary" id="btn-generate-content" onclick="generateChapterContent()" disabled>
-                            <i class="fas fa-sparkles"></i> 生成内容
-                        </button>
-                        <button class="btn btn-outline-gradient btn-outline-primary" id="btn-verify" onclick="verifyChapter()" disabled>
+                        <!-- 未锁定时显示的修改按钮 -->
+                        <button class="btn btn-verify btn-modify" id="btn-verify" onclick="verifyChapter()" disabled>
                             <i class="fas fa-check-double"></i> 校验
                         </button>
-                        <button class="btn btn-outline-gradient btn-outline-warning" id="btn-split" onclick="splitChapter()" disabled>
+                        <button class="btn btn-warning-action btn-modify" id="btn-split" onclick="splitChapter()" disabled>
                             <i class="fas fa-cut"></i> 拆分
                         </button>
-                        <button class="btn btn-outline-gradient btn-outline-warning" id="btn-continue" onclick="continueChapter()" disabled>
-                            <i class="fas fa-share"></i> 延续
-                        </button>
-                        <button class="btn btn-outline-gradient btn-outline-primary" id="btn-optimize" onclick="optimizeChapter()" disabled>
-                            <i class="fas fa-wand-magic-sparkles"></i> 优化
-                        </button>
-                        <button class="btn btn-gradient-primary" id="btn-save" onclick="saveChapter()" disabled>
+                        <!-- 保存/取消：仅手动修改后显示 -->
+                        <button class="btn btn-save" id="btn-save" onclick="saveChapter()" style="display:none;">
                             <i class="fas fa-save"></i> 保存
                         </button>
-                        <button class="btn btn-gradient-success" id="btn-publish" onclick="publishChapter()" disabled>
+                        <button class="btn btn-cancel" id="btn-cancel" onclick="cancelEdit()" style="display:none;">
+                            <i class="fas fa-times"></i> 取消
+                        </button>
+                        <!-- 锁定后才显示发布 -->
+                        <button class="btn btn-publish" id="btn-publish" onclick="publishChapter()" style="display:none;">
                             <i class="fas fa-rocket"></i> 发布
+                        </button>
+                        <button class="btn btn-lock" id="btn-lock" onclick="toggleLock()" disabled>
+                            <i class="fas fa-lock-open"></i> <span>锁定</span>
+                        </button>
+                        <button class="btn btn-delete" id="btn-delete" onclick="deleteChapter()" disabled>
+                            <i class="fas fa-trash-alt"></i> 删除
                         </button>
                     </div>
                 </div>
                 <div class="editor-body">
-                    <div class="editor-form-group">
-                        <label class="form-label">章节标题</label>
-                        <input type="text" class="form-control" id="chapter-title-input" placeholder="章节标题">
+                    <!-- 未选择章节时的占位 -->
+                    <div class="editor-empty-state" id="editor-empty-state">
+                        <i class="fas fa-feather-pointed"></i>
+                        <p class="editor-empty-title">选择一个章节开始创作</p>
+                        <p class="editor-empty-hint">从左侧章节列表中选择章节，或点击「AI 生成章节」创建新内容</p>
                     </div>
-                    <div class="editor-form-group">
-                        <label class="form-label">章节摘要</label>
-                        <textarea class="form-control" id="chapter-summary-input" rows="2" placeholder="章节摘要"></textarea>
-                    </div>
+                    <!-- 编辑器内容区 -->
+                    <div class="editor-content-area" id="editor-content-area" style="display:none;">
                     <div class="editor-form-group flex-grow-1 d-flex flex-column">
-                        <label class="form-label">章节内容</label>
-                        <textarea class="form-control editor-textarea" id="chapter-content-input" placeholder="开始创作..."></textarea>
+                        <div class="content-tabs">
+                            <button class="content-tab active" id="tab-content" onclick="switchEditorTab('content')">章节内容</button>
+                            <button class="content-tab" id="tab-summary" onclick="switchEditorTab('summary')">章节概述</button>
+                        </div>
+                        <div class="editor-content-wrapper" id="editor-content-wrapper">
+                            <textarea class="form-control editor-textarea" id="chapter-content-input" placeholder="开始创作..."></textarea>
+                            <div class="empty-content-placeholder" id="empty-content-placeholder" style="display:none;">
+                                <i class="fas fa-file-lines"></i>
+                                <p>暂无章节内容</p>
+                                <button class="btn btn-gradient-primary" id="btn-generate-single" onclick="generateSingleChapterContent()">
+                                    <i class="fas fa-wand-magic-sparkles"></i> AI 生成
+                                </button>
+                                <!-- 已删除章节操作按钮 -->
+                                <div id="deleted-chapter-actions" style="display:none; gap: 0.75rem; align-items: center;">
+                                    <button class="btn-restore" onclick="restoreChapter()">
+                                        <i class="fas fa-rotate-left"></i> 恢复
+                                    </button>
+                                    <button class="btn-hard-delete" onclick="showHardDeleteModal()">
+                                        <i class="fas fa-trash-alt"></i> 彻底删除
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <textarea class="form-control editor-textarea" id="chapter-summary-input" placeholder="输入章节概述..." style="display:none;"></textarea>
                     </div>
 
                     <!-- AI对话面板 -->
                     <div class="ai-chat-panel" id="ai-chat-panel">
-                        <div class="ai-chat-header">
-                            <i class="fas fa-robot"></i>
-                            <span>AI 写作助手</span>
-                        </div>
                         <div class="quick-prompts" id="quick-prompts">
                             <button class="quick-prompt-btn" onclick="insertPrompt('继续写下去，保持风格一致')">继续写</button>
                             <button class="quick-prompt-btn" onclick="insertPrompt('补充更多细节描写')">补充细节</button>
@@ -770,29 +147,41 @@
                         </div>
                         <div class="ai-chat-messages" id="ai-chat-messages"></div>
                         <div class="ai-input-row">
-                            <textarea id="ai-chat-input" rows="1" placeholder="输入指令让AI帮你写作... (Enter发送, Shift+Enter换行)"></textarea>
+                            <textarea id="ai-chat-input" rows="2" placeholder="输入指令让AI帮你写作... (Enter发送, Shift+Enter换行)"></textarea>
                             <button class="btn-ai-send" id="btn-ai-send" onclick="sendAiMessage()">
                                 <i class="fas fa-paper-plane"></i>
                             </button>
                         </div>
+                    </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 校验结果模态框 -->
+    <!-- 校验结果模态框（check-modal 风格） -->
     <div class="modal-overlay" id="verify-modal">
-        <div class="modal-content modal-lg">
+        <div class="modal-content check-modal">
             <div class="modal-header">
                 <h5><i class="fas fa-clipboard-check me-2"></i> 章节校验结果</h5>
-                <button class="btn-close" onclick="closeModal('verify-modal')"></button>
+                <button class="btn-close" onclick="closeVerifyModal()"><i class="fas fa-times"></i></button>
             </div>
-            <div class="modal-body">
-                <pre id="verify-result"></pre>
+            <div class="modal-body" id="verify-result-body">
+                <div class="check-intro" id="verify-intro">
+                    <p>AI 已完成章节校验，以下是发现的问题：</p>
+                </div>
+                <div class="check-issues-container" id="verify-result">
+                </div>
+                <div class="check-empty" id="verify-empty" style="display: none;">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <p>校验完成，未发现问题</p>
+                </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline-secondary" onclick="closeModal('verify-modal')">关闭</button>
+                <button class="btn btn-outline-secondary" onclick="closeVerifyModal()">关闭</button>
+                <button class="btn btn-gradient-primary" id="btn-verify-fix" onclick="fixVerifyIssues()" style="display: none;">
+                    <i class="fas fa-wand-magic-sparkles"></i> AI修复选中的问题
+                </button>
             </div>
         </div>
     </div>
@@ -814,722 +203,164 @@
         </div>
     </div>
 
+    <!-- 拆分章节模态框 -->
+    <div class="modal-overlay" id="split-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="fas fa-cut me-2"></i> 拆分章节</h5>
+                <button class="btn-close" onclick="closeModal('split-modal')"></button>
+            </div>
+            <div class="modal-body">
+                <div class="split-options">
+                    <div class="split-option-group">
+                        <label>拆分模式</label>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="split-mode" value="by_word_count" onchange="updateSplitDesc()">
+                                按字数拆分
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="split-mode" value="by_plot" onchange="updateSplitDesc()">
+                                按剧情拆分
+                            </label>
+                        </div>
+                        <div class="split-desc" id="split-mode-desc">请选择拆分模式</div>
+                    </div>
+                    <div class="split-option-group">
+                        <label>内容处理</label>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="content-handling" value="insert_next" onchange="updateSplitDesc()">
+                                插入下一章
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="content-handling" value="create_new" onchange="updateSplitDesc()">
+                                新建一章
+                            </label>
+                        </div>
+                        <div class="split-desc" id="split-handling-desc">请选择内容处理方式</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModal('split-modal')">取消</button>
+                <button class="btn btn-gradient-primary" onclick="executeSplit()">确认拆分</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 彻底删除确认模态框 -->
+    <div class="modal-overlay" id="hard-delete-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="fas fa-exclamation-triangle me-2" style="color:#f87171;"></i> 彻底删除章节</h5>
+                <button class="btn-close" onclick="closeModal('hard-delete-modal')"></button>
+            </div>
+            <div class="modal-body">
+                <p id="hard-delete-message" style="color:#f87171; font-weight:500;"></p>
+                <input type="text" class="hard-delete-input" id="hard-delete-input" placeholder="请输入章节名确认删除" oninput="checkHardDeleteInput()">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModal('hard-delete-modal')">取消</button>
+                <button class="btn btn-hard-delete" id="hard-delete-confirm-btn" onclick="executeHardDelete()" disabled>彻底删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除后调整序号提示模态框 -->
+    <div class="modal-overlay" id="reorder-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="fas fa-sort-numeric-down me-2"></i> 调整章节序号</h5>
+                <button class="btn-close" onclick="closeModal('reorder-modal')"></button>
+            </div>
+            <div class="modal-body">
+                <p>章节已删除，章节序号是否需要整体调整，以免缺少章节？</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModal('reorder-modal')">取消</button>
+                <button class="btn btn-gradient-primary" onclick="executeReorder()">调整序号</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 相邻已删除章节警告模态框 -->
+    <div class="modal-overlay" id="deleted-warning-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5><i class="fas fa-exclamation-triangle me-2" style="color:#fbbf24;"></i> 提示</h5>
+                <button class="btn-close" onclick="closeModal('deleted-warning-modal')"></button>
+            </div>
+            <div class="modal-body">
+                <div id="deleted-warning-messages"></div>
+            </div>
+            <div class="modal-footer-three">
+                <button class="btn btn-outline-secondary" onclick="closeModal('deleted-warning-modal')">取消</button>
+                <button class="btn btn-gradient-primary" id="deleted-warning-go-restore-btn">去恢复</button>
+                <button class="btn btn-gradient-primary" id="deleted-warning-confirm-btn">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI对话对比结果弹窗 -->
+    <div class="modal-overlay" id="chat-compare-modal">
+        <div class="modal-content modal-compare">
+            <div class="modal-header py-2">
+                <h6 class="mb-0"><i class="fas fa-code-compare me-2"></i> AI 修改对比 <span class="compare-status-badge ms-2" id="compare-status-badge">已修改 0 章</span></h6>
+                <button class="btn-close" onclick="closeCompareModal()"></button>
+            </div>
+            <div class="modal-body p-0" style="overflow: hidden;">
+                <div class="compare-layout">
+                    <!-- 左侧：章节列表 -->
+                    <div class="compare-chapter-list" id="compare-chapter-list">
+                        <div class="compare-chapter-list-header">修改章节</div>
+                        <div class="compare-chapter-list-body" id="compare-chapter-list-body"></div>
+                    </div>
+                    <!-- 中间：修改前后对比（左右并排） -->
+                    <div class="compare-content">
+                        <div class="compare-content-header">
+                            <span class="compare-chapter-label" id="compare-chapter-label">
+                                <span class="title-original" id="compare-title-original">第1章: 原标题</span>
+                                <span class="title-arrow" id="compare-title-arrow">→</span>
+                                <span class="title-modified" id="compare-title-modified">第1章: 新标题</span>
+                            </span>
+                        </div>
+                        <div class="compare-content-body">
+                            <div class="compare-rows" id="compare-rows">
+                                <div class="compare-rows-placeholder">选择章节查看对比</div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 右侧：AI对话 -->
+                    <div class="compare-chat">
+                        <div class="compare-chat-header">
+                            <i class="fas fa-robot me-1" style="color: #818cf8;"></i> AI 对话
+                        </div>
+                        <div class="compare-chat-messages" id="compare-chat-messages"></div>
+                        <div class="compare-chat-input-row">
+                            <textarea id="compare-chat-input" rows="2" placeholder="继续输入指令... (Enter发送, Shift+Enter换行)"></textarea>
+                            <button class="btn-ai-send" id="btn-compare-chat-send" onclick="sendCompareChatMessage()">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer compare-modal-footer">
+                <button class="btn btn-sm btn-outline-secondary" onclick="cancelCompareChanges()">
+                    <i class="fas fa-times"></i> 取消修改
+                </button>
+                <button class="btn btn-sm btn-gradient-primary" id="btn-compare-save" onclick="saveCompareChanges()">
+                    <i class="fas fa-save"></i> 保存修改
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container" id="toast-container"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/common.js"></script>
-    <script>
-        // 全局变量
-        let projectId = null;
-        let currentVolumeVersionId = null;
-        let currentVolumeId = null;
-        let currentChapterVersionId = null;
-        let currentChapterId = null;
-        let volumes = [];
-        let allChapters = [];
-        let confirmCallback = null;
-        let aiChatHistory = [];
-
-        document.addEventListener('DOMContentLoaded', function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            projectId = urlParams.get('project_id');
-
-            if (projectId) {
-                console.log('projectId:', projectId);
-                loadProjectInfo();
-                loadVolumeVersions();
-            }
-
-            document.getElementById('volume-version-select').addEventListener('change', function() {
-                currentVolumeVersionId = this.value;
-                document.getElementById('volume-select').disabled = !currentVolumeVersionId;
-                if (currentVolumeVersionId) {
-                    loadVolumes(currentVolumeVersionId);
-                    loadChapterVersions(currentVolumeVersionId);
-                } else {
-                    document.getElementById('volume-select').innerHTML = '<option value="">请选择卷</option>';
-                    clearChapterList();
-                }
-            });
-
-            document.getElementById('volume-select').addEventListener('change', function() {
-                console.log('volume-select changed, this.value:', this.value, 'typeof:', typeof this.value);
-                currentVolumeId = this.value;
-                console.log('currentVolumeId after change:', currentVolumeId);
-                document.getElementById('generate-chapters-btn').disabled = !currentVolumeId;
-            });
-
-            document.getElementById('chapter-version-select').addEventListener('change', function() {
-                if (this.value) {
-                    setCurrentChapterVersion(this.value);
-                }
-            });
-        });
-        
-        async function loadProjectInfo() {
-            const data = await api.get(`/api/projects/${projectId}/`);
-            if (data.success) {
-                document.getElementById('project-title').textContent = data.project.title;
-            }
-        }
-
-        async function loadVolumeVersions() {
-            const data = await api.get(`/api/projects/${projectId}/volume-versions/`);
-            if (data.success) {
-                const select = document.getElementById('volume-version-select');
-                select.innerHTML = '<option value="">请选择卷版本</option>';
-
-                let finalizedVersion = null;
-                data.versions.forEach(v => {
-                    const option = document.createElement('option');
-                    option.value = v.id;
-                    option.textContent = `v${v.version_number} (${v.volume_count}卷)${v.is_finalized ? ' ✓' : ''}`;
-                    select.appendChild(option);
-                    if (v.is_finalized) finalizedVersion = v;
-                });
-
-                if (finalizedVersion) {
-                    console.log('Found finalized version:', finalizedVersion);
-                    select.value = finalizedVersion.id;
-                    currentVolumeVersionId = finalizedVersion.id;
-                    document.getElementById('volume-select').disabled = false;
-                    console.log('Calling loadVolumes with versionId:', finalizedVersion.id);
-                    loadVolumes(finalizedVersion.id);
-                    loadChapterVersions(finalizedVersion.id);
-                }
-            }
-        }
-
-        async function loadVolumes(versionId) {
-            if (!versionId) return;
-
-            const data = await api.get(`/api/volume/version/${versionId}/load/`);
-            console.log('loadVolumes API response:', data);
-            if (data.success) {
-                volumes = data.volumes;
-                console.log('volumes array:', volumes);
-                const select = document.getElementById('volume-select');
-                select.innerHTML = '<option value="">请选择卷</option>';
-
-                volumes.forEach((vol, index) => {
-                    console.log(`vol[${index}]:`, vol, 'vol.id:', vol.id, 'typeof:', typeof vol.id);
-                    const option = document.createElement('option');
-                    option.value = vol.id;
-                    option.textContent = `第${vol.volume_number}卷: ${vol.title}`;
-                    select.appendChild(option);
-                });
-
-                if (volumes.length > 0 && !currentVolumeId) {
-                    console.log('auto-selecting first volume, volumes[0].id:', volumes[0].id, 'typeof:', typeof volumes[0].id);
-                    select.value = volumes[0].id;
-                    currentVolumeId = volumes[0].id;
-                    console.log('currentVolumeId after auto-select:', currentVolumeId);
-                    document.getElementById('generate-chapters-btn').disabled = false;
-                }
-            }
-        }
-
-        async function loadChapterVersions(versionId) {
-            if (!versionId) return;
-
-            const data = await api.get(`/api/chapter/versions/${versionId}/load/`);
-            console.log('loadChapterVersions API response:', data);
-            if (data.success) {
-                const select = document.getElementById('chapter-version-select');
-                select.innerHTML = '<option value="">版本选择</option>';
-
-                if (data.versions.length > 0) {
-                    data.versions.forEach(cv => {
-                        const option = document.createElement('option');
-                        option.value = cv.id;
-                        option.textContent = `v${cv.version_number} (${cv.chapters.length}章)`;
-                        select.appendChild(option);
-                    });
-
-                    select.value = data.versions[0].id;
-                    currentChapterVersionId = data.versions[0].id;
-                    allChapters = data.versions[0].chapters;
-                    renderChapterList();
-                } else {
-                    clearChapterList();
-                }
-            }
-        }
-
-        async function setCurrentChapterVersion(versionId) {
-            const data = await api.postForm('/api/chapter/version/current/', `chapter_version_id=${versionId}`);
-            if (data.success) {
-                currentChapterVersionId = versionId;
-                allChapters = data.chapters;
-                renderChapterList();
-            }
-        }
-
-        function renderChapterList() {
-            const container = document.getElementById('chapter-list');
-
-            if (!allChapters || allChapters.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state py-4 px-3 text-center">
-                        <i class="fas fa-file-alt text-muted mb-2" style="font-size: 2rem;"></i>
-                        <p class="text-muted mb-0" style="font-size: 0.85rem;">暂无章节，请先生成</p>
-                    </div>
-                `;
-                document.getElementById('total-chapters-count').textContent = '-章';
-                return;
-            }
-
-            // 按章节号排序
-            allChapters.sort((a, b) => a.chapter_number - b.chapter_number);
-
-            container.innerHTML = allChapters.map(chap => `
-                <div class="chapter-item ${currentChapterId === chap.id ? 'active' : ''}"
-                     onclick="selectChapter(${chap.id})" data-chapter-id="${chap.id}">
-                    <div class="chapter-top">
-                        <span class="chapter-number">第${chap.chapter_number}章</span>
-                        <span class="badge ${getStatusBadgeClass(chap.status)}">${getStatusLabel(chap.status)}</span>
-                    </div>
-                    <div class="chapter-title">${chap.title}</div>
-                    <div class="chapter-meta">
-                        <span><i class="fas fa-font"></i> ${chap.word_count || 0}字</span>
-                        ${chap.published_at ? `<span><i class="fas fa-calendar-check"></i> ${new Date(chap.published_at).toLocaleDateString()}</span>` : ''}
-                    </div>
-                </div>
-            `).join('');
-
-            document.getElementById('total-chapters-count').textContent = `${allChapters.length}章`;
-        }
-
-        function clearChapterList() {
-            const container = document.getElementById('chapter-list');
-            container.innerHTML = `
-                <div class="empty-state py-4 px-3 text-center">
-                    <i class="fas fa-file-alt text-muted mb-2" style="font-size: 2rem;"></i>
-                    <p class="text-muted mb-0" style="font-size: 0.85rem;">请先生成章节</p>
-                </div>
-            `;
-            document.getElementById('total-chapters-count').textContent = '-章';
-            allChapters = [];
-            currentChapterId = null;
-        }
-
-        function selectChapter(chapterId) {
-            const chapter = allChapters.find(c => c.id === chapterId);
-            if (!chapter) return;
-
-            currentChapterId = chapterId;
-            document.getElementById('current-chapter-label').textContent = `第${chapter.chapter_number}章: ${chapter.title}`;
-            document.getElementById('current-chapter-stats').innerHTML = `
-                <span><i class="fas fa-font"></i> ${chapter.word_count || 0}字</span>
-                <span><i class="fas fa-circle ${chapter.status === 'published' ? 'text-success' : 'text-warning'}"></i> ${getStatusLabel(chapter.status)}</span>
-            `;
-
-            document.getElementById('chapter-title-input').value = chapter.title || '';
-            document.getElementById('chapter-summary-input').value = chapter.summary || '';
-            document.getElementById('chapter-content-input').value = chapter.content || '';
-
-            aiChatHistory = [];
-            document.getElementById('ai-chat-messages').innerHTML = '';
-
-            // 更新高亮
-            document.querySelectorAll('.chapter-item').forEach(item => {
-                item.classList.remove('active');
-                if (parseInt(item.dataset.chapterId) === chapterId) {
-                    item.classList.add('active');
-                }
-            });
-
-            // 启用按钮
-            const isPublished = chapter.status === 'published';
-            document.getElementById('btn-generate-content').disabled = isPublished;
-            document.getElementById('btn-verify').disabled = !chapter.content;
-            document.getElementById('btn-split').disabled = isPublished || (chapter.word_count || 0) < 3000;
-            document.getElementById('btn-continue').disabled = isPublished || (chapter.word_count || 0) < 3000;
-            document.getElementById('btn-optimize').disabled = isPublished || !chapter.content;
-            document.getElementById('btn-save').disabled = isPublished;
-            document.getElementById('btn-publish').disabled = isPublished;
-        }
-
-        async function generateChapterSummaries() {
-            console.log('currentVolumeId:', currentVolumeId, 'typeof:', typeof currentVolumeId);
-            const volumeId = parseInt(currentVolumeId);
-            console.log('parsed volumeId:', volumeId);
-            if (!volumeId || isNaN(volumeId)) {
-                showToast('请先选择卷', 'error');
-                return;
-            }
-
-            const btn = document.getElementById('generate-chapters-btn');
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<span class="loading-spinner"></span> 生成中...';
-            btn.disabled = true;
-
-            const progressDiv = document.createElement('div');
-            progressDiv.className = 'progress-container mt-2 p-2 rounded border';
-            progressDiv.innerHTML = `
-                <div class="progress-text mb-2">正在生成章节...</div>
-                <div class="progress-bar-wrapper mt-1 mb-2"><div class="progress-bar" style="width: 0%;"></div></div>
-                <div class="output-preview p-2 rounded max-h-32 overflow-auto border" id="stream-output-preview"></div>
-            `;
-            btn.parentNode.appendChild(progressDiv);
-
-            try {
-                const response = await fetch('/api/chapter/summaries/generate/stream/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Authorization': `Bearer ${api.getToken()}`
-                    },
-                    body: `volume_id=${volumeId}`
-                });
-
-                if (!response.ok) {
-                    throw new Error('网络请求失败: ' + response.statusText);
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder('utf-8');
-                let progress = 0;
-                const progressBar = progressDiv.querySelector('.progress-bar');
-                const progressText = progressDiv.querySelector('.progress-text');
-                const outputPreview = document.getElementById('stream-output-preview');
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n');
-                    
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const data = JSON.parse(line.substring(5));
-                                if (data.type === 'chunk') {
-                                    progress = Math.min(progress + 2, 90);
-                                    progressBar.style.width = `${progress}%`;
-                                    progressText.textContent = '正在生成章节...';
-                                    if (outputPreview && data.content) {
-                                        outputPreview.textContent += data.content;
-                                        outputPreview.scrollTop = outputPreview.scrollHeight;
-                                    }
-                                } else if (data.type === 'complete') {
-                                    progress = 100;
-                                    progressBar.style.width = `${progress}%`;
-                                    progressText.textContent = `生成完成！共 ${data.chapters_count} 章`;
-                                    showToast(`章节概要生成成功！共 ${data.chapters_count} 章`, 'success');
-                                    if (currentVolumeVersionId) {
-                                        await loadChapterVersions(currentVolumeVersionId);
-                                    } else {
-                                        console.error('currentVolumeVersionId is not set');
-                                    }
-                                } else if (data.type === 'error') {
-                                    throw new Error(data.message);
-                                }
-                            } catch (e) {
-                                console.error('解析SSE数据失败:', e);
-                            }
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('生成章节失败:', e);
-                showToast('生成失败: ' + e.message, 'error');
-            } finally {
-                btn.innerHTML = originalHTML;
-                btn.disabled = !currentVolumeId;
-                if (progressDiv) {
-                    progressDiv.remove();
-                }
-                const existingPreview = document.getElementById('stream-output-preview');
-                if (existingPreview) {
-                    existingPreview.remove();
-                }
-            }
-        }
-
-        async function generateChapterContent() {
-            if (!currentChapterId) return;
-
-            const btn = document.getElementById('btn-generate-content');
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<span class="loading-spinner"></span> 生成中...';
-            btn.disabled = true;
-
-            const contentInput = document.getElementById('chapter-content-input');
-            const originalContent = contentInput.value;
-            contentInput.value = '';
-
-            try {
-                const response = await fetch('/api/chapter/content/stream/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Authorization': `Bearer ${api.getToken()}`
-                    },
-                    body: `chapter_id=${currentChapterId}`
-                });
-
-                if (!response.ok) {
-                    throw new Error('网络请求失败: ' + response.statusText);
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder('utf-8');
-                let fullContent = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n');
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const data = JSON.parse(line.substring(5));
-                                if (data.type === 'chunk' && data.content) {
-                                    fullContent += data.content;
-                                    contentInput.value = fullContent;
-                                    contentInput.scrollTop = contentInput.scrollHeight;
-                                } else if (data.type === 'complete') {
-                                    updateLocalChapter(currentChapterId, { content: fullContent });
-                                    showToast('内容生成成功！', 'success');
-                                    document.getElementById('btn-verify').disabled = false;
-                                    document.getElementById('btn-optimize').disabled = false;
-                                    document.getElementById('btn-split').disabled = fullContent.length < 3000;
-                                    document.getElementById('btn-continue').disabled = fullContent.length < 3000;
-                                } else if (data.type === 'error') {
-                                    throw new Error(data.message);
-                                }
-                            } catch (e) {
-                                console.error('解析SSE数据失败:', e);
-                            }
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('生成内容失败:', e);
-                contentInput.value = originalContent;
-                showToast('生成失败: ' + e.message, 'error');
-            }
-
-            btn.innerHTML = originalHTML;
-            btn.disabled = false;
-        }
-
-        async function saveChapter() {
-            if (!currentChapterId) return;
-
-            const btn = document.getElementById('btn-save');
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<span class="loading-spinner"></span> 保存中...';
-            btn.disabled = true;
-
-            try {
-                const title = document.getElementById('chapter-title-input').value;
-                const summary = document.getElementById('chapter-summary-input').value;
-                const content = document.getElementById('chapter-content-input').value;
-
-                const data = await api.postForm('/api/chapter/save/', `chapter_id=${currentChapterId}&title=${encodeURIComponent(title)}&summary=${encodeURIComponent(summary)}&content=${encodeURIComponent(content)}`);
-                if (data.success) {
-                    updateLocalChapter(currentChapterId, { title, summary, content, word_count: data.chapter.word_count });
-                    showToast('保存成功！', 'success');
-                    renderChapterList();
-                    selectChapter(currentChapterId);
-                    // 成功保存后，清除待保存的数据
-                    api.clearPendingData('chapter_editor');
-                } else {
-                    showToast('保存失败: ' + (data.message || ''), 'error');
-                }
-            } catch (e) {
-                showToast('网络错误', 'error');
-            }
-
-            btn.innerHTML = originalHTML;
-            btn.disabled = false;
-        }
-
-        async function verifyChapter() {
-            if (!currentChapterId) return;
-
-            const btn = document.getElementById('btn-verify');
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<span class="loading-spinner"></span> 校验中...';
-            btn.disabled = true;
-
-            try {
-                const data = await api.postForm('/api/chapter/verify/', `chapter_id=${currentChapterId}`);
-                if (data.success) {
-                    document.getElementById('verify-result').textContent = data.verification;
-                    openModal('verify-modal');
-                } else {
-                    showToast('校验失败', 'error');
-                }
-            } catch (e) {
-                showToast('网络错误', 'error');
-            }
-
-            btn.innerHTML = originalHTML;
-            btn.disabled = false;
-        }
-
-        async function splitChapter() {
-            if (!currentChapterId) return;
-
-            showConfirm('拆分章节', '确定要拆分此章节吗？会保留约前3000-3200字，剩余内容成为新章节。', async () => {
-                const btn = document.getElementById('btn-split');
-                const originalHTML = btn.innerHTML;
-                btn.innerHTML = '<span class="loading-spinner"></span> 拆分中...';
-                btn.disabled = true;
-
-                try {
-                    const data = await api.postForm('/api/chapter/split/', `chapter_id=${currentChapterId}`);
-                    if (data.success) {
-                        showToast('拆分成功！', 'success');
-                        await loadChapterVersions();
-                        currentChapterId = null;
-                    } else {
-                        showToast('拆分失败: ' + (data.message || ''), 'error');
-                    }
-                } catch (e) {
-                    showToast('网络错误', 'error');
-                }
-
-                btn.innerHTML = originalHTML;
-                btn.disabled = false;
-            });
-        }
-
-        async function continueChapter() {
-            if (!currentChapterId) return;
-
-            showConfirm('延续章节', '确定要延续此章节吗？会保留约前3100字，续写内容成为新章节。', async () => {
-                const btn = document.getElementById('btn-continue');
-                const originalHTML = btn.innerHTML;
-                btn.innerHTML = '<span class="loading-spinner"></span> 延续中...';
-                btn.disabled = true;
-
-                try {
-                    const data = await api.postForm('/api/chapter/continue/', `chapter_id=${currentChapterId}`);
-                    if (data.success) {
-                        showToast('延续成功！', 'success');
-                        await loadChapterVersions();
-                        currentChapterId = null;
-                    } else {
-                        showToast('延续失败: ' + (data.message || ''), 'error');
-                    }
-                } catch (e) {
-                    showToast('网络错误', 'error');
-                }
-
-                btn.innerHTML = originalHTML;
-                btn.disabled = false;
-            });
-        }
-
-        async function optimizeChapter() {
-            if (!currentChapterId) return;
-
-            const btn = document.getElementById('btn-optimize');
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<span class="loading-spinner"></span> 优化中...';
-            btn.disabled = true;
-
-            try {
-                const data = await api.postForm('/api/chapter/content/optimize/', `chapter_id=${currentChapterId}`);
-                if (data.success) {
-                    document.getElementById('chapter-content-input').value = data.content;
-                    updateLocalChapter(currentChapterId, { content: data.content });
-                    showToast('优化成功！', 'success');
-                } else {
-                    showToast('优化失败', 'error');
-                }
-            } catch (e) {
-                showToast('网络错误', 'error');
-            }
-
-            btn.innerHTML = originalHTML;
-            btn.disabled = false;
-        }
-
-        function insertPrompt(text) {
-            document.getElementById('ai-chat-input').value = text;
-            document.getElementById('ai-chat-input').focus();
-        }
-
-        async function sendAiMessage() {
-            const input = document.getElementById('ai-chat-input');
-            const message = input.value.trim();
-            if (!message) return;
-
-            if (!currentChapterId) {
-                showToast('请先选择章节', 'error');
-                return;
-            }
-
-            const chapter = allChapters.find(c => c.id === currentChapterId);
-            if (!chapter) return;
-
-            input.value = '';
-            input.style.height = 'auto';
-
-            addAiMessage('user', message);
-            aiChatHistory.push({ role: 'user', content: message });
-
-            const sendBtn = document.getElementById('btn-ai-send');
-            sendBtn.disabled = true;
-            sendBtn.innerHTML = '<span class="loading-spinner"></span>';
-
-            try {
-                const data = await api.postForm('/api/chat/chapter/write/', `chapter_id=${currentChapterId}&message=${encodeURIComponent(message)}&outline=${encodeURIComponent(chapter.chapter_version?.volume?.volume_version?.outline_version?.content || '')}&volume_title=${encodeURIComponent(chapter.chapter_version?.volume?.title || '')}&volume_summary=${encodeURIComponent(chapter.chapter_version?.volume?.summary || '')}&chapter_number=${chapter.chapter_number}&chapter_title=${encodeURIComponent(chapter.title)}&chapter_content=${encodeURIComponent(chapter.content || '')}&chat_history=${encodeURIComponent(JSON.stringify(aiChatHistory))}`);
-                if (data.success) {
-                    addAiMessage('assistant', data.response);
-                    aiChatHistory.push({ role: 'assistant', content: data.response });
-
-                    if (data.content) {
-                        document.getElementById('chapter-content-input').value = data.content;
-                        updateLocalChapter(currentChapterId, { content: data.content });
-                    }
-                    if (data.title) {
-                        document.getElementById('chapter-title-input').value = data.title;
-                        updateLocalChapter(currentChapterId, { title: data.title });
-                    }
-                    showToast('AI 创作完成！', 'success');
-                    renderChapterList();
-                } else {
-                    addAiMessage('assistant', '抱歉，创作失败：' + (data.message || '未知错误'));
-                }
-            } catch (e) {
-                addAiMessage('assistant', '网络错误，请重试');
-            }
-
-            sendBtn.disabled = false;
-            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
-        }
-
-        function addAiMessage(role, content) {
-            const container = document.getElementById('ai-chat-messages');
-            const msgDiv = document.createElement('div');
-            msgDiv.className = `ai-message ${role}`;
-            msgDiv.innerHTML = `
-                <div class="ai-message-avatar">${role === 'user' ? '我' : 'AI'}</div>
-                <div class="ai-message-bubble">${content}</div>
-            `;
-            container.appendChild(msgDiv);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        async function publishChapter() {
-            if (!currentChapterId) return;
-
-            showConfirm('发布章节', '确定要发布此章节吗？发布后将无法编辑。', async () => {
-                try {
-                    const data = await api.postForm('/api/chapter/publish/', `chapter_id=${currentChapterId}`);
-                    if (data.success) {
-                        showToast('发布成功！', 'success');
-                        updateLocalChapter(currentChapterId, { status: 'published' });
-                        renderChapterList();
-                        selectChapter(currentChapterId);
-                    } else {
-                        showToast('发布失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('网络错误', 'error');
-                }
-            });
-        }
-
-        function updateLocalChapter(id, fields) {
-            const idx = allChapters.findIndex(c => c.id === id);
-            if (idx >= 0) {
-                allChapters[idx] = { ...allChapters[idx], ...fields };
-            }
-        }
-
-        function getStatusBadgeClass(status) {
-            if (status === 'published') return 'badge-published';
-            if (status === 'archived') return 'badge-archived';
-            return 'badge-draft';
-        }
-
-        function getStatusLabel(status) {
-            if (status === 'published') return '已发布';
-            if (status === 'archived') return '已归档';
-            return '草稿';
-        }
-
-        function openModal(id) {
-            document.getElementById(id).classList.add('show');
-        }
-
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('show');
-        }
-
-        function showConfirm(title, message, callback) {
-            document.getElementById('confirm-title').textContent = title;
-            document.getElementById('confirm-message').textContent = message;
-            confirmCallback = callback;
-            openModal('confirm-modal');
-        }
-
-        async function executeConfirm() {
-            closeModal('confirm-modal');
-            if (confirmCallback) {
-                await confirmCallback();
-            }
-        }
-
-        function showToast(message, type) {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast-item toast-${type}`;
-            toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>${message}`;
-            container.appendChild(toast);
-            setTimeout(() => {
-                toast.style.animation = 'toastSlideOut 0.3s ease forwards';
-                setTimeout(() => toast.remove(), 300);
-            }, 3500);
-        }
-
-        function goBack() {
-            window.location.href = `project.html?project_id=${projectId}`;
-        }
-
-        function getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            const aiInput = document.getElementById('ai-chat-input');
-            if (aiInput) {
-                aiInput.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        sendAiMessage();
-                    }
-                });
-                aiInput.addEventListener('input', function() {
-                    this.style.height = 'auto';
-                    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-                });
-            }
-        });
-    </script>
+    <script src="/static/js/chapter.js"></script>
 </body>
 </html>

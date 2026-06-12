@@ -321,8 +321,8 @@ body {
 }
 
 .loading-content {
-    width: 160px;
-    aspect-ratio: 1;
+    min-width: 160px;
+    max-width: 400px;
     background: linear-gradient(145deg, #2a3347 0%, #1a2236 100%);
     border-radius: 20px;
     padding: 24px;
@@ -355,7 +355,7 @@ body {
 
 .loading-content p {
     text-align: center;
-    word-break: break-all;
+    white-space: pre-line;
     color: var(--text-secondary);
     font-size: 0.8rem;
     font-weight: 500;
@@ -434,6 +434,10 @@ body {
 
 .api-toast-error {
     border-left: 4px solid var(--danger);
+}
+
+.api-toast-warning {
+    border-left: 4px solid #eab308;
 }
 
 .toast-item.toast-success {
@@ -776,6 +780,10 @@ body {
 
 .api-toast-item.api-toast-error {
     background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.api-toast-item.api-toast-warning {
+    background: linear-gradient(135deg, #eab308 0%, #ca8a04 100%);
 }
 
 @keyframes toastSlideIn {

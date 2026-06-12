@@ -19,15 +19,6 @@ document.addEventListener('DOMContentLoaded', function() {
     initBackToProjectButton('.back-btn', 'project.html');
 });
 
-async function checkAuth() {
-    try {
-        const data = await api.get('/api/auth/user/');
-        if (!data.success) {
-        }
-    } catch (error) {
-    }
-}
-
 async function loadProjectInfo() {
     try {
         const data = await api.get(`/api/projects/${currentProjectId}/`);

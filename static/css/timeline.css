@@ -821,7 +821,7 @@ textarea:disabled {
     margin-top: 0;
     padding: 1.25rem;
     border-top: 1px solid var(--border);
-    background: rgba(17, 24, 39, 0.5);
+    background: rgba(30, 41, 59, 0.5);
     border-radius: 0 0 12px 0;
 }
 

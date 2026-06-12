@@ -2,10 +2,13 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.static import serve
 from django.conf import settings
+from django.http import HttpResponse
 import os
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    path('favicon.ico', lambda r: HttpResponse(b'', content_type='image/x-icon')),
 
     # 用户认证路由
     path('', include('apps.user.urls')),
@@ -21,9 +24,6 @@ urlpatterns = [
 
     # 章节路由
     path('', include('apps.chapter.urls')),
-
-    # AI 路由
-    path('api/', include('apps.ai.urls')),
 
     # 世界观路由
     path('', include('apps.worldview.urls')),

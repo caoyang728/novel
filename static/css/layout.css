@@ -2,7 +2,7 @@ body {
     font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
     min-height: 100vh;
     margin: 0;
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    background: linear-gradient(135deg, #1e293b 0%, #1e293b 50%, #1e293b 100%);
     background-attachment: fixed;
     color: #f9fafb;
 }
@@ -83,7 +83,7 @@ body {
     margin-top: 0.75rem;
     padding: 0.65rem;
     border: 1.5px solid rgba(107, 114, 128, 0.4);
-    background: linear-gradient(135deg, rgba(75, 85, 99, 0.15) 0%, rgba(55, 65, 81, 0.1) 100%);
+    background: linear-gradient(135deg, rgba(91, 106, 122, 0.15) 0%, rgba(55, 65, 81, 0.1) 100%);
     color: #9ca3af;
     border-radius: 12px;
     font-size: 0.875rem;
@@ -97,7 +97,7 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 .user-info .btn-logout:hover {
-    background: linear-gradient(135deg, rgba(107, 114, 128, 0.25) 0%, rgba(75, 85, 99, 0.2) 100%);
+    background: linear-gradient(135deg, rgba(107, 114, 128, 0.25) 0%, rgba(91, 106, 122, 0.2) 100%);
     border-color: rgba(156, 163, 175, 0.6);
     color: #d1d5db;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
@@ -140,7 +140,7 @@ body {
     display: flex;
 }
 .custom-modal {
-    background: #1f2937;
+    background: #334155;
     border-radius: 16px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     min-width: 360px;
@@ -173,8 +173,8 @@ body {
     margin-bottom: 0.5rem;
 }
 .custom-modal-body .form-control {
-    background: #111827;
-    border: 1px solid #4b5563;
+    background: #1e293b;
+    border: 1px solid #5b6a7a;
     color: #f9fafb;
     border-radius: 10px;
     padding: 0.75rem 1rem;
@@ -198,12 +198,12 @@ body {
     display: flex;
     justify-content: flex-end;
     gap: 0.75rem;
-    background: #1f2937;
+    background: #334155;
     border-radius: 0 0 16px 16px;
 }
 .custom-modal-footer .btn-secondary {
     background: #374151;
-    border: 1px solid #4b5563;
+    border: 1px solid #5b6a7a;
     color: #d1d5db;
     border-radius: 10px;
     padding: 0.625rem 1.25rem;
@@ -212,7 +212,7 @@ body {
     transition: all 0.2s;
 }
 .custom-modal-footer .btn-secondary:hover {
-    background: #4b5563;
+    background: #5b6a7a;
     border-color: #818cf8;
     color: #fff;
 }
@@ -237,7 +237,7 @@ body {
 }
 .empty-state i {
     font-size: 4rem;
-    color: #4b5563;
+    color: #5b6a7a;
     margin-bottom: 1rem;
 }
 .empty-state p {

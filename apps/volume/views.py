@@ -7,18 +7,14 @@ import time
 from loguru import logger
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
 from langchain_core.prompts import ChatPromptTemplate
 
+from apps.project.base import BaseAPIView
 from apps.project.models import ProjectList
 from apps.outline.models import OutlineVersion
 from apps.volume.models import VolumeVersion, VolumeList
 from apps.volume.serializers import VolumeListSerializer
-from apps.characters.models import Character
-from apps.worldview.models import WorldView
-from apps.timeline.models import TimelineEvent
-from apps.ai.llm import get_llm
+from agent.llm import get_llm, log_token_usage, call_llm_with_retry
 from apps.volume.prompts import (
     VOLUME_ANALYSIS_SYSTEM_PROMPT, VOLUME_ANALYSIS_USER_PROMPT,
     VOLUME_GENERATION_SYSTEM_PROMPT, VOLUME_GENERATION_USER_PROMPT,
@@ -31,30 +27,14 @@ from apps.volume.prompts import (
 VOLUME_START_MARKER = '════VOLUME_START════'
 CHAPTER_START_MARKER = '════CHAPTER_START════'
 from apps.user.models import TokenUsageLog
-from novel_agent.authentication import JWTAuthentication
 
 
 # ========== 基础视图类 ==========
 
-class BaseVolumeAPIView(APIView):
-    """卷API基础类 - 封装鉴权、项目查询、上下文格式化和通用工具方法"""
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+class BaseVolumeAPIView(BaseAPIView):
+    """卷API基础类 - 继承项目基础类，添加卷相关工具方法"""
 
-    # ---------- 通用工具方法 ----------
-
-    @staticmethod
-    def get_chunk_text(chunk):
-        """从 LangChain 的 stream chunk 中提取纯文本内容"""
-        if hasattr(chunk, 'content'):
-            content = chunk.content
-            if isinstance(content, list):
-                return ''.join(block.get('text', str(block)) if isinstance(block, dict) else str(block) for block in content)
-            elif isinstance(content, str):
-                return content
-            else:
-                return str(content)
-        return str(chunk)
+    # ---------- 卷专用工具方法 ----------
 
     @staticmethod
     def volume_to_dict(vol):
@@ -88,23 +68,6 @@ class BaseVolumeAPIView(APIView):
             outline_version=outline_version,
             version_number=new_version_number
         )
-
-    @staticmethod
-    def sse_event(event_type, data=None, **kwargs):
-        """格式化 SSE 事件"""
-        payload = {'type': event_type}
-        if data:
-            payload.update(data)
-        payload.update(kwargs)
-        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-    @staticmethod
-    def sse_response(generator_func):
-        """创建 SSE StreamingHttpResponse"""
-        response = StreamingHttpResponse(generator_func(), content_type='text/event-stream')
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'
-        return response
 
     @staticmethod
     def parse_volumes_json(volumes_json):
@@ -179,66 +142,7 @@ class BaseVolumeAPIView(APIView):
 
         return parsed_volumes
 
-    # ---------- 请求与查询方法 ----------
-
-    def call_llm_with_retry(self, chain, input_vars, stream=False, user=None, project=None):
-        """LCEL模式调用LLM，支持重试"""
-        from django.conf import settings
-
-        max_retries = settings.LLM_RETRY
-        retry_interval = settings.LLM_RETRY_INTERVAL
-
-        for retry_count in range(max_retries):
-            try:
-                if stream:
-                    def gen():
-                        for chunk in chain.stream(input_vars):
-                            yield self.get_chunk_text(chunk)
-                    return gen()
-                else:
-                    result = chain.invoke(input_vars)
-                    # 记录 token 使用
-                    if user and hasattr(result, 'usage_metadata') and result.usage_metadata:
-                        try:
-                            TokenUsageLog.objects.create(
-                                user=user,
-                                project=project,
-                                model_name='',
-                                prompt_tokens=result.usage_metadata.get('input_tokens', 0),
-                                completion_tokens=result.usage_metadata.get('output_tokens', 0),
-                                total_tokens=result.usage_metadata.get('total_tokens', 0),
-                            )
-                        except Exception as e:
-                            logger.error(f"记录Token使用失败: {e}")
-                    if hasattr(result, 'content'):
-                        return result.content
-                    return str(result)
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"LLM调用失败: {error_msg}, 重试 {retry_count + 1}/{max_retries}")
-                if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                    retry_interval *= 2
-                if retry_count < max_retries - 1:
-                    time.sleep(retry_interval)
-
-        raise Exception(f"LLM调用失败，已重试 {max_retries} 次")
-
-    def get_project(self, request, pk=None):
-        """获取项目，如果不存在则抛出404异常"""
-        project_id = pk or self._get_param(request, 'project_id')
-        if not project_id:
-            return None, JsonResponse({'success': False, 'message': '缺少project_id'}, status=400)
-        try:
-            project = ProjectList.objects.get(pk=project_id, user=request.user)
-            return project, None
-        except ProjectList.DoesNotExist:
-            return None, JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
-
-    def _get_param(self, request, key):
-        """统一从 request.data 或 request.POST 获取参数"""
-        if hasattr(request, 'data') and isinstance(request.data, dict):
-            return request.data.get(key)
-        return request.POST.get(key) if hasattr(request, 'POST') else None
+    # ---------- 卷查询方法 ----------
 
     def get_volume_version(self, version_id, project=None):
         """获取卷版本，支持按项目过滤"""
@@ -249,191 +153,6 @@ class BaseVolumeAPIView(APIView):
     def get_volumes_list(self, volume_version):
         """获取卷版本的卷数据列表"""
         return [self.volume_to_dict(vol) for vol in volume_version.volumes.all()]
-
-    def format_worldview_context(self, project):
-        """格式化项目世界观设定为文本"""
-        try:
-            worldview = WorldView.objects.filter(project=project).first()
-            if not worldview:
-                return '（暂无世界观设定）'
-
-            parts = []
-            # 基础设定
-            setting = worldview.setting or {}
-            identity = setting.get('identity', {})
-            if isinstance(identity, dict):
-                world_name = identity.get('name', '') or identity.get('world_name', '')
-                genre = identity.get('genre', '')
-                if world_name:
-                    parts.append(f'世界名称：{world_name}')
-                if genre:
-                    parts.append(f'题材类型：{genre}')
-            elif identity:
-                parts.append(f'世界身份：{identity}')
-
-            position = setting.get('position', {})
-            if isinstance(position, dict):
-                tone = position.get('tone', '')
-                if tone:
-                    parts.append(f'整体调性：{tone}')
-            elif position:
-                parts.append(f'世界定位：{position}')
-
-            overview = setting.get('overview', '')
-            if overview:
-                parts.append(f'世界简介：{overview}')
-            conflict = setting.get('conflict', '')
-            if conflict:
-                parts.append(f'核心冲突：{conflict}')
-
-            # 世界基础
-            foundation = worldview.foundation or {}
-            geography = foundation.get('geography', {})
-            if isinstance(geography, dict):
-                geo_content = geography.get('continents', '') or geography.get('continent_distribution', '') or geography.get('terrain', '')
-                if geo_content:
-                    parts.append(f'地理：{geo_content}')
-            elif geography:
-                parts.append(f'地理：{geography}')
-
-            calendar = foundation.get('calendar', {})
-            if isinstance(calendar, dict):
-                era = calendar.get('era', '')
-                if era:
-                    parts.append(f'纪元：{era}')
-
-            rules = foundation.get('rules', {})
-            if isinstance(rules, dict):
-                axioms = rules.get('axioms', [])
-                if axioms:
-                    rules_text = '；'.join([r.get('name', str(r)) if isinstance(r, dict) else str(r) for r in axioms[:5]])
-                    parts.append(f'核心规则：{rules_text}')
-            elif rules:
-                parts.append(f'核心规则：{rules}')
-
-            # 力量体系
-            power = worldview.power or {}
-            energy = power.get('energy', {})
-            if isinstance(energy, dict):
-                energy_type = energy.get('type', '') or energy.get('types', '')
-                if energy_type:
-                    parts.append(f'力量类型：{energy_type}')
-            level = power.get('level', '')
-            if level:
-                parts.append(f'等级体系：{level}')
-
-            # 社会结构
-            society = worldview.society or {}
-            sect = society.get('sect', {})
-            if isinstance(sect, dict):
-                sect_content = sect.get('hierarchy', '') or sect.get('levels', '') or sect.get('description', '')
-                if sect_content:
-                    parts.append(f'宗门/势力：{sect_content}')
-            court = society.get('court', {})
-            if isinstance(court, dict):
-                court_content = court.get('system', '') or court.get('political_system', '') or court.get('description', '')
-                if court_content:
-                    parts.append(f'政体：{court_content}')
-
-            # 历史
-            history = worldview.history or {}
-            for key, label in [('ancient', '远古历史'), ('modern', '近代历史'), ('crisis', '重大危机'), ('destiny', '命运走向')]:
-                val = history.get(key, '')
-                if val:
-                    parts.append(f'{label}：{val}')
-
-            # 特殊规则
-            special = worldview.special or {}
-            for key, label in [('taboo', '禁忌'), ('secret', '秘密'), ('fate', '命运规则'), ('reincarnation', '转世机制')]:
-                val = special.get(key, '')
-                if isinstance(val, dict):
-                    val = val.get('description', '') or val.get('type', '')
-                if val:
-                    parts.append(f'{label}：{val}')
-
-            if not parts:
-                return '（暂无世界观设定）'
-            return '\n'.join(parts)
-        except Exception as e:
-            logger.error(f"格式化世界观上下文失败: {e}")
-            return '（暂无世界观设定）'
-
-    def format_characters_context(self, project):
-        """格式化项目人物清单为文本"""
-        try:
-            characters = Character.objects.filter(project=project, is_deleted=False)
-            if not characters.exists():
-                return '（暂无人物设定）'
-
-            parts = []
-            for char in characters:
-                char_info = f'【{char.name}】'
-                details = []
-                if char.role_type:
-                    details.append(f'角色：{char.role_type}')
-                if char.gender and char.gender != '未知':
-                    details.append(f'性别：{char.gender}')
-                if char.age:
-                    details.append(f'年龄：{char.age}')
-                if char.identity:
-                    details.append(f'身份：{char.identity}')
-                if char.faction:
-                    details.append(f'阵营：{char.faction}')
-                if char.personality:
-                    details.append(f'性格：{char.personality}')
-                if char.backstory:
-                    details.append(f'背景：{char.backstory}')
-                if char.motivation:
-                    details.append(f'动机：{char.motivation}')
-                if char.abilities:
-                    details.append(f'能力：{char.abilities}')
-                if char.development:
-                    details.append(f'成长：{char.development}')
-                if char.relationships:
-                    rel_list = []
-                    for rel in char.relationships:
-                        if isinstance(rel, dict):
-                            target = rel.get('targetName', '')
-                            rel_type = rel.get('relationshipType', '')
-                            if target and rel_type:
-                                rel_list.append(f'{target}({rel_type})')
-                    if rel_list:
-                        details.append(f'关系：{", ".join(rel_list)}')
-                if details:
-                    char_info += ' ' + '；'.join(details)
-                parts.append(char_info)
-
-            return '\n'.join(parts)
-        except Exception as e:
-            logger.error(f"格式化人物上下文失败: {e}")
-            return '（暂无人物设定）'
-
-    def format_timeline_context(self, project):
-        """格式化项目时间线为文本"""
-        try:
-            events = TimelineEvent.objects.filter(project=project, is_active=True).order_by('start_year', 'start_month', 'end_year', 'end_month')
-            if not events.exists():
-                return '（暂无时间线）'
-
-            parts = []
-            for event in events:
-                time_range = event.format_time_range()
-                event_text = f'【{event.title}】{time_range}'
-                if event.description:
-                    event_text += f'：{event.description}'
-                parts.append(event_text)
-
-            return '\n'.join(parts)
-        except Exception as e:
-            logger.error(f"格式化时间线上下文失败: {e}")
-            return '（暂无时间线）'
-
-    def get_project_context(self, project):
-        """获取项目的世界观、人物、时间线上下文"""
-        worldview_context = self.format_worldview_context(project)
-        characters_context = self.format_characters_context(project)
-        timeline_context = self.format_timeline_context(project)
-        return worldview_context, characters_context, timeline_context
 
 
 # ========== 卷版本管理 ==========

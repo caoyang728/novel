@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from apps.project.base import BaseAPIView
 from apps.chapter.models import ChapterList
 from apps.volume.models import VolumeList
-from apps.ai.llm import get_llm, call_llm_with_retry, log_token_usage
+from agent.llm import get_llm, call_llm_with_retry, log_token_usage
 from utils.constants import MAX_CONTENT_LENGTH, MAX_TITLE_LENGTH, MAX_SUMMARY_LENGTH, PREV_CHAPTER_TAIL_LENGTH, MAX_CHAT_MESSAGE_LENGTH, MAX_CHAT_HISTORY_LENGTH
 from utils.helpers import safe_parse_json
 from apps.chapter.prompts import (

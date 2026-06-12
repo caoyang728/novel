@@ -20,7 +20,7 @@ from apps.characters.serializers import (
     CharacterUpdateSerializer,
     CharacterPolishSerializer,
 )
-from apps.ai.llm import get_llm
+from agent.llm import get_llm, stream_llm_response
 from apps.characters.constants import (
     RELATIONSHIP_REVERSE,
     VALID_RELATIONSHIP_TYPES,
@@ -188,50 +188,6 @@ class BaseCharacterAPIView(APIView):
             })
             target_char.relationships = target_rels
             target_char.save()
-
-    def _stream_llm_response(self, system_prompt, user_prompt, prompt_vars, user, scene, error_msg='操作失败，请重试', post_process=None):
-        """通用 LLM 流式调用，返回 StreamingHttpResponse
-
-        Args:
-            system_prompt: 系统提示词
-            user_prompt: 用户提示词模板
-            prompt_vars: 提示词变量
-            user: 当前用户
-            scene: LLM 场景标识
-            error_msg: 错误提示信息
-            post_process: 可选后处理函数，接收 full_content，返回最终 data 值
-        """
-        def generate():
-            try:
-                prompt = ChatPromptTemplate.from_messages([
-                    ("system", system_prompt),
-                    ("user", user_prompt),
-                ])
-                llm = get_llm(user=user, scene=scene)
-                chain = prompt | llm
-
-                stream_response = chain.stream(prompt_vars)
-
-                full_content = ""
-                for chunk in stream_response:
-                    chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                    full_content += chunk_content
-
-                if post_process:
-                    data_value = post_process(full_content)
-                else:
-                    data_value = full_content
-
-                yield f"data: {json.dumps({'type': 'complete', 'data': data_value}, ensure_ascii=False)}\n\n"
-
-            except Exception as e:
-                logger.error(f"LLM流式调用异常(scene={scene}): {e}")
-                yield f"data: {json.dumps({'type': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
-
-        response = StreamingHttpResponse(generate(), content_type='text/event-stream')
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'
-        return response
 
     def _sync_reverse_relationships(self, project, character, old_relationships, new_relationships):
         """精确对比新旧关系差异，同步更新反向关系
@@ -694,7 +650,7 @@ class ApiCharacterGenerateView(BaseCharacterAPIView):
             "extra_requirements": extra_requirements
         }
 
-        return self._stream_llm_response(
+        return stream_llm_response(
             CHARACTER_GENERATE_SYSTEM_PROMPT,
             CHARACTER_GENERATE_USER_PROMPT,
             prompt_vars,
@@ -725,7 +681,7 @@ class ApiCharacterPolishView(BaseCharacterAPIView):
         character_data = serializer.validated_data
         character_json = json.dumps(character_data, ensure_ascii=False)
 
-        return self._stream_llm_response(
+        return stream_llm_response(
             CHARACTER_POLISH_SYSTEM_PROMPT,
             CHARACTER_POLISH_USER_PROMPT,
             {"character_data": character_json},
@@ -751,7 +707,7 @@ class ApiCharacterCheckView(BaseCharacterAPIView):
         # 获取世界观
         worldview_str = self._get_worldview_str(project)
 
-        return self._stream_llm_response(
+        return stream_llm_response(
             CHARACTER_CHECK_SYSTEM_PROMPT,
             CHARACTER_CHECK_USER_PROMPT,
             {"worldview": worldview_str, "characters_data": characters_data},
@@ -808,7 +764,7 @@ class ApiCharacterOptimizeView(BaseCharacterAPIView):
         issues_with_instructions = '\n\n'.join(issues_parts)
         worldview_str = self._get_worldview_str(project)
 
-        return self._stream_llm_response(
+        return stream_llm_response(
             CHARACTER_OPTIMIZE_SYSTEM_PROMPT,
             CHARACTER_OPTIMIZE_USER_PROMPT,
             {

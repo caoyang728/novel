@@ -37,17 +37,27 @@ LLM_SCENES = {
     "outline_optimize": {
         "name": "大纲优化",
         "default_temperature": 0.3,
-        "default_max_tokens": 2000,
+        "default_max_tokens": 50000,
     },
     "volume_generate": {
         "name": "卷生成",
         "default_temperature": 0.7,
-        "default_max_tokens": 4000,
+        "default_max_tokens": 100000,
+    },
+    "volume_optimize": {
+        "name": "卷优化",
+        "default_temperature": 0.7,
+        "default_max_tokens": 30000,
+    },
+    "volume_chat": {
+        "name": "卷对话",
+        "default_temperature": 0.7,
+        "default_max_tokens": 10000,
     },
     "chapter_generate": {
         "name": "章节生成",
         "default_temperature": 0.7,
-        "default_max_tokens": 3000,
+        "default_max_tokens": 100000,
     },
     "content_generate": {
         "name": "内容生成",

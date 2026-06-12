@@ -1,5 +1,5 @@
 .content-card {
-    background: #1f2937;
+    background: #334155;
     border-radius: 16px;
     border: 1px solid #374151;
     box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
@@ -37,7 +37,7 @@
     padding: 1.25rem;
     margin-bottom: 1rem;
     position: relative;
-    background: #1f2937;
+    background: #334155;
     transition: all 0.2s;
 }
 .config-card:hover {
@@ -50,7 +50,7 @@
 }
 .config-card.disabled {
     opacity: 0.5;
-    background: #111827;
+    background: #1e293b;
 }
 .config-header {
     display: flex;
@@ -79,7 +79,7 @@
     font-weight: 500;
     transition: all 0.2s;
     cursor: pointer;
-    border: 1px solid #4b5563;
+    border: 1px solid #5b6a7a;
     background: transparent;
     color: #d1d5db;
 }
@@ -129,7 +129,7 @@
     font-weight: 500;
     transition: all 0.2s;
     cursor: pointer;
-    border: 1px solid #4b5563;
+    border: 1px solid #5b6a7a;
     background: transparent;
     color: #d1d5db;
 }
@@ -165,7 +165,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: #4b5563;
+    background-color: #5b6a7a;
     transition: 0.3s;
     border-radius: 24px;
 }
@@ -224,7 +224,7 @@
 
 /* Bootstrap 弹窗暗色化 */
 .modal-content {
-    background: #1f2937;
+    background: #334155;
     border: 1px solid #374151;
 }
 
@@ -247,7 +247,7 @@
 
 .modal-footer {
     border-top: 1px solid #374151;
-    background: #1f2937;
+    background: #334155;
 }
 
 .modal-body {
@@ -262,8 +262,8 @@
 
 .modal .form-control,
 .modal .form-select {
-    background: #111827;
-    border: 1.5px solid #4b5563;
+    background: #1e293b;
+    border: 1.5px solid #5b6a7a;
     color: #f9fafb;
     border-radius: 10px;
     padding: 0.75rem 1rem;
@@ -281,7 +281,7 @@
 
 .modal .btn-secondary {
     background: #374151;
-    border: 1.5px solid #4b5563;
+    border: 1.5px solid #5b6a7a;
     color: #d1d5db;
     border-radius: 10px;
     padding: 0.5rem 1.25rem;
@@ -289,7 +289,7 @@
     transition: all 0.2s;
 }
 .modal .btn-secondary:hover {
-    background: #4b5563;
+    background: #5b6a7a;
     border-color: #818cf8;
     color: #fff;
 }

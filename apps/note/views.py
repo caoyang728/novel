@@ -7,69 +7,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer
-from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate
 
 from apps.note.models import Note
 from apps.project.models import ProjectList
-from apps.ai.llm import get_llm
+from agent.llm import get_llm, call_llm_with_retry
 from apps.note.prompts import NOTE_POLISH_SYSTEM_PROMPT, NOTE_POLISH_USER_PROMPT
+from apps.project.base import BaseAPIView
 import json
 import pytz
-import time
 from loguru import logger
-
-
-def _call_with_retry(messages, stream=False, timeout=None, user=None, scene="default"):
-    from django.conf import settings
-    
-    max_retries = settings.LLM_RETRY
-    retry_interval = settings.LLM_RETRY_INTERVAL
-
-    llm = get_llm(user=user, scene=scene, timeout=timeout)
-
-    prompt_messages = []
-    for msg in messages:
-        if isinstance(msg, dict):
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
-            prompt_messages.append((role, content))
-        else:
-            if hasattr(msg, 'content'):
-                if hasattr(msg, 'role'):
-                    prompt_messages.append((msg.role, msg.content))
-                elif isinstance(msg, SystemMessage):
-                    prompt_messages.append(('system', msg.content))
-                elif isinstance(msg, HumanMessage):
-                    prompt_messages.append(('user', msg.content))
-    
-    prompt = ChatPromptTemplate.from_messages(prompt_messages)
-    chain = prompt | llm
-
-    for retry_count in range(max_retries):
-        try:
-            if stream:
-                def gen():
-                    for chunk in chain.stream({}):
-                        if hasattr(chunk, 'content'):
-                            yield chunk.content
-                        else:
-                            yield str(chunk)
-                return gen()
-            else:
-                result = chain.invoke({})
-                if hasattr(result, 'content'):
-                    return result.content
-                return str(result)
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"LLM调用失败: {error_msg}, 重试 {retry_count + 1}/{max_retries}")
-            if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                retry_interval *= 2
-            if retry_count < max_retries - 1:
-                time.sleep(retry_interval)
-
-    raise Exception(f"LLM调用失败，已重试 {max_retries} 次")
 
 
 class NoteSerializer(ModelSerializer):
@@ -99,9 +45,7 @@ class NoteSerializer(ModelSerializer):
         return representation
 
 
-class NotesAPIView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+class NotesAPIView(BaseAPIView):
 
     def get(self, request, project_id):
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
@@ -147,9 +91,7 @@ class NotesAPIView(APIView):
         })
 
 
-class NoteDetailAPIView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+class NoteDetailAPIView(BaseAPIView):
 
     def get(self, request, project_id, note_id):
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
@@ -193,9 +135,7 @@ class NoteDetailAPIView(APIView):
         return Response({'success': True})
 
 
-class NoteAIPolishAPIView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+class NoteAIPolishAPIView(BaseAPIView):
 
     def post(self, request, project_id):
         try:
@@ -219,7 +159,7 @@ class NoteAIPolishAPIView(APIView):
                         {'role': 'user', 'content': user_prompt}
                     ]
                     
-                    stream_response = _call_with_retry(messages, stream=True, user=request.user, scene="default")
+                    stream_response = call_llm_with_retry(messages, stream=True, user=request.user, scene="default")
                     
                     for chunk in stream_response:
                         chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)

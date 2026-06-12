@@ -20,26 +20,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-async function checkAuth() {
-    try {
-        const data = await api.get('/api/auth/user/');
-        if (!data.success) {
-            // 认证失败交给 common.js 的 request 函数处理（弹窗登录）
-        }
-    } catch (error) {
-        // 认证失败交给 common.js 的 request 函数处理（弹窗登录）
-    }
-}
-
 async function loadProjectInfo() {
     try {
         const data = await api.get(`/api/projects/${projectId}/`);
-        console.log('API返回数据:', JSON.stringify(data));  // 调试日志
+        // console.log('API返回数据:', JSON.stringify(data));  // 调试日志
         if (data.success) {
             const project = data.project;
             const versionCount = data.project.version_count || 0;
             const latestVersionNumber = data.project.latest_version_number ?? 0;
-            console.log('项目状态:', project.status, '版本数量:', versionCount, '最新版本号:', latestVersionNumber);  // 调试日志
+            // console.log('项目状态:', project.status, '版本数量:', versionCount, '最新版本号:', latestVersionNumber);  // 调试日志
             document.getElementById('project-title').textContent = project.title;
             document.getElementById('project-description').textContent = project.description || '暂无描述';
 
@@ -281,12 +270,6 @@ async function generateDescription() {
 
     btn.disabled = false;
     btn.innerHTML = originalText;
-}
-
-function escapeHtml(t) {
-    const d = document.createElement('div');
-    d.textContent = t;
-    return d.innerHTML;
 }
 
 function showToast(msg, type = 'success') {

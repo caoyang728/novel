@@ -42,21 +42,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-async function checkAuth() {
-    if (!api.isAuthenticated()) {
-        window.location.href = 'login.html';
-        return;
-    }
-    try {
-        const data = await api.get('/api/auth/user/');
-        if (!data.success) {
-            logout();
-        }
-    } catch (error) {
-        logout();
-    }
-}
-
 async function loadEvents() {
     showLoading('加载中...', 0.6);
     try {
@@ -1424,27 +1409,6 @@ function closePreviewModal() {
     clearAllPrintingTimers();
     document.getElementById('preview-modal').classList.remove('show');
     document.body.style.overflow = '';
-}
-
-let modalAction = null;
-
-function showModal(title, message, action) {
-    document.getElementById('modal-title').textContent = title;
-    document.getElementById('modal-message').textContent = message;
-    document.getElementById('confirm-modal').classList.add('show');
-    modalAction = action;
-}
-
-function closeModal() {
-    document.getElementById('confirm-modal').classList.remove('show');
-    modalAction = null;
-    document.body.style.overflow = '';
-}
-
-function executeModalAction() {
-    if (modalAction) {
-        modalAction();
-    }
 }
 
 async function mergeTimelines() {

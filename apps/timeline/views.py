@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from novel_agent.authentication import JWTAuthentication
 from apps.project.models import ProjectList
 from apps.worldview.utils import get_worldview_context
-from apps.ai.llm import get_llm
+from agent.llm import get_llm
 from loguru import logger
 from .models import TimelineEvent
 from .serializers import (

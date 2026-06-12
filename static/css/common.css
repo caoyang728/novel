@@ -7,13 +7,13 @@
     --warning: #f59e0b;
     --purple: #8b5cf6;
     --purple-dark: #7c3aed;
-    --bg-page: #0f172a;
-    --surface: #1f2937;
-    --surface-dark: #111827;
+    --bg-page: #1e293b;
+    --surface: #334155;
+    --surface-dark: #1e293b;
     --text-primary: #f9fafb;
     --text-secondary: #d1d5db;
     --text-muted: #9ca3af;
-    --border: #4b5563;
+    --border: #5b6a7a;
 }
 
 body {
@@ -67,7 +67,7 @@ body {
     padding: 1.25rem;
     margin-bottom: 1rem;
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-    border: 1px solid rgba(75, 85, 99, 0.3);
+    border: 1px solid rgba(91, 106, 122, 0.3);
 }
 
 .card-section h3 {
@@ -170,7 +170,7 @@ body {
 }
 
 .btn-secondary {
-    background: rgba(75, 85, 99, 0.3);
+    background: rgba(91, 106, 122, 0.3);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 0.75rem 1.25rem;
@@ -182,7 +182,7 @@ body {
 }
 
 .btn-secondary:hover {
-    background: rgba(75, 85, 99, 0.5);
+    background: rgba(91, 106, 122, 0.5);
     color: var(--text-primary);
 }
 
@@ -219,7 +219,7 @@ body {
     display: none;
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(15, 23, 42, 0.6);
+    background: rgba(30, 41, 59, 0.6);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     z-index: 9999;
@@ -236,7 +236,7 @@ body {
     max-width: 600px;
     overflow: hidden;
     animation: modalSlideIn 0.3s ease;
-    border: 1px solid rgba(75, 85, 99, 0.3);
+    border: 1px solid rgba(91, 106, 122, 0.3);
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
 }
 
@@ -251,7 +251,7 @@ body {
 
 .modal-header, .custom-modal-header {
     padding: 1.25rem 1.5rem;
-    border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+    border-bottom: 1px solid rgba(91, 106, 122, 0.3);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -274,11 +274,11 @@ body {
 
 .modal-footer, .custom-modal-footer {
     padding: 1rem 1.5rem;
-    border-top: 1px solid rgba(75, 85, 99, 0.3);
+    border-top: 1px solid rgba(91, 106, 122, 0.3);
     display: flex;
     justify-content: flex-end;
     gap: 0.75rem;
-    background: rgba(15, 23, 42, 0.3);
+    background: rgba(30, 41, 59, 0.3);
 }
 
 .btn-close, .btn-close-modal {
@@ -296,14 +296,14 @@ body {
 }
 
 .btn-close:hover, .btn-close-modal:hover {
-    background: rgba(75, 85, 99, 0.3);
+    background: rgba(91, 106, 122, 0.3);
     color: var(--text-primary);
 }
 
 .loading-overlay {
     position: fixed;
     inset: 0;
-    background-color: rgba(15, 23, 42, 0.6);
+    background-color: rgba(30, 41, 59, 0.6);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     display: flex;
@@ -323,7 +323,7 @@ body {
 .loading-content {
     min-width: 160px;
     max-width: 400px;
-    background: linear-gradient(145deg, #2a3347 0%, #1a2236 100%);
+    background: linear-gradient(145deg, #334155 0%, #1e293b 100%);
     border-radius: 20px;
     padding: 24px;
     display: flex;
@@ -428,7 +428,7 @@ body {
     font-size: 0.9rem;
     font-weight: 500;
     min-width: 280px;
-    border: 1px solid rgba(75, 85, 99, 0.3);
+    border: 1px solid rgba(91, 106, 122, 0.3);
     color: var(--text-primary);
 }
 
@@ -525,7 +525,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(15, 23, 42, 0.7);
+    background: rgba(30, 41, 59, 0.7);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     z-index: 99999;
@@ -539,8 +539,8 @@ body {
 #api-login-modal input[type="text"],
 #api-login-modal input[type="password"],
 #api-login-modal .login-modal-input {
-    background-color: #0f172a !important;
-    background: #0f172a !important;
+    background-color: #1e293b !important;
+    background: #1e293b !important;
     border: 2px solid #374151 !important;
     border-radius: 14px !important;
     color: #f9fafb !important;
@@ -610,7 +610,7 @@ body {
 
 /* 登录弹窗容器 */
 .login-modal-container {
-    background: linear-gradient(160deg, #1f2937 0%, #0f172a 100%);
+    background: linear-gradient(160deg, #334155 0%, #1e293b 100%);
     border-radius: 24px;
     width: 90%;
     max-width: 400px;

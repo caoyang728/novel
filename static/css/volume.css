@@ -1,6 +1,6 @@
 /* === 页面布局 === */
 body {
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    background: linear-gradient(135deg, #1e293b 0%, #1e293b 50%, #1e293b 100%);
     background-attachment: fixed;
 }
 
@@ -100,7 +100,7 @@ body {
 }
 
 .btn-outline-secondary:hover {
-    background: rgba(75, 85, 99, 0.3);
+    background: rgba(91, 106, 122, 0.3);
 }
 
 .btn-gradient-success {
@@ -224,7 +224,7 @@ body {
     align-items: center;
     padding: 0.25rem 1rem;
     min-height: 52px;
-    border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+    border-bottom: 1px solid rgba(91, 106, 122, 0.3);
     background-color: var(--surface);
     flex-shrink: 0;
 }
@@ -699,13 +699,13 @@ body {
 }
 
 .btn-cancel-selection {
-    background: rgba(75, 85, 99, 0.4);
+    background: rgba(91, 106, 122, 0.4);
     color: var(--text-secondary);
     border-color: transparent;
 }
 
 .btn-cancel-selection:hover:not(:disabled) {
-    background: rgba(75, 85, 99, 0.6);
+    background: rgba(91, 106, 122, 0.6);
 }
 
 .btn-select-all {
@@ -744,7 +744,7 @@ body {
 .modal-overlay .modal-header {
     padding: 0.875rem 1.125rem;
     background: transparent;
-    border-bottom: 1px solid rgba(75, 85, 99, 0.15);
+    border-bottom: 1px solid rgba(91, 106, 122, 0.15);
     justify-content: center;
     position: relative;
     min-height: 0;
@@ -763,7 +763,7 @@ body {
     height: 26px;
     padding: 0;
     border-radius: 6px;
-    background: rgba(75, 85, 99, 0.2);
+    background: rgba(91, 106, 122, 0.2);
     border: none;
     color: var(--text-muted);
     transition: all 0.15s ease;
@@ -802,7 +802,7 @@ body {
 /* footer：去掉背景色，仅用顶部细线分隔 */
 .modal-overlay .modal-footer {
     padding: 0.25rem 1rem;
-    border-top: 1px solid rgba(75, 85, 99, 0.15);
+    border-top: 1px solid rgba(91, 106, 122, 0.15);
     background: transparent;
     display: flex;
     justify-content: flex-end;
@@ -823,13 +823,13 @@ body {
 
 /* 取消按钮：轻灰底，hover 变亮 */
 .modal-overlay .modal-footer .btn-secondary {
-    background: rgba(75, 85, 99, 0.25);
+    background: rgba(91, 106, 122, 0.25);
     color: var(--text-secondary);
     border: none;
 }
 
 .modal-overlay .modal-footer .btn-secondary:hover {
-    background: rgba(75, 85, 99, 0.4);
+    background: rgba(91, 106, 122, 0.4);
     color: var(--text-primary);
     transform: translateY(-1px);
 }
@@ -1084,7 +1084,7 @@ body {
     .right-column {
         width: 100%;
         border-right: none;
-        border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+        border-bottom: 1px solid rgba(91, 106, 122, 0.3);
         max-height: 33vh;
     }
 

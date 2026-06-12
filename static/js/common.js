@@ -2,6 +2,13 @@
  * 通用工具函数
  */
 
+// 禁止从 bfcache (往返缓存) 恢复页面，确保每次都重新加载
+window.addEventListener('pageshow', function(event) {
+    if (event.persisted) {
+        window.location.reload();
+    }
+});
+
 function getProjectIdFromUrl() {
     const pathParts = window.location.pathname.split('/').filter(p => p);
     if (pathParts.length > 0 && !isNaN(parseInt(pathParts[0]))) {

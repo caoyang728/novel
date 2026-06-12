@@ -13,7 +13,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from novel_agent.authentication import JWTAuthentication
 from apps.project.models import ProjectList as Project
-from apps.ai.llm import get_llm
+from agent.llm import get_llm
 from .models import WorldView, WorldViewChatHistory
 from .prompts import (
     LAYER_NAMES,

@@ -45,19 +45,6 @@ function unlockScroll() {
     document.body.style.overflow = '';
 }
 
-async function checkAuth() {
-    try {
-        const data = await api.get('/api/auth/user/');
-        // api.get 在 401 时返回 null（forceReLogin 已处理），无需再跳转
-        if (data === null) return;
-        if (!data.success) {
-            window.location.href = '/login.html';
-        }
-    } catch (error) {
-        window.location.href = '/login.html';
-    }
-}
-
 function initPage() {
     // 从URL查询参数获取项目ID
     const urlParams = new URLSearchParams(window.location.search);
@@ -70,11 +57,7 @@ function initPage() {
         currentProjectId = null;
     }
 
-    // 设置返回按钮链接
-    const backBtn = document.getElementById('backBtn');
-    if (backBtn && currentProjectId) {
-        backBtn.onclick = () => { window.location.href = `project.html?project_id=${currentProjectId}`; };
-    }
+    initBackToProjectButton('#backBtn');
 
     // 默认选中"全部角色"
     const roleFilter = document.getElementById('roleFilter');

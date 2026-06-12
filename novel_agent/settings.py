@@ -21,7 +21,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
-    'apps.ai.apps.AiConfig',
     'apps.project.apps.ProjectConfig',
     'apps.outline.apps.OutlineConfig',
     'apps.volume.apps.VolumeConfig',

@@ -1,5 +1,5 @@
 .content-card {
-    background: #1f2937;
+    background: #334155;
     border-radius: 16px;
     border: 1px solid #374151;
     box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
@@ -7,7 +7,7 @@
     margin-bottom: 1.5rem;
 }
 .stat-card {
-    background: #1f2937;
+    background: #334155;
     border-radius: 12px;
     border: 1px solid #374151;
     padding: 1.25rem;
@@ -55,7 +55,7 @@
 }
 .btn-outline-primary {
     background: transparent;
-    border: 1.5px solid #4b5563;
+    border: 1.5px solid #5b6a7a;
     color: #d1d5db;
     border-radius: 10px;
     padding: 0.5rem 1.25rem;

@@ -1325,26 +1325,6 @@ function exportWorld(format) {
     showToast(`导出 ${format.toUpperCase()} 功能开发中`);
 }
 
-function escapeHtml(t) {
-    const d = document.createElement('div');
-    d.textContent = t;
-    return d.innerHTML;
-}
-
-// function getCookie(name) {
-//     let v = null;
-//     if (document.cookie && document.cookie !== '') {
-//         const cs = document.cookie.split(';');
-//         for (let i = 0; i < cs.length; i++) {
-//             const c = cs[i].trim();
-//             if (c.substring(0, name.length + 1) === (name + '=')) {
-//                 v = decodeURIComponent(c.substring(name.length + 1));
-//                 break;
-//             }
-//         }
-//     }
-//     return v;
-// }
 
 function getAxiomsText() {
     const inputs = document.querySelectorAll('#axiomsList input');

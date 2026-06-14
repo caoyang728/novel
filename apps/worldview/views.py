@@ -14,7 +14,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from novel_agent.authentication import JWTAuthentication
 from apps.project.models import ProjectList as Project
 from agent.llm import get_llm
-from .models import WorldView, WorldViewChatHistory
+from agent.memory import compress_history
+from .models import WorldView
 from .prompts import (
     LAYER_NAMES,
     WORLDVIEW_DEEPENING_SYSTEM_PROMPT,
@@ -50,6 +51,8 @@ from .prompts import (
     WORLDVIEW_SPECIAL_USER_PROMPT,
     WORLDVIEW_CONSISTENCY_FIX_SYSTEM_PROMPT,
     WORLDVIEW_CONSISTENCY_FIX_USER_PROMPT,
+    WORLDVIEW_INIT_QUESTION_SYSTEM_PROMPT,
+    WORLDVIEW_INIT_QUESTION_USER_PROMPT,
 )
 
 
@@ -1878,163 +1881,156 @@ class ApiWorldviewExportMarkdownView(BaseWorldAPIView):
             return self.error_response('世界观不存在')
 
         md_parts = []
-        md_parts.append(f'# {self.get_world_name(worldview)}\n')
-        if self.get_world_genre(worldview):
-            md_parts.append(f'\n**类型**：{self.get_world_genre(worldview)}\n')
-        md_parts.append(f'\n## 世界简介\n\n{self.get_world_summary(worldview) if self.get_world_summary(worldview) else "暂无简介"}\n')
-        if self.get_world_conflict(worldview):
-            md_parts.append(f'\n## 背景设定\n\n{self.get_world_conflict(worldview)}\n')
-        
-        # 分层内容
-        all_layers = self.get_all_layers(worldview)
-        if all_layers:
-            md_parts.append(f'\n## 分层构建\n')
-            layer_names = LAYER_NAMES
-            for layer_key, layer_data in all_layers.items():
-                layer_name = layer_names.get(layer_key, layer_key)
-                content = layer_data.get('content', '') or layer_data.get('summary', '') or ''
-                if content:
-                    md_parts.append(f'\n### {layer_name}\n\n{content}\n')
-        
-        # 结构化设置
-        if self.get_world_profile(worldview):
-            # 世界概要
-            profile = self.get_world_profile(worldview).get('profile', {})
-            if profile:
-                md_parts.append(f'\n## 世界概要\n')
-                if profile.get('identity'):
-                    md_parts.append(f'- **世界身份**：{profile.get("identity")}\n')
-                if profile.get('tone'):
-                    md_parts.append(f'- **整体调性**：{profile.get("tone")}\n')
-                if profile.get('summary'):
-                    md_parts.append(f'- **世界摘要**：{profile.get("summary")}\n')
-                if profile.get('coreConflict') or profile.get('core_conflict'):
-                    md_parts.append(f'- **核心冲突**：{profile.get("coreConflict", profile.get("core_conflict"))}\n')
-            
-            # 规则
-            rules = self.get_world_profile(worldview).get('rules', {})
-            if rules and rules.get('axioms'):
-                md_parts.append(f'\n## 核心规则\n')
-                for idx, rule in enumerate(rules.get('axioms', [])):
-                    md_parts.append(f'\n### 规则 {idx + 1}\n')
-                    if rule.get('name'):
-                        md_parts.append(f'- **名称**：{rule.get("name")}\n')
-                    if rule.get('summary'):
-                        md_parts.append(f'- **说明**：{rule.get("summary")}\n')
-                    if rule.get('cost'):
-                        md_parts.append(f'- **代价**：{rule.get("cost")}\n')
-            
-            # 势力
-            factions = self.get_world_profile(worldview).get('factions', [])
-            if factions:
-                md_parts.append(f'\n## 势力\n')
-                for faction in factions:
-                    md_parts.append(f'\n### {faction.get("name", "未命名势力")}\n')
-                    if faction.get('position'):
-                        md_parts.append(f'- **立场**：{faction.get("position")}\n')
-                    if faction.get('doctrine'):
-                        md_parts.append(f'- **理念**：{faction.get("doctrine")}\n')
-            
-            # 地点
-            locations = self.get_world_profile(worldview).get('locations', [])
-            if locations:
-                md_parts.append(f'\n## 地点\n')
-                for location in locations:
-                    md_parts.append(f'\n### {location.get("name", "未命名地名")}\n')
-                    if location.get('terrain'):
-                        md_parts.append(f'- **地形**：{location.get("terrain")}\n')
-                    if location.get('description'):
-                        md_parts.append(f'- **描述**：{location.get("description")}\n')
-            
-            # 关系
-            relations = self.get_world_profile(worldview).get('relations', [])
-            if relations:
-                md_parts.append(f'\n## 关系\n')
-                for relation in relations:
-                    md_parts.append(f'\n### {relation.get("source", "未知")} - {relation.get("target", "未知")}\n')
-                    if relation.get('type'):
-                        md_parts.append(f'- **类型**：{relation.get("type")}\n')
-                    if relation.get('description'):
-                        md_parts.append(f'- **描述**：{relation.get("description")}\n')
-        
+        setting = worldview.setting or {}
+        identity = setting.get('identity', {})
+        position = setting.get('position', {})
+
+        # 标题
+        world_name = identity.get('world_name', '') or '未命名世界观'
+        md_parts.append(f'# {world_name}\n')
+        if identity.get('genre'):
+            md_parts.append(f'\n**类型**：{identity["genre"]}\n')
+
+        # 简介
+        overview = setting.get('overview', '')
+        md_parts.append(f'\n## 世界简介\n\n{overview if overview else "暂无简介"}\n')
+
+        # 核心冲突
+        conflict = setting.get('conflict', '')
+        if conflict:
+            md_parts.append(f'\n## 背景设定\n\n{conflict}\n')
+
+        # 身份/调性
+        if position.get('identity') or position.get('tone'):
+            md_parts.append('\n## 世界概要\n')
+            if position.get('identity'):
+                md_parts.append(f'- **世界身份**：{position["identity"]}\n')
+            if position.get('tone'):
+                md_parts.append(f'- **整体调性**：{position["tone"]}\n')
+
+        # 分层内容（foundation, power, races, society, culture, history, special）
+        layers = [
+            ('foundation', '基础层'),
+            ('power', '力量层'),
+            ('society', '社会层'),
+            ('culture', '文化层'),
+            ('history', '历史层'),
+            ('races', '种族层'),
+            ('special', '特殊规则'),
+        ]
+        md_parts.append('\n## 分层构建\n')
+        for field_name, layer_name in layers:
+            layer_data = getattr(worldview, field_name, None) or {}
+            if layer_data and not self._is_empty_dict(layer_data):
+                md_parts.append(f'\n### {layer_name}\n')
+                md_parts.append(self._render_json_field(layer_data))
+
         return self.success_response({'markdown': ''.join(md_parts)})
 
+    def _is_empty_dict(self, data):
+        """检查 JSON 数据是否为空（所有值均为空字符串或空列表）"""
+        if not data:
+            return True
+        for v in data.values():
+            if isinstance(v, dict):
+                if not self._is_empty_dict(v):
+                    return False
+            elif isinstance(v, list):
+                if any(v):
+                    return False
+            elif v:
+                return False
+        return True
 
-class ApiWorldviewChatHistoryView(BaseWorldAPIView):
-    """世界观聊天历史API"""
-    
-    def get(self, request, pk):
-        worldview = self.get_worldview(request.user, pk=pk)
-        if not worldview:
-            return self.error_response('世界观不存在')
+    def _render_json_field(self, data, indent_level=0):
+        """递归渲染 JSONField 为 Markdown 列表"""
+        lines = []
+        prefix = '  ' * indent_level
+        if isinstance(data, dict):
+            for k, v in data.items():
+                label = k.replace('_', ' ').title()
+                if isinstance(v, dict):
+                    lines.append(f'{prefix}- **{label}**：')
+                    lines.append(self._render_json_field(v, indent_level + 1))
+                elif isinstance(v, list):
+                    if v:
+                        lines.append(f'{prefix}- **{label}**：')
+                        for item in v:
+                            lines.append(f'{prefix}  - {item}')
+                elif v:
+                    lines.append(f'{prefix}- **{label}**：{v}')
+        return '\n'.join(lines)
 
-        messages = worldview.chat_histories.filter(
-            is_deleted=False
-        ).order_by('created_at')
-        
-        return self.success_response({
-            'messages': [{
-                'id': msg.id,
-                'role': msg.role,
-                'content': msg.content,
-                'created_at': msg.created_at.isoformat()
-            } for msg in messages]
-        })
-    
+
+class ApiWorldviewChatOpenView(BaseWorldAPIView):
+    """聊天页初始数据 — 返回 Markdown + 空缺分析引导问题"""
+
     def post(self, request, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
 
-        data = request.data
-        role = data.get('role', 'user')
-        content = data.get('content', '')
-        
-        if not content:
-            return self.error_response('消息内容不能为空')
-        
-        # 保存用户消息
-        WorldViewChatHistory.objects.create(
-            worldview=worldview,
-            role=role,
-            content=content
+        # 生成 Markdown（复用导出逻辑）
+        markdown = _build_worldview_markdown_instance(worldview)
+
+        # 检查世界观是否为空（没有任何字段被填写过）
+        has_content = not (
+            _is_json_empty(worldview.setting or {}) and
+            _is_json_empty(worldview.foundation or {}) and
+            _is_json_empty(worldview.power or {}) and
+            _is_json_empty(worldview.races or {}) and
+            _is_json_empty(worldview.society or {}) and
+            _is_json_empty(worldview.culture or {}) and
+            _is_json_empty(worldview.history or {}) and
+            _is_json_empty(worldview.special or {})
         )
-        
-        return self.success_response(message='消息保存成功')
 
+        # LLM 分析空缺字段，生成引导问题（仅在有数据时才调用 LLM）
+        question = ''
+        options = []
+        if has_content:
+            try:
+                current_worldview = json.dumps({
+                    'setting': worldview.setting or {},
+                    'foundation': worldview.foundation or {},
+                    'power': worldview.power or {},
+                    'races': worldview.races or {},
+                    'society': worldview.society or {},
+                    'culture': worldview.culture or {},
+                    'history': worldview.history or {},
+                    'special': worldview.special or {},
+                }, ensure_ascii=False)
 
-class ApiWorldviewChatHistoryDeleteView(BaseWorldAPIView):
-    """删除世界观聊天历史API"""
-    
-    def post(self, request, pk):
-        worldview = self.get_worldview(request.user, pk=pk)
-        if not worldview:
-            return self.error_response('世界观不存在')
+                prompt = ChatPromptTemplate.from_messages([
+                    ("system", WORLDVIEW_INIT_QUESTION_SYSTEM_PROMPT),
+                    ("user", WORLDVIEW_INIT_QUESTION_USER_PROMPT)
+                ])
 
-        data = request.data
-        message_ids = data.get('message_ids', [])
-        
-        if not message_ids:
-            return self.error_response('未提供要删除的消息ID')
-        
-        deleted_count = WorldViewChatHistory.objects.filter(
-            world=worldview,
-            id__in=message_ids
-        ).update(is_deleted=True)
-        
+                llm = get_llm(user=request.user, scene="default")
+                chain = prompt | llm | JsonOutputParser()
+
+                result = chain.invoke({"current_worldview": current_worldview})
+                question = result.get('question', '') if isinstance(result, dict) else ''
+                options = result.get('options', []) if isinstance(result, dict) else []
+            except Exception as e:
+                logger.error(f'初始问题生成异常 {e}')
+
         return self.success_response({
-            'deleted_count': deleted_count
-        }, message=f'已删除{deleted_count} 条消息')
+            'markdown': markdown,
+            'question': question,
+            'options': options,
+            'has_content': has_content,
+        })
 
 
 class ApiWorldviewChatStreamView(BaseWorldAPIView):
-    """世界观聊天流式生成API"""
-    
+    """世界观聊天流式生成API — LLM 返回结构化 JSON，增量更新模型后生成 Markdown 流式返回"""
+
     def post(self, request, pk):
         data = request.data
         user_input = data.get('message', '')
         history_messages = data.get('messages', [])
-        
+
         if not user_input:
             return self.error_response('消息不能为空')
 
@@ -2042,93 +2038,85 @@ class ApiWorldviewChatStreamView(BaseWorldAPIView):
         if not worldview:
             return self.error_response('世界观不存在')
 
-        # 保存用户消息
-        WorldViewChatHistory.objects.create(
-            world=worldview,
-            role='user',
-            content=user_input
-        )
-        
         close_old_connections()
-        
+
         def generate():
             try:
-                # 构建当前世界观的内容
-                current_worldview = ''
-                current_worldview += f'世界观名称：{self.get_world_name(worldview)}\n'
-                if self.get_world_genre(worldview):
-                    current_worldview += f'小说类型：{self.get_world_genre(worldview)}\n'
-                if self.get_world_summary(worldview):
-                    current_worldview += f'世界观描述：{self.get_world_summary(worldview)}\n'
-                if self.get_world_conflict(worldview):
-                    current_worldview += f'背景设定：{self.get_world_conflict(worldview)}\n'
-                
-                # 构造历史对话               
-                history_text = ''
-                for msg in history_messages:
-                    history_text += f'{msg.get("role", "user")}: {msg.get("content", "")}\n'
-                
+                # 1. 构建完整世界观 JSON 字符串发送给 LLM
+                current_worldview = json.dumps({
+                    'setting': worldview.setting or {},
+                    'foundation': worldview.foundation or {},
+                    'power': worldview.power or {},
+                    'races': worldview.races or {},
+                    'society': worldview.society or {},
+                    'culture': worldview.culture or {},
+                    'history': worldview.history or {},
+                    'special': worldview.special or {},
+                }, ensure_ascii=False)
+
+                # 滚动压缩历史消息（使用 LLM 摘要旧消息）
+                llm = get_llm(user=request.user, scene="default")
+                history_text = compress_history(history_messages, llm)
+
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", WORLDVIEW_STREAM_SYSTEM_PROMPT),
                     ("user", WORLDVIEW_STREAM_USER_PROMPT)
                 ])
-                
-                llm = get_llm(user=request.user, scene="default")
-                
+
+                # 先流式接收 LLM 原始输出（避免非流式 invoke 导致的请求超时）
                 chain = prompt | llm
-                
                 full_content = ''
-                
-                for content_chunk in chain.stream({
+                for chunk in chain.stream({
                     "current_worldview": current_worldview,
                     "user_input": user_input,
-                    "history_messages": history_text
+                    "history_messages": history_text,
                 }):
-                    chunk_content = content_chunk.content if hasattr(content_chunk, 'content') else str(content_chunk)
-                    if chunk_content:
-                        full_content += chunk_content
-                        yield f'data: {json.dumps({"type": "chunk", "chunk": chunk_content}, ensure_ascii=False)}\n\n'
-                
-                # 解析生成的内容
-                content_start = '════CONTENT_START════'
-                content_end = '════CONTENT_END════'
-                question_start = '════QUESTION_START════'
-                question_end = '════QUESTION_END════'
-                
-                content_pattern = re.compile(
-                    re.escape(content_start) + r'(.*?)' + re.escape(content_end),
-                    re.DOTALL
-                )
-                question_pattern = re.compile(
-                    re.escape(question_start) + r'(.*?)' + re.escape(question_end),
-                    re.DOTALL
-                )
-                
-                content_match = content_pattern.search(full_content)
-                question_match = question_pattern.search(full_content)
-                
-                final_content = content_match.group(1).strip() if content_match else ''
-                final_question = question_match.group(1).strip() if question_match else ''
-                
-                # 更新世界观内容（如果有新的内容）
-                if final_content and len(final_content) > 10:
-                    # 这里可以根据需要更新世界观的某个字段
-                    pass
-                
-                # 保存AI回复
-                WorldViewChatHistory.objects.create(
-                    worldview=worldview,
-                    role='assistant',
-                    content=final_question if final_question else '好的，我已经理解了'
-                )
-                
-                yield f'data: {json.dumps({"complete": True, "content": final_content, "question": final_question}, ensure_ascii=False)}\n\n'
-                
+                    chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                    full_content += chunk_content
+
+                # 解析 JSON 结果
+                parser = JsonOutputParser()
+                try:
+                    result = parser.parse(full_content)
+                except Exception:
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_content, re.DOTALL)
+                    if json_match:
+                        result = json.loads(json_match.group(1))
+                    else:
+                        result = json.loads(full_content)
+
+                changes = result.get('changes', {}) if isinstance(result, dict) else {}
+                reply = result.get('reply', '') if isinstance(result, dict) else ''
+                options = result.get('options', []) if isinstance(result, dict) else []
+
+                # 3. 增量更新 worldview 模型
+                for field_name, field_changes in changes.items():
+                    if hasattr(worldview, field_name) and isinstance(field_changes, dict):
+                        current = getattr(worldview, field_name) or {}
+                        _deep_merge(current, field_changes)
+                        setattr(worldview, field_name, current)
+
+                # 刷新 DB 连接（LLM 流式处理可能耗时数分钟，连接可能已超时断开）
+                close_old_connections()
+                worldview.save()
+
+                # 4. 生成更新后的 Markdown
+                markdown = self._build_worldview_markdown(worldview)
+
+                # 5. 流式发送 Markdown 分块
+                chunk_size = 50
+                for i in range(0, len(markdown), chunk_size):
+                    chunk = markdown[i:i + chunk_size]
+                    yield f'data: {json.dumps({"type": "chunk", "chunk": chunk}, ensure_ascii=False)}\n\n'
+
+                # 6. 发送完成信号（含助手回复）
+                yield f'data: {json.dumps({"type": "complete", "markdown": markdown, "reply": reply, "options": options}, ensure_ascii=False)}\n\n'
+
             except Exception as e:
                 logger.error(f'世界观流式生成异常 {e}')
                 logger.error(traceback.format_exc())
-                yield f'data: {json.dumps({"error": str(e)}, ensure_ascii=False)}\n\n'
-        
+                yield f'data: {json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False)}\n\n'
+
         response = StreamingHttpResponse(
             generate(),
             content_type='text/event-stream'
@@ -2136,3 +2124,149 @@ class ApiWorldviewChatStreamView(BaseWorldAPIView):
         response['Cache-Control'] = 'no-cache'
         response['X-Accel-Buffering'] = 'no'
         return response
+
+    def _build_worldview_markdown(self, worldview):
+        return _build_worldview_markdown_instance(worldview)
+
+
+def _build_worldview_markdown_instance(worldview):
+        """从 worldview 模型生成 Markdown 文本，复用导出逻辑"""
+        md_parts = []
+        setting = worldview.setting or {}
+        identity = setting.get('identity', {})
+        position = setting.get('position', {})
+
+        world_name = identity.get('world_name', '') or '未命名世界观'
+        md_parts.append(f'# {world_name}\n')
+        if identity.get('genre'):
+            md_parts.append(f'\n**类型**：{identity["genre"]}\n')
+
+        overview = setting.get('overview', '')
+        md_parts.append(f'\n## 世界简介\n\n{overview if overview else "暂无"}\n')
+
+        conflict = setting.get('conflict', '')
+        if conflict:
+            md_parts.append(f'\n## 核心冲突\n\n{conflict}\n')
+
+        if position.get('identity') or position.get('tone'):
+            md_parts.append('\n## 世界概要\n')
+            if position.get('identity'):
+                md_parts.append(f'- **世界身份**：{position["identity"]}\n')
+            if position.get('tone'):
+                md_parts.append(f'- **整体调性**：{position["tone"]}\n')
+
+        layers = [
+            ('foundation', '基础层'),
+            ('power', '力量层'),
+            ('society', '社会层'),
+            ('culture', '文化层'),
+            ('history', '历史层'),
+            ('races', '种族层'),
+            ('special', '特殊规则'),
+        ]
+        md_parts.append('\n## 分层构建\n')
+        for field_name, layer_name in layers:
+            layer_data = getattr(worldview, field_name, None) or {}
+            md_parts.append(f'\n### {layer_name}\n')
+            if layer_data and not _is_json_empty(layer_data):
+                md_parts.append(_render_json_to_md(layer_data))
+            else:
+                md_parts.append('暂无\n')
+
+        return ''.join(md_parts)
+
+
+def _is_json_empty(data):
+    """检查 JSON 数据是否为空（所有值均为空字符串或空列表）"""
+    if not data:
+        return True
+    for v in data.values():
+        if isinstance(v, dict):
+            if not _is_json_empty(v):
+                return False
+        elif isinstance(v, list):
+            if any(v):
+                return False
+        elif v:
+            return False
+    return True
+
+
+def _render_json_to_md(data, indent_level=0):
+    """递归渲染 JSON 为 Markdown 缩进列表（中文字段名 + 空值显示'暂无'）"""
+    lines = []
+    prefix = '  ' * indent_level
+    if isinstance(data, dict):
+        for k, v in data.items():
+            label = _get_chinese_label(k)
+            if isinstance(v, dict):
+                # 跳过全空的嵌套字典
+                if _is_json_empty(v):
+                    continue
+                lines.append(f'{prefix}- **{label}**：')
+                lines.append(_render_json_to_md(v, indent_level + 1))
+            elif isinstance(v, list):
+                if v:
+                    lines.append(f'{prefix}- **{label}**：')
+                    for item in v:
+                        lines.append(f'{prefix}  - {item}')
+                else:
+                    lines.append(f'{prefix}- **{label}**：暂无')
+            else:
+                display = v if v else '暂无'
+                lines.append(f'{prefix}- **{label}**：{display}')
+    return '\n'.join(lines)
+
+
+def _get_chinese_label(key):
+    """英文字段名 → 中文标签映射"""
+    _LABELS = {
+        # setting 层
+        'identity': '世界身份', 'world_name': '世界名称', 'genre': '题材类型',
+        'position': '定位调性', 'tone': '整体调性',
+        'overview': '世界概述', 'conflict': '核心冲突',
+        # foundation 层
+        'geography': '地理格局', 'continent_distribution': '大陆分布', 'special_terrain': '特殊地形',
+        'calendar': '历法时间', 'era': '纪元', 'days_per_year': '每年天数', 'seasons': '季节', 'festivals': '节日庆典',
+        'rules': '世界法则', 'natural_laws': '自然法则', 'boundaries': '边界规则', 'axioms': '基本公理',
+        'balance': '平衡机制',
+        # power 层
+        'energy': '能量体系', 'types': '能量类型', 'distribution': '能量分布', 'properties': '能量特性',
+        'level': '等级划分',
+        'martial': '武学体系', 'categories': '武学类别', 'inheritance': '武学传承',
+        'treasure': '宝物体系', 'pills': '丹药',
+        'beast': '妖兽神兽', 'levels': '妖兽等级', 'mythical': '神话生物',
+        # races 层
+        'category': '种族分类', 'value': '种族价值观',
+        'trait': '种族特征', 'lifespan': '寿命', 'reproduction': '繁衍方式', 'physique': '体质特征',
+        'relation': '种族关系',
+        # society 层
+        'court': '朝廷官制', 'political_system': '政治体制', 'bureaucracy': '官僚体系',
+        'sect': '宗门势力', 'levels': '宗门等级', 'relationships': '宗门关系',
+        'factions': '武林势力', 'alliances': '武林联盟',
+        'external': '外部势力',
+        'class': '社会阶层', 'social_classes': '阶层划分', 'mobility': '阶层流动',
+        'currency': '货币经济', 'resource': '资源物产',
+        # culture 层
+        'custom': '风俗礼仪', 'rituals': '礼仪习俗',
+        'language': '语言文字', 'languages': '语言种类', 'writing_system': '文字系统',
+        'daily': '日常生活', 'clothing': '服饰', 'cuisine': '饮食', 'food': '饮食', 'architecture': '建筑', 'transportation': '交通出行',
+        'religion': '宗教信仰', 'deity': '神祇', 'deities': '神祇', 'organization': '宗教组织', 'faith_differences': '信仰差异', 'faith_diff': '信仰差异',
+        # history 层
+        'ancient': '远古时期', 'modern': '近现代', 'crisis': '当前危机', 'destiny': '命运走向', 'future': '未来展望',
+        # special 层
+        'taboo': '禁忌', 'secret': '秘密',
+        'fate': '命运规则', 'fortune_rules': '运势规则', 'destiny_types': '命运类型',
+        'reincarnation': '转世轮回', 'soul_rules': '灵魂规则', 'mechanics': '转世机制',
+        'transmigration': '穿越设定', 'system': '系统设定', 'rules': '特殊规则',
+    }
+    return _LABELS.get(key, key.replace('_', ' ').title())
+
+
+def _deep_merge(base, incoming):
+    """递归合并 incoming 到 base（原地修改 base，不覆盖原有非空字段）"""
+    for key, value in incoming.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value

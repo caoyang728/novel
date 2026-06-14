@@ -19,9 +19,8 @@ from .views import (
     ApiWorldviewHistoryView,
     ApiWorldviewSpecialView,
     ApiWorldviewExportMarkdownView,
-    ApiWorldviewChatHistoryView,
-    ApiWorldviewChatHistoryDeleteView,
-    ApiWorldviewChatStreamView
+    ApiWorldviewChatStreamView,
+    ApiWorldviewChatOpenView
 )
 
 urlpatterns = [
@@ -45,7 +44,6 @@ urlpatterns = [
     path('api/worldview/<int:pk>/history/', ApiWorldviewHistoryView.as_view(), name='api_worldview_history'),
     path('api/worldview/<int:pk>/special/', ApiWorldviewSpecialView.as_view(), name='api_worldview_special'),
     path('api/worldview/<int:pk>/export/markdown/', ApiWorldviewExportMarkdownView.as_view(), name='api_worldview_export_markdown'),
-    path('api/worldview/<int:pk>/chat/history/', ApiWorldviewChatHistoryView.as_view(), name='api_worldview_chat_history'),
-    path('api/worldview/<int:pk>/chat/history/delete/', ApiWorldviewChatHistoryDeleteView.as_view(), name='api_worldview_chat_history_delete'),
     path('api/worldview/<int:pk>/chat/stream/', ApiWorldviewChatStreamView.as_view(), name='api_worldview_chat_stream'),
+    path('api/worldview/<int:pk>/chat/open/', ApiWorldviewChatOpenView.as_view(), name='api_worldview_chat_open'),
 ]

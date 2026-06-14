@@ -1,0 +1,368 @@
+/* ==================== 世界观聊天构建页面样式 ==================== */
+/* 依赖 common.css — 本文件仅定义聊天页面特有样式 */
+
+/* ==================== 页面布局覆盖 ==================== */
+
+/* 聊天页面：body 固定高度 100vh + flex column 布局 */
+body {
+    height: 100vh;
+    padding-top: 0;
+    background: var(--bg-page);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.page-header {
+    position: static;
+    height: auto;
+    flex-shrink: 0;
+    padding: 0.5rem 1.5rem;
+}
+
+.page-header-inner {
+    padding: 0;
+}
+
+.page-content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+    padding: 0;
+    max-width: none;
+}
+
+/* ==================== 左右分栏 ==================== */
+.split-view {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    padding: 1rem;
+    gap: 1rem;
+}
+
+.left-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.right-panel {
+    width: 42%;
+    min-width: 420px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ==================== 世界观内容卡片 ==================== */
+.worldview-card {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 1;
+    transition: box-shadow var(--transition-normal);
+    border: 1px solid rgba(91, 106, 122, 0.3);
+}
+
+.worldview-card:hover {
+    box-shadow: var(--shadow-md);
+    border-color: rgba(139, 92, 246, 0.3);
+}
+
+.worldview-card-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+    line-height: 1.8;
+    color: var(--text-secondary);
+}
+
+.worldview-card-body h3 {
+    font-size: 1.15rem;
+    margin-top: 1.2rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+    border-bottom: 2px solid var(--purple);
+    padding-bottom: 0.3rem;
+    display: inline-block;
+}
+
+.worldview-card-body h3:first-child { margin-top: 0; }
+.worldview-card-body p { margin-bottom: 0.75rem; }
+.worldview-card-body ul { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+.worldview-card-body li { margin-bottom: 0.25rem; }
+
+.worldview-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+}
+
+.worldview-empty i { font-size: 3rem; margin-bottom: 1rem; opacity: 0.5; }
+.worldview-empty p { font-size: 0.9rem; margin: 0; }
+
+/* ==================== 分类徽章 ==================== */
+.category-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+}
+
+.cat-worldview { background: rgba(139,92,246,0.2); color: #a78bfa; }
+.cat-setting { background: rgba(99,102,241,0.2); color: #818cf8; }
+.cat-history { background: rgba(245,158,11,0.2); color: #fbbf24; }
+.cat-culture { background: rgba(236,72,153,0.2); color: #f472b6; }
+.cat-location { background: rgba(34,197,94,0.2); color: #4ade80; }
+.cat-rule { background: rgba(139,92,246,0.15); color: #a78bfa; }
+.cat-other { background: rgba(148,163,184,0.15); color: var(--text-muted); }
+
+/* ==================== 聊天区域 ==================== */
+.chat-card {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 1;
+    transition: box-shadow var(--transition-normal);
+    border: 1px solid rgba(91, 106, 122, 0.3);
+}
+
+.chat-card:hover {
+    box-shadow: var(--shadow-md);
+    border-color: rgba(139, 92, 246, 0.3);
+}
+
+.chat-card-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.75rem 0.875rem;
+    background: var(--surface-dark);
+}
+
+.chat-card-footer {
+    padding: 0.75rem;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.chat-input-wrap {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+}
+
+.chat-input-wrap textarea {
+    flex: 1;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    padding: 0.625rem 0.875rem;
+    font-size: 0.875rem;
+    resize: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    min-height: 44px;
+    max-height: 160px;
+    background: var(--surface-dark);
+    color: var(--text-primary);
+    font-family: inherit;
+}
+
+.chat-input-wrap textarea:focus {
+    outline: none;
+    border-color: var(--purple);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+}
+
+.chat-input-wrap textarea:disabled {
+    background-color: var(--surface);
+    cursor: not-allowed;
+    color: var(--text-muted);
+}
+
+.chat-input-wrap textarea::placeholder {
+    color: var(--text-muted);
+}
+
+.btn-send-purple {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: none;
+    background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.btn-send-purple:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+}
+
+.btn-send-purple:disabled {
+    background: var(--border);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-send-purple.generating {
+    background: linear-gradient(135deg, var(--border) 0%, var(--border) 100%);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    animation: send-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes send-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ==================== 聊天消息 ==================== */
+.chat-message {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 0.625rem;
+}
+
+.chat-message.user { justify-content: flex-end; }
+
+.chat-message-content {
+    display: flex;
+    flex: 1;
+}
+
+.chat-message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.avatar-me {
+    background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+    color: white;
+}
+
+.avatar-wv {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(167, 139, 250, 0.2) 100%);
+    color: #a78bfa;
+}
+
+.chat-bubble {
+    max-width: 85%;
+    padding: 0.875rem 1.125rem;
+    border-radius: 16px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.chat-bubble-user {
+    background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.chat-bubble-assistant {
+    background: var(--surface-elevated);
+    color: var(--text-secondary);
+    border-bottom-left-radius: 4px;
+    border: 1px solid var(--border-light);
+}
+
+/* 初始引导选项按钮 */
+.init-options {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.init-option-btn {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--primary);
+    background: transparent;
+    color: var(--primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.init-option-btn:hover {
+    background: var(--primary);
+    color: #fff;
+}
+
+/* ==================== 编辑模式 ==================== */
+#wv-textarea {
+    width: 100%;
+    height: 100%;
+    border: none;
+    resize: none;
+    padding: 1.25rem;
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1.8;
+    outline: none;
+    background: var(--surface);
+    color: var(--text-primary);
+}
+
+#wv-textarea::placeholder {
+    color: var(--text-muted);
+}
+
+/* ==================== 编辑/预览切换按钮组 ==================== */
+.btn-group-toggle .btn {
+    border-radius: 8px;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    cursor: pointer;
+}
+
+.btn-group-toggle .btn.active {
+    background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%);
+    color: white;
+    border-color: var(--purple);
+}
+
+.btn-group-toggle .btn:hover:not(.active) {
+    background: var(--surface-elevated);
+    color: var(--text-secondary);
+}
+
+/* ==================== 辅助 ==================== */
+.text-purple { color: var(--purple) !important; }
+.d-none { display: none !important; }

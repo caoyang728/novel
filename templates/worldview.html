@@ -11,32 +11,30 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body>
-    <div class="page-header-wrapper">
-        <div class="container">
-            <div class="page-header-content">
-                <button class="back-btn" id="backBtn">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
-                <div class="header-main">
-                    <h1 id="pageTitle">
-                        <i class="fas fa-globe-americas me-2"></i>世界观管理
-                        <span id="projectNameDisplay" class="header-subtitle"></span>
-                    </h1>
-                    <p id="pageSubtitle">版本: <span id="worldVersionDisplay">v1</span></p>
-                </div>
-                <div class="header-actions">
-                    <a href="#" id="chatBuildBtn" class="btn-secondary me-2">
-                        <i class="fas fa-comments me-1"></i> 通过聊天构建
-                    </a>
-                    <!-- <button class="btn-primary" onclick="saveSetting()">
-                        <i class="fas fa-save me-1"></i> 保存基本信息 待实现
-                    </button> -->
-                </div>
+    <div class="page-header">
+        <div class="page-header-inner">
+            <button class="back-btn" id="backBtn">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <div class="header-title-area">
+                <h1 class="header-title" id="pageTitle">
+                    <i class="fas fa-globe-americas me-2"></i>世界观管理
+                    <span id="projectNameDisplay" class="header-subtitle"></span>
+                </h1>
+                <p class="header-subtitle" id="pageSubtitle">版本: <span id="worldVersionDisplay">v1</span></p>
+            </div>
+            <div class="header-actions">
+                <a href="#" id="chatBuildBtn" class="btn-secondary me-2">
+                    <i class="fas fa-comments me-1"></i> 通过聊天构建
+                </a>
+                <!-- <button class="btn-primary" onclick="saveSetting()">
+                    <i class="fas fa-save me-1"></i> 保存基本信息 待实现
+                </button> -->
             </div>
         </div>
     </div>
 
-    <div class="container main-container">
+    <div class="page-content">
         <div id="mainContent" class="workspace-layout">
             <div class="workspace-sidebar">
                 <div class="sidebar-tabs">

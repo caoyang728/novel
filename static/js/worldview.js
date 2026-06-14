@@ -252,9 +252,7 @@ function showTab(tabName) {
     const targetTab = document.getElementById(`tab-${tabName}`);
     if (targetTab) {
         targetTab.classList.remove('hidden');
-        if (tabName === 'deepening' || tabName === 'consistency') {
-            targetTab.classList.add('active');
-        }
+        targetTab.classList.add('active');
     }
 }
 

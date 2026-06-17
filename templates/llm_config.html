@@ -79,10 +79,7 @@
                 <div class="tab-pane fade" id="tasks-panel">
                     <div class="content-card">
                         <div class="d-flex justify-content-between align-items-center mb-4">
-                            <h5><i class="fas fa-tasks me-2"></i>任务配置</h5>
-                            <button class="btn btn-primary" onclick="openTaskConfigModal()">
-                                <i class="fas fa-plus"></i> 添加配置
-                            </button>
+                            <h5><i class="fas fa-tasks me-2"></i>任务场景配置</h5>
                         </div>
                         <div id="task-configs-container">
                             <p class="text-center text-muted py-4">加载中...</p>
@@ -94,110 +91,117 @@
     </div>
 
     <!-- 弹窗：添加/编辑 LLM 配置 -->
-    <div class="custom-modal-overlay" id="configModal">
-        <div class="custom-modal">
-            <div class="custom-modal-header">
+    <div class="dialog-overlay" id="configModal">
+        <div class="dialog" style="max-width:560px;height:auto;min-height:unset;max-height:90vh;">
+            <div class="dialog-header">
                 <h5 id="configModalTitle"><i class="fas fa-plus-circle me-2"></i>添加LLM配置</h5>
+                <button class="btn-close" onclick="closeConfigModal()"></button>
             </div>
-            <div class="custom-modal-body">
+            <div class="dialog-body">
                 <input type="hidden" id="config-id">
-                <div class="mb-3">
+                <div class="form-group">
                     <label class="form-label">配置名称</label>
                     <input type="text" id="config-name" class="form-control" placeholder="输入配置名称">
                 </div>
-                <div class="mb-3">
+                <div class="form-group">
                     <label class="form-label">LLM提供商</label>
-                    <select id="config-provider" class="form-control">
+                    <select id="config-provider" class="form-control" onchange="onProviderChange()">
                         <option value="deepseek">DeepSeek</option>
                         <option value="openai">OpenAI</option>
                         <option value="anthropic">Anthropic</option>
-                        <option value="qwen">Qwen</option>
+                        <option value="qwen">通义千问</option>
                         <option value="gemini">Gemini</option>
                         <option value="custom">自定义</option>
                     </select>
                 </div>
-                <div class="mb-3">
+                <div class="form-group">
                     <label class="form-label">API密钥</label>
                     <input type="password" id="config-api-key" class="form-control" placeholder="输入API密钥">
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">API地址 (可选)</label>
+                <div class="form-group">
+                    <label class="form-label">API地址</label>
                     <input type="url" id="config-base-url" class="form-control" placeholder="输入自定义API地址">
                 </div>
-                <div class="mb-3">
+                <div class="form-group">
                     <label class="form-label">模型名称</label>
-                    <input type="text" id="config-model" class="form-control" placeholder="输入模型名称">
+                    <select id="config-model-select" class="form-control" onchange="onModelChange()">
+                    </select>
+                    <input type="text" id="config-model" class="form-control" placeholder="输入模型名称" style="display:none;">
                 </div>
-                <div class="row g-3 mb-3">
-                    <div class="col">
+                <div class="form-row form-group">
+                    <div class="form-group">
                         <label class="form-label">温度</label>
                         <input type="number" id="config-temperature" class="form-control" value="0.7" min="0" max="2" step="0.1">
                     </div>
-                    <div class="col">
+                    <div class="form-group">
                         <label class="form-label">最大Token数</label>
                         <input type="number" id="config-max-tokens" class="form-control" value="4096" min="100" max="32000">
                     </div>
                 </div>
-                <div class="row g-3 mb-3">
-                    <div class="col">
+                <div class="form-row form-group">
+                    <div class="form-group">
                         <label class="form-label">输入单价 <span class="form-label-hint">元/百万Token</span></label>
                         <input type="number" id="config-input-price" class="form-control" value="0" min="0" step="0.01">
                     </div>
-                    <div class="col">
+                    <div class="form-group">
                         <label class="form-label">输出单价 <span class="form-label-hint">元/百万Token</span></label>
                         <input type="number" id="config-output-price" class="form-control" value="0" min="0" step="0.01">
                     </div>
-                    <div class="col">
+                    <div class="form-group">
                         <label class="form-label">缓存命中单价 <span class="form-label-hint">元/百万Token</span></label>
                         <input type="number" id="config-cache-hit-price" class="form-control" value="0" min="0" step="0.01">
                     </div>
                 </div>
-                <div class="mb-3">
+                <div class="form-group d-flex align-items-center">
                     <input type="checkbox" id="config-default" style="accent-color: #818cf8;">
-                    <label class="form-label ms-2">设为默认配置</label>
+                    <label class="form-label ms-2 mb-0">设为默认配置</label>
                 </div>
             </div>
-            <div class="custom-modal-footer">
-                <button class="btn-cancel" onclick="closeConfigModal()">取消</button>
-                <button class="btn-save" onclick="saveConfig()">保存</button>
+            <div class="dialog-footer">
+                <button class="btn-test-connection" id="btn-test-connection" onclick="testConnectionFromModal()">
+                    <i class="fas fa-plug"></i> 测试连接
+                </button>
+                <div class="footer-right-btns">
+                    <button class="btn-cancel" onclick="closeConfigModal()">取消</button>
+                    <button class="btn-save" onclick="saveConfig()">保存</button>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- 弹窗：配置任务模型 -->
-    <div class="custom-modal-overlay" id="taskConfigModal">
-        <div class="custom-modal">
-            <div class="custom-modal-header">
+    <div class="dialog-overlay" id="taskConfigModal">
+        <div class="dialog dialog-sm" style="width: 70%;">
+            <div class="dialog-header">
                 <h5 id="taskConfigModalTitle"><i class="fas fa-cog me-2"></i>配置任务模型</h5>
+                <button class="btn-close" onclick="closeTaskConfigModal()"></button>
             </div>
-            <div class="custom-modal-body">
+            <div class="dialog-body">
                 <input type="hidden" id="task-config-id">
-                <div class="mb-3">
+                <div class="form-group">
                     <label class="form-label">任务类型</label>
-                    <select id="task-type" class="form-control">
-                        <option value="outline">大纲生成</option>
-                        <option value="volume">卷结构生成</option>
-                        <option value="chapter">章节概要生成</option>
-                        <option value="content">章节内容生成</option>
-                    </select>
+                    <div id="task-type-display" class="task-type-display"></div>
+                    <input type="hidden" id="task-type">
                 </div>
-                <div class="mb-3">
+                <div class="form-group">
                     <label class="form-label">选择配置</label>
                     <select id="task-config" class="form-control">
                     </select>
                 </div>
-                <div class="row g-3 mb-3">
-                    <div class="col">
-                        <label class="form-label">自定义温度 (可选)</label>
-                        <input type="number" id="task-temperature" class="form-control" placeholder="留空使用配置默认值" min="0" max="2" step="0.1">
+                <div class="form-row form-group">
+                    <div class="form-group">
+                        <label class="form-label">温度</label>
+                        <input type="number" id="task-temperature" class="form-control" placeholder="留空使用场景默认值" min="0" max="2" step="0.1">
+                        <span id="task-temp-hint" class="field-hint"></span>
                     </div>
-                    <div class="col">
-                        <label class="form-label">自定义最大Token (可选)</label>
-                        <input type="number" id="task-max-tokens" class="form-control" placeholder="留空使用配置默认值" min="100" max="32000">
+                    <div class="form-group">
+                        <label class="form-label">最大Token</label>
+                        <input type="number" id="task-max-tokens" class="form-control" placeholder="留空使用场景默认值" min="100" max="32000">
+                        <span id="task-token-hint" class="field-hint"></span>
                     </div>
                 </div>
             </div>
-            <div class="custom-modal-footer">
+            <div class="dialog-footer">
                 <button class="btn-cancel" onclick="closeTaskConfigModal()">取消</button>
                 <button class="btn-save" onclick="saveTaskConfig()">保存</button>
             </div>

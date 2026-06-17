@@ -20,6 +20,44 @@ from novel_agent.authentication import JWTAuthentication
 from .models import LLMConfig, UserLLMConfig, TokenUsageLog
 
 
+def _test_llm_connection(api_key, base_url, model_name):
+    """测试LLM连接是否可用，返回 (success, message)"""
+    try:
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import HumanMessage
+
+        client_params = {
+            'api_key': api_key,
+            'model_name': model_name,
+            'max_tokens': 10,
+            'timeout': 15,
+            'max_retries': 1,
+        }
+        if base_url:
+            client_params['base_url'] = base_url
+
+        client = ChatOpenAI(**client_params)
+        response = client.invoke([HumanMessage(content='Hi')])
+        if response and response.content:
+            return True, '连接成功'
+        return False, '响应内容为空'
+    except Exception as e:
+        error_msg = str(e)
+        # 截取关键错误信息
+        if 'Unauthorized' in error_msg or '401' in error_msg:
+            return False, 'API密钥无效'
+        elif 'Connection' in error_msg or 'connect' in error_msg.lower():
+            return False, '无法连接到API地址'
+        elif 'not found' in error_msg.lower() or '404' in error_msg:
+            return False, '模型不存在'
+        elif 'timeout' in error_msg.lower():
+            return False, '连接超时'
+        elif 'rate limit' in error_msg.lower() or '429' in error_msg:
+            return True, '连接成功（限流中）'
+        # 截取前100字符避免过长
+        return False, error_msg[:100]
+
+
 # ============ Auth Views ============
 
 class LoginView(APIView):
@@ -440,10 +478,15 @@ class ApiLLMConfigView(APIView):
                 'max_tokens': tc.max_tokens
             })
 
+        # 返回分组场景配置，供前端展示所有场景（含未配置的）
+        from agent.llm_scenes import get_grouped_scenes
+        grouped_scenes = get_grouped_scenes()
+
         return JsonResponse({
             'success': True,
             'configs': configs_data,
             'task_configs': task_configs_data,
+            'grouped_scenes': grouped_scenes,
             'provider_choices': LLMConfig.PROVIDER_CHOICES,
             'task_choices': UserLLMConfig.TASK_CHOICES
         })
@@ -521,6 +564,30 @@ class ApiLLMConfigView(APIView):
                 config.is_active = is_active
                 config.save()
                 return JsonResponse({'success': True})
+
+            elif action == 'test_connection':
+                config_id = request.data.get('config_id')
+                try:
+                    config = LLMConfig.objects.get(pk=config_id, user=request.user)
+                    api_key = config.get_api_key()
+                    if not api_key:
+                        return JsonResponse({'success': False, 'message': '未配置API密钥'})
+                    success, message = _test_llm_connection(api_key, config.base_url, config.model_name)
+                    return JsonResponse({'success': success, 'message': message})
+                except LLMConfig.DoesNotExist:
+                    return JsonResponse({'success': False, 'message': '配置不存在'})
+
+            elif action == 'test_connection_params':
+                # 弹窗中测试：使用表单参数而非已保存配置
+                api_key = request.data.get('api_key', '')
+                base_url = request.data.get('base_url', '')
+                model_name = request.data.get('model_name', '')
+                if not api_key:
+                    return JsonResponse({'success': False, 'message': '请先填写API密钥'})
+                if not model_name:
+                    return JsonResponse({'success': False, 'message': '请先填写模型名称'})
+                success, message = _test_llm_connection(api_key, base_url, model_name)
+                return JsonResponse({'success': success, 'message': message})
 
             elif action == 'update':
                 config_id = request.data.get('config_id')

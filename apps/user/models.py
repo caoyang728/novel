@@ -62,11 +62,30 @@ class LLMConfig(models.Model):
 class UserLLMConfig(models.Model):
     """用户LLM配置 - 不同任务使用不同配置"""
     TASK_CHOICES = [
-        ('outline', '大纲构建'),
-        ('volume', '卷生成'),
-        ('chapter', '章节生成'),
-        ('content', '内容生成'),
         ('default', '默认'),
+
+        ('worldview_build', '世界观构建'),
+        ('worldview_deepen', '世界观深化'),
+        ('worldview_consistency', '世界观一致性检查'),
+        
+        ('character_design', '角色设计'),
+        ('character_polish', '角色润色'),
+        ('character_check', '角色校验'),
+        ('timeline_generate', '时间线生成'),
+        ('timeline_merge', '时间线合并'),
+        ('timeline_check', '时间线检查'),
+        ('outline_optimize', '大纲优化'),
+
+        ('volume_batch_generate', '卷批量生成'),
+        ('volume_single_generate', '单卷生成'),
+        ('volume_single_optimize', '单卷优化'),
+        ('volume_chat', '卷对话写作'),
+        
+        ('chapter_batch_generate', '章节批量生成'),
+        ('chapter_split', '章节拆分'),
+        ('chapter_optimize', '章节优化'),
+        ('chapter_verify', '章节校验'),
+        ('note_polish', '随手记润色'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_llm_configs', verbose_name='用户')

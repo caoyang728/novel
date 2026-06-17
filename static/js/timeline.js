@@ -12,9 +12,9 @@ let printingTimerIds = [];
 
 document.addEventListener('DOMContentLoaded', function() {
     checkAuth();
+    showLoading('加载中...');
 
-    const urlParams = new URLSearchParams(window.location.search);
-    projectId = urlParams.get('project_id');
+    projectId = getProjectIdFromUrl();
 
     if (!projectId || !/^\d+$/.test(projectId)) {
         showToast('项目ID参数缺失或无效', 'error');
@@ -22,22 +22,18 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
+    loadProjectInfo(projectId);
     loadEvents();
 
     // 初始化返回项目按钮
     initBackToProjectButton('.btn-back');
 
-    // ESC键统一关闭所有弹窗并恢复overflow
+    // ESC键：timeline专属清理（模态框关闭由common.js全局处理）
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
-            document.querySelectorAll('.modal-overlay.show').forEach(modal => {
-                modal.classList.remove('show');
-            });
             // 清理预览弹窗的打印定时器
             clearAllPrintingTimers();
             isPreviewEditing = false;
-            // 恢复 body 滚动
-            document.body.style.overflow = '';
         }
     });
 });
@@ -209,12 +205,13 @@ function renderEventList(eventList) {
     container.innerHTML = htmlParts.join('');
 
     // 事件委托：点击事件卡片
-    container.querySelectorAll('.event-card[data-event-id]').forEach(card => {
-        card.addEventListener('click', function() {
-            const eventId = parseInt(this.dataset.eventId);
+    container.onclick = function(e) {
+        const card = e.target.closest('.event-card[data-event-id]');
+        if (card) {
+            const eventId = parseInt(card.dataset.eventId);
             if (eventId) selectEvent(eventId);
-        });
-    });
+        }
+    };
 }
 
 function renderEvents() {
@@ -296,7 +293,6 @@ function showGenerateModal() {
 
 function closeGenerateModal() {
     document.getElementById('generate-modal').classList.remove('show');
-    document.body.style.overflow = '';
 }
 
 function openAddModal() {
@@ -347,7 +343,6 @@ function openEditModal() {
 
 function closeEditModal() {
     document.getElementById('edit-modal').classList.remove('show');
-    document.body.style.overflow = '';
 }
 
 async function saveEditEvent() {
@@ -465,7 +460,6 @@ function openMergeModal() {
 
 function closeMergeModal() {
     document.getElementById('merge-modal').classList.remove('show');
-    document.body.style.overflow = '';
 }
 
 function openSplitModal() {
@@ -486,7 +480,6 @@ function openSplitModal() {
 
 function closeSplitModal() {
     document.getElementById('split-modal').classList.remove('show');
-    document.body.style.overflow = '';
 }
 
 async function splitTimeline() {
@@ -670,142 +663,6 @@ async function streamGenerateTimeline(requestMessages, options = {}) {
         hideLoading();
         showToast('生成完成！', 'success');
     }
-}
-
-function safeJsonParse(str) {
-    if (!str) return null;
-    try {
-        // 第0步：剥离 ITEM 标记
-        let rawStr = str.trim();
-        const ITEM_START = '════ITEM_START════';
-        const ITEM_END = '════ITEM_END════';
-        if (rawStr.includes(ITEM_START)) {
-            const startIdx = rawStr.indexOf(ITEM_START);
-            const endIdx = rawStr.indexOf(ITEM_END, startIdx);
-            if (endIdx !== -1) {
-                rawStr = rawStr.substring(startIdx + ITEM_START.length, endIdx).trim();
-            } else {
-                rawStr = rawStr.substring(startIdx + ITEM_START.length).trim();
-            }
-        }
-
-        // 第1步：直接解析
-        try { return cleanParsed(JSON.parse(rawStr)); } catch(e) {}
-
-        // 第2步：替换中文引号 + 修复未转义双引号 + 修复未转义换行 + 修复无效转义 + 清理控制字符
-        let cleaned = rawStr;
-        // 替换中文引号为单引号（避免与JSON结构引号冲突）
-        cleaned = cleaned.replace(/[\u201c\u201d]/g, "'");
-        cleaned = cleaned.replace(/[\u2018\u2019]/g, "'");
-
-        // 逐字符扫描：修复字符串值内的未转义双引号、换行符、无效转义序列和控制字符
-        let result = '';
-        let inString = false;
-        let escape = false;
-        for (let i = 0; i < cleaned.length; i++) {
-            const ch = cleaned[i];
-            if (escape) {
-                // 检查是否是合法的JSON转义字符
-                if (!'"\\\/bfnrtu'.includes(ch)) {
-                    // 无效转义序列：将反斜杠转义，保留原字符
-                    result = result.slice(0, -1) + '\\\\' + ch;
-                } else {
-                    result += ch;
-                }
-                escape = false;
-                continue;
-            }
-            if (ch === '\\' && inString) {
-                result += ch;
-                escape = true;
-                continue;
-            }
-            if (ch === '"') {
-                if (!inString) {
-                    // 开始字符串
-                    inString = true;
-                    result += ch;
-                } else {
-                    // 可能是字符串结束——检查后面是否是合法JSON结构字符
-                    let j = i + 1;
-                    while (j < cleaned.length && cleaned[j] === ' ') j++;
-                    if (j >= cleaned.length || ':,}]'.includes(cleaned[j])) {
-                        // 合法的字符串结束
-                        inString = false;
-                        result += ch;
-                    } else {
-                        // 字符串值内的未转义双引号，转义它
-                        result += '\\"';
-                    }
-                }
-                continue;
-            }
-            if (inString && (ch === '\n' || ch === '\r')) {
-                result += '\\n';
-                continue;
-            }
-            if (inString && ch === '\t') {
-                result += '\\t';
-                continue;
-            }
-            // 清理字符串内的其他控制字符（0x00-0x1F，除已处理的换行/制表符）
-            if (inString && ch.charCodeAt(0) < 0x20) {
-                result += ' ';
-                continue;
-            }
-            result += ch;
-        }
-        cleaned = result;
-
-        try { return cleanParsed(JSON.parse(cleaned)); } catch(e) {}
-
-        // 第3步：提取第一个 { 到最后一个 } 之间的内容
-        const firstBrace = cleaned.indexOf('{');
-        const lastBrace = cleaned.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace > firstBrace) {
-            try { return cleanParsed(JSON.parse(cleaned.substring(firstBrace, lastBrace + 1))); } catch(e) {}
-        }
-
-        // 第4步：逐层剥离外层，尝试解析内部 JSON
-        // 处理 LLM 在 JSON 外包裹多余字符的情况
-        let inner = cleaned;
-        for (let attempt = 0; attempt < 3; attempt++) {
-            inner = inner.trim();
-            // 去掉首尾非 JSON 字符
-            if (inner[0] !== '{' && inner[0] !== '[') {
-                const idx = inner.indexOf('{');
-                if (idx === -1) break;
-                inner = inner.substring(idx);
-            }
-            if (inner[inner.length - 1] !== '}' && inner[inner.length - 1] !== ']') {
-                const idx = inner.lastIndexOf('}');
-                if (idx === -1) break;
-                inner = inner.substring(0, idx + 1);
-            }
-            try { return cleanParsed(JSON.parse(inner)); } catch(e) {}
-            // 尝试去掉首尾各一个字符
-            if (inner.length > 2) {
-                inner = inner.substring(1, inner.length - 1);
-            } else {
-                break;
-            }
-        }
-
-        console.error('safeJsonParse: 所有尝试均失败', str);
-        return null;
-    } catch (e) {
-        console.error('safeJsonParse: 异常', str, e);
-        return null;
-    }
-}
-
-function cleanParsed(parsed) {
-    if (!parsed) return parsed;
-    // 清理 era_unit 中的"元年"/"年"后缀
-    if (parsed.era_unit && typeof parsed.era_unit === 'string') {
-        parsed.era_unit = parsed.era_unit.replace(/元年$|年$/, '');
-    }
-    return parsed;
 }
 
 function mergeIncrementalChanges(baseEvents, changes) {
@@ -1070,10 +927,10 @@ function renderPreviewContent(index) {
             <div class="preview-edit">
                 <textarea id="preview-edit-content">${escapeHtml(item.completeContent || item.printedContent || '')}</textarea>
                 <div class="preview-edit-actions">
-                    <button class="btn-ai-optimize-single" onclick="aiOptimizeSingleItem(${index})" id="btn-ai-optimize-single">
+                    <button class="btn-ai btn-sm" onclick="aiOptimizeSingleItem(${index})" id="btn-ai-optimize-single">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> AI优化
                     </button>
-                    <button class="btn-save-single" onclick="saveSingleTimeline(${index}, this)">保存此项</button>
+                    <button class="btn-success btn-sm" onclick="saveSingleTimeline(${index}, this)">保存此项</button>
                 </div>
             </div>
         `;
@@ -1408,7 +1265,6 @@ async function saveAllTimelines() {
 function closePreviewModal() {
     clearAllPrintingTimers();
     document.getElementById('preview-modal').classList.remove('show');
-    document.body.style.overflow = '';
 }
 
 async function mergeTimelines() {
@@ -1499,21 +1355,8 @@ async function aiGenerateFields() {
     inputs.forEach(el => { if (el) el.disabled = true; });
     showLoading('AI生成中...', 0.3);
 
-    // 获取相邻事件上下文（基于当前事件列表的排序位置）
-    let prevItem = null;
-    let nextItem = null;
-    if (events.length > 0) {
-        const lastEvent = events[events.length - 1];
-        prevItem = {
-            title: lastEvent.title || '',
-            era_unit: lastEvent.era_unit || '',
-            start_year: lastEvent.start_year || 0,
-            start_month: lastEvent.start_month || 0,
-            end_year: lastEvent.end_year || 0,
-            end_month: lastEvent.end_month || 0,
-            description: lastEvent.description || ''
-        };
-    }
+    // 获取相邻事件上下文
+    const { prevItem, nextItem } = buildAdjacentContext(-1);
 
     try {
         let rawTextBuffer = '';
@@ -1593,32 +1436,7 @@ async function optimizeEditEvent() {
 
     // 获取相邻事件上下文
     const eventIndex = events.findIndex(e => e.id === parseInt(eventId));
-    let prevItem = null;
-    let nextItem = null;
-    if (eventIndex > 0) {
-        const p = events[eventIndex - 1];
-        prevItem = {
-            title: p.title || '',
-            era_unit: p.era_unit || '',
-            start_year: p.start_year || 0,
-            start_month: p.start_month || 0,
-            end_year: p.end_year || 0,
-            end_month: p.end_month || 0,
-            description: p.description || ''
-        };
-    }
-    if (eventIndex < events.length - 1) {
-        const n = events[eventIndex + 1];
-        nextItem = {
-            title: n.title || '',
-            era_unit: n.era_unit || '',
-            start_year: n.start_year || 0,
-            start_month: n.start_month || 0,
-            end_year: n.end_year || 0,
-            end_month: n.end_month || 0,
-            description: n.description || ''
-        };
-    }
+    const { prevItem, nextItem } = buildAdjacentContext(eventIndex);
 
     try {
         await callOptimizeSingle({
@@ -1834,6 +1652,48 @@ async function checkTimeline() {
 
 let checkResultIssues = [];  // 存储检查结果
 
+/**
+ * 构建相邻事件上下文（用于 AI 生成/优化）
+ * @param {number} eventIndex - 当前事件在 events 数组中的索引，-1 表示新增模式
+ * @returns {{ prevItem: object|null, nextItem: object|null }}
+ */
+function buildAdjacentContext(eventIndex) {
+    let prevItem = null;
+    let nextItem = null;
+
+    if (eventIndex === -1) {
+        // 新增模式：取最后一个事件作为前邻
+        if (events.length > 0) {
+            const lastEvent = events[events.length - 1];
+            prevItem = extractEventContext(lastEvent);
+        }
+    } else {
+        if (eventIndex > 0) {
+            prevItem = extractEventContext(events[eventIndex - 1]);
+        }
+        if (eventIndex < events.length - 1) {
+            nextItem = extractEventContext(events[eventIndex + 1]);
+        }
+    }
+
+    return { prevItem, nextItem };
+}
+
+/**
+ * 从事件对象提取上下文信息
+ */
+function extractEventContext(event) {
+    return {
+        title: event.title || '',
+        era_unit: event.era_unit || '',
+        start_year: event.start_year || 0,
+        start_month: event.start_month || 0,
+        end_year: event.end_year || 0,
+        end_month: event.end_month || 0,
+        description: event.description || ''
+    };
+}
+
 function renderCheckResult(issues) {
     const container = document.getElementById('check-issues-container');
     const emptyDiv = document.getElementById('check-empty');
@@ -1943,7 +1803,6 @@ function renderCheckResult(issues) {
 
 function closeCheckModal() {
     document.getElementById('check-modal').classList.remove('show');
-    document.body.style.overflow = '';
 }
 
 async function optimizeCheckIssues() {

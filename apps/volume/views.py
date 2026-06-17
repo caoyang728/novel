@@ -14,7 +14,7 @@ from apps.project.models import ProjectList
 from apps.outline.models import OutlineVersion
 from apps.volume.models import VolumeVersion, VolumeList
 from apps.volume.serializers import VolumeListSerializer
-from agent.llm import get_llm, log_token_usage, call_llm_with_retry
+from agent.llm import get_llm
 from apps.volume.prompts import (
     VOLUME_ANALYSIS_SYSTEM_PROMPT, VOLUME_ANALYSIS_USER_PROMPT,
     VOLUME_GENERATION_SYSTEM_PROMPT, VOLUME_GENERATION_USER_PROMPT,
@@ -26,7 +26,6 @@ from apps.volume.prompts import (
 
 VOLUME_START_MARKER = '════VOLUME_START════'
 CHAPTER_START_MARKER = '════CHAPTER_START════'
-from apps.user.models import TokenUsageLog
 
 
 # ========== 基础视图类 ==========
@@ -157,18 +156,15 @@ class BaseVolumeAPIView(BaseAPIView):
 
 # ========== 卷版本管理 ==========
 
-class VolumeVersionListView(BaseVolumeAPIView):
+class ApiVolumeVersionListView(BaseVolumeAPIView):
     """
     卷版本列表
     GET  - 获取版本列表
     POST - 生成新版本
     """
 
-    def get(self, request):
+    def get(self, request, project_id):
         """获取项目的卷版本列表"""
-        project_id = request.query_params.get('project_id') or request.GET.get('project_id')
-        if not project_id:
-            return JsonResponse({'success': False, 'message': '缺少project_id'}, status=400)
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
         versions = project.volume_versions.filter(is_deleted=False).order_by('-created_at')
 
@@ -185,9 +181,8 @@ class VolumeVersionListView(BaseVolumeAPIView):
 
         return JsonResponse({'success': True, 'versions': versions_data})
 
-    def post(self, request):
+    def post(self, request, project_id):
         """生成卷结构（先分析大纲→逐卷流式生成，含重试策略）"""
-        project_id = self._get_param(request, 'project_id')
         outline_version_id = self._get_param(request, 'outline_version_id')
 
         if not outline_version_id:
@@ -220,6 +215,7 @@ class VolumeVersionListView(BaseVolumeAPIView):
                 analysis_chain = analysis_prompt | llm
 
                 analysis_result = analysis_chain.invoke({"outline": outline_version.content})
+                self.log_token_usage('volume_analysis', result=analysis_result, user=request.user, project=project)
                 analysis_content = self.get_chunk_text(analysis_result)
 
                 # 解析分析结果
@@ -269,9 +265,16 @@ class VolumeVersionListView(BaseVolumeAPIView):
                         }
 
                         try:
+                            last_chunk = None
+                            usage_chunk = None
                             for chunk in generate_chain.stream(input_vars):
+                                last_chunk = chunk
+                                if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                                    usage_chunk = chunk
                                 chunk_content = self.get_chunk_text(chunk)
                                 vol_buffer += chunk_content
+                            # 记录 token 使用量
+                            self.log_token_usage('volume_generate', result=last_chunk, usage_result=usage_chunk, user=request.user, project=project)
                         except Exception as stream_err:
                             logger.warning(f"第{vol_num}卷生成流异常(第{attempt}次): {stream_err}")
                             if attempt < MAX_RETRIES:
@@ -354,7 +357,7 @@ class VolumeVersionListView(BaseVolumeAPIView):
         return self.sse_response(generate)
 
 
-class VolumeVersionDetailView(BaseVolumeAPIView):
+class ApiVolumeVersionDetailView(BaseVolumeAPIView):
     """
     单个卷版本
     GET    - 获取版本详情
@@ -362,7 +365,7 @@ class VolumeVersionDetailView(BaseVolumeAPIView):
     DELETE - 删除版本（物理删除）
     """
 
-    def get(self, request, version_id):
+    def get(self, request, project_id, version_id):
         """获取单个卷版本详情"""
         volume_version = self.get_volume_version(version_id)
 
@@ -373,9 +376,8 @@ class VolumeVersionDetailView(BaseVolumeAPIView):
             'is_finalized': volume_version.is_finalized
         })
 
-    def put(self, request, version_id):
+    def put(self, request, project_id, version_id):
         """保存卷版本（覆盖当前版本的卷数据）"""
-        project_id = self._get_param(request, 'project_id')
         outline_version_id = self._get_param(request, 'outline_version_id')
         volumes_json = self._get_param(request, 'volumes') or '[]'
 
@@ -439,7 +441,7 @@ class VolumeVersionDetailView(BaseVolumeAPIView):
             'version_number': volume_version.version_number
         })
 
-    def delete(self, request, version_id):
+    def delete(self, request, project_id, version_id):
         """删除卷版本（物理删除）"""
         volume_version = self.get_volume_version(version_id)
 
@@ -456,12 +458,11 @@ class VolumeVersionDetailView(BaseVolumeAPIView):
         return JsonResponse({'success': True})
 
 
-class VolumeVersionSaveView(BaseVolumeAPIView):
+class ApiVolumeVersionSaveView(BaseVolumeAPIView):
     """另存为新版本"""
 
-    def post(self, request, version_id):
+    def post(self, request, project_id, version_id):
         """另存为新版本（基于当前版本数据创建新版本）"""
-        project_id = self._get_param(request, 'project_id')
         outline_version_id = self._get_param(request, 'outline_version_id')
         volumes_json = self._get_param(request, 'volumes') or '[]'
 
@@ -493,10 +494,10 @@ class VolumeVersionSaveView(BaseVolumeAPIView):
         })
 
 
-class VolumeVersionFinalizeView(BaseVolumeAPIView):
+class ApiVolumeVersionFinalizeView(BaseVolumeAPIView):
     """锁定/解锁卷版本"""
 
-    def post(self, request, version_id):
+    def post(self, request, project_id, version_id):
         volume_version = self.get_volume_version(version_id)
 
         volume_version.is_finalized = not volume_version.is_finalized
@@ -505,11 +506,10 @@ class VolumeVersionFinalizeView(BaseVolumeAPIView):
         return JsonResponse({'success': True, 'is_finalized': volume_version.is_finalized})
 
 
-class VolumeVersionOptimizeView(BaseVolumeAPIView):
+class ApiVolumeVersionOptimizeView(BaseVolumeAPIView):
     """优化卷结构（逐卷流式生成）"""
 
-    def post(self, request, version_id):
-        project_id = self._get_param(request, 'project_id')
+    def post(self, request, project_id, version_id):
         user_feedback = self._get_param(request, 'user_feedback')
 
         if not user_feedback:
@@ -577,9 +577,16 @@ class VolumeVersionOptimizeView(BaseVolumeAPIView):
                         "timeline": timeline_context,
                     }
 
+                    last_chunk = None
+                    usage_chunk = None
                     for chunk in generate_chain.stream(input_vars):
+                        last_chunk = chunk
+                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                            usage_chunk = chunk
                         chunk_content = self.get_chunk_text(chunk)
                         vol_buffer += chunk_content
+                    # 记录 token 使用量
+                    self.log_token_usage('volume_optimize', result=last_chunk, usage_result=usage_chunk, user=request.user, project=project)
 
                     # 解析 LLM 输出
                     parsed_volumes = self.parse_volumes_from_llm_output(vol_buffer)
@@ -628,10 +635,10 @@ class VolumeVersionOptimizeView(BaseVolumeAPIView):
         return self.sse_response(generate)
 
 
-class VolumeVersionChatView(BaseVolumeAPIView):
+class ApiVolumeVersionChatView(BaseVolumeAPIView):
     """卷对话 API - 使用 LLM 进行卷结构优化对话，支持跨卷操作"""
 
-    def post(self, request, version_id):
+    def post(self, request, project_id, version_id):
         message = self._get_param(request, 'message')
         context_messages = self._get_param(request, 'context_messages') or []
         current_volume_number = self._get_param(request, 'current_volume_number')
@@ -718,10 +725,18 @@ class VolumeVersionChatView(BaseVolumeAPIView):
                 }
 
                 # 流式推送原始 LLM 输出，前端自行解析分隔符
+                last_chunk = None
+                usage_chunk = None
                 for chunk in chain.stream(input_vars):
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = self.get_chunk_text(chunk)
                     full_content += chunk_content
                     yield self.sse_event('chunk', {'data': chunk_content})
+
+                # 记录 token 使用量
+                self.log_token_usage('volume_chat', result=last_chunk, usage_result=usage_chunk, user=request.user, project=volume_version.project)
 
                 # 解析分隔符提取 content / question / target
                 parsed_content, parsed_question, target_info = self._parse_chat_output(full_content)
@@ -832,24 +847,16 @@ class VolumeVersionChatView(BaseVolumeAPIView):
 
             full_content = ""
             last_chunk = None
+            usage_chunk = None
             for chunk in chain.stream(input_vars):
+                last_chunk = chunk
+                if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                    usage_chunk = chunk
                 chunk_content = self.get_chunk_text(chunk)
                 full_content += chunk_content
-                last_chunk = chunk
 
-            # 从最后一个 chunk 提取 token 使用信息
-            if user and last_chunk and hasattr(last_chunk, 'usage_metadata') and last_chunk.usage_metadata:
-                try:
-                    TokenUsageLog.objects.create(
-                        user=user,
-                        project=volume_version.project,
-                        model_name='',
-                        prompt_tokens=last_chunk.usage_metadata.get('input_tokens', 0),
-                        completion_tokens=last_chunk.usage_metadata.get('output_tokens', 0),
-                        total_tokens=last_chunk.usage_metadata.get('total_tokens', 0),
-                    )
-                except Exception as e:
-                    logger.error(f"记录Token使用失败: {e}")
+            # 记录 token 使用量
+            self.log_token_usage('volume_chat_merge', result=last_chunk, usage_result=usage_chunk, user=user, project=volume_version.project)
 
             return full_content.strip()
         except Exception as e:
@@ -859,10 +866,10 @@ class VolumeVersionChatView(BaseVolumeAPIView):
 
 # ========== 单卷操作 ==========
 
-class VolumeLockView(BaseVolumeAPIView):
+class ApiVolumeLockView(BaseVolumeAPIView):
     """单卷锁定/解锁"""
 
-    def put(self, request, volume_id):
+    def put(self, request, project_id, volume_id):
         is_locked = self._get_param(request, 'is_locked')
 
         if is_locked is None:
@@ -885,11 +892,10 @@ class VolumeLockView(BaseVolumeAPIView):
         return JsonResponse({'success': True, 'is_locked': volume.is_locked})
 
 
-class VolumeOptimizeView(BaseVolumeAPIView):
+class ApiVolumeOptimizeView(BaseVolumeAPIView):
     """单卷AI优化"""
 
-    def post(self, request):
-        project_id = self._get_param(request, 'project_id')
+    def post(self, request, project_id):
         version_id = self._get_param(request, 'version_id')
         volume_number = self._get_param(request, 'volume_number')
         volume_title = self._get_param(request, 'volume_title')
@@ -947,10 +953,18 @@ class VolumeOptimizeView(BaseVolumeAPIView):
         def generate():
             full_content = ""
             try:
+                last_chunk = None
+                usage_chunk = None
                 for chunk in chain.stream(input_vars):
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = self.get_chunk_text(chunk)
                     full_content += chunk_content
                     yield self.sse_event('chunk', {'data': chunk_content})
+
+                # 记录 token 使用量
+                self.log_token_usage('volume_single_optimize', result=last_chunk, usage_result=usage_chunk, user=request.user, project=project)
 
                 volume_data = {
                     'volume_number': volume_number,
@@ -968,12 +982,10 @@ class VolumeOptimizeView(BaseVolumeAPIView):
         return self.sse_response(generate)
 
 
-class VolumeGenerateView(BaseVolumeAPIView):
+class ApiVolumeGenerateView(BaseVolumeAPIView):
     """单卷AI生成（用于补生成失败的卷）"""
 
-    def post(self, request, volume_id):
-        project_id = self._get_param(request, 'project_id')
-
+    def post(self, request, project_id, volume_id):
         project, err = self.get_project(request, project_id)
         if err:
             return err
@@ -1031,9 +1043,16 @@ class VolumeGenerateView(BaseVolumeAPIView):
                     yield self.sse_event('progress', {'message': f'正在生成「{volume.title}」卷大纲...'})
 
                     try:
+                        last_chunk = None
+                        usage_chunk = None
                         for chunk in chain.stream(input_vars):
+                            last_chunk = chunk
+                            if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                                usage_chunk = chunk
                             chunk_content = self.get_chunk_text(chunk)
                             vol_buffer += chunk_content
+                        # 记录 token 使用量
+                        self.log_token_usage('volume_single_generate', result=last_chunk, usage_result=usage_chunk, user=request.user, project=project)
                     except Exception as stream_err:
                         logger.warning(f"单卷生成流异常(第{attempt}次): {stream_err}")
                         if attempt < MAX_RETRIES:

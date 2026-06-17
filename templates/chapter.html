@@ -9,41 +9,43 @@
     <link href="/static/css/common.css" rel="stylesheet">
     <link href="/static/css/chapter.css" rel="stylesheet">
 </head>
-<body>
+<body class="page-full-height">
 
-    <div class="main-content-full">
-        <div class="content-header">
-            <div class="d-flex align-items-center gap-3">
-                <button class="btn btn-outline-secondary btn-back">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
-                <div>
-                    <h5>章节编辑器</h5>
-                    <span class="badge bg-info text-white" id="project-title">请选择项目</span>
+    <div class="page-header">
+        <div class="page-header-inner">
+            <button class="back-btn btn-back">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <div class="header-title-area">
+                <h1 class="header-title">章节编辑器</h1>
+                <p class="header-subtitle" id="project-title">请选择项目</p>
+            </div>
+            <div class="header-actions">
+                <div class="d-flex gap-2 align-items-center select-form">
+                    <label class="select-label" for="volume-version-select">卷版本</label>
+                    <select class="form-select" id="volume-version-select" style="width: 180px;">
+                        <option value="">请选择卷版本</option>
+                    </select>
+                    <label class="select-label" for="volume-select">卷</label>
+                    <select class="form-select" id="volume-select" style="width: 180px;" disabled>
+                        <option value="">请选择卷</option>
+                    </select>
+                    <button class="btn generate-chapters-btn" id="generate-chapters-btn" onclick="generateChapterSummaries()" disabled>
+                        <i class="fas fa-wand-magic-sparkles"></i>
+                        <span>AI 生成章节</span>
+                    </button>
                 </div>
             </div>
-            <div class="d-flex gap-2 align-items-center select-form">
-                <label class="select-label" for="volume-version-select">卷版本</label>
-                <select class="form-select" id="volume-version-select" style="width: 180px;">
-                    <option value="">请选择卷版本</option>
-                </select>
-                <label class="select-label" for="volume-select">卷</label>
-                <select class="form-select" id="volume-select" style="width: 180px;" disabled>
-                    <option value="">请选择卷</option>
-                </select>
-                <button class="btn btn-gradient-primary generate-chapters-btn" id="generate-chapters-btn" onclick="generateChapterSummaries()" disabled>
-                    <i class="fas fa-wand-magic-sparkles"></i>
-                    <span>AI 生成章节</span>
-                </button>
-            </div>
         </div>
+    </div>
 
+    <div class="page-content">
         <div class="split-view">
             <!-- 左侧：章节列表 -->
             <div class="chapter-list-panel">
                 <div class="panel-header">
                     <div class="d-flex align-items-center justify-content-between">
-                        <span><i class="fas fa-book-open me-2"></i>章节列表 <span class="badge bg-secondary text-white" id="total-chapters-count">-章</span></span>
+                        <span><i class="fas fa-book-open me-2"></i>章节列表 <span class="badge badge-secondary" id="total-chapters-count">-章</span></span>
                         <select class="form-select form-select-sm status-filter-select" id="chapter-status-filter" onchange="filterChaptersByStatus()">
                             <option value="">全部</option>
                             <option value="summary">已生成概述</option>
@@ -75,10 +77,10 @@
                     </div>
                     <div class="btn-toolbar">
                         <!-- 未锁定时显示的修改按钮 -->
-                        <button class="btn btn-verify btn-modify" id="btn-verify" onclick="verifyChapter()" disabled>
+                        <button class="btn btn-ai btn-modify" id="btn-verify" onclick="verifyChapter()" disabled>
                             <i class="fas fa-check-double"></i> 校验
                         </button>
-                        <button class="btn btn-warning-action btn-modify" id="btn-split" onclick="splitChapter()" disabled>
+                        <button class="btn btn-cancel btn-modify" id="btn-split" onclick="splitChapter()" disabled>
                             <i class="fas fa-cut"></i> 拆分
                         </button>
                         <!-- 保存/取消：仅手动修改后显示 -->
@@ -89,13 +91,13 @@
                             <i class="fas fa-times"></i> 取消
                         </button>
                         <!-- 锁定后才显示发布 -->
-                        <button class="btn btn-publish" id="btn-publish" onclick="publishChapter()" style="display:none;">
+                        <button class="btn btn-success" id="btn-publish" onclick="publishChapter()" style="display:none;">
                             <i class="fas fa-rocket"></i> 发布
                         </button>
-                        <button class="btn btn-lock" id="btn-lock" onclick="toggleLock()" disabled>
+                        <button class="btn btn-outline-gradient" id="btn-lock" onclick="toggleLock()" disabled>
                             <i class="fas fa-lock-open"></i> <span>锁定</span>
                         </button>
-                        <button class="btn btn-delete" id="btn-delete" onclick="deleteChapter()" disabled>
+                        <button class="btn btn-danger" id="btn-delete" onclick="deleteChapter()" disabled>
                             <i class="fas fa-trash-alt"></i> 删除
                         </button>
                     </div>
@@ -119,15 +121,15 @@
                             <div class="empty-content-placeholder" id="empty-content-placeholder" style="display:none;">
                                 <i class="fas fa-file-lines"></i>
                                 <p>暂无章节内容</p>
-                                <button class="btn btn-gradient-primary" id="btn-generate-single" onclick="generateSingleChapterContent()">
+                                <button class="btn btn-ai" id="btn-generate-single" onclick="generateSingleChapterContent()">
                                     <i class="fas fa-wand-magic-sparkles"></i> AI 生成
                                 </button>
                                 <!-- 已删除章节操作按钮 -->
                                 <div id="deleted-chapter-actions" style="display:none; gap: 0.75rem; align-items: center;">
-                                    <button class="btn-restore" onclick="restoreChapter()">
+                                    <button class="btn btn-gradient-success" onclick="restoreChapter()">
                                         <i class="fas fa-rotate-left"></i> 恢复
                                     </button>
-                                    <button class="btn-hard-delete" onclick="showHardDeleteModal()">
+                                    <button class="btn btn-danger" onclick="showHardDeleteModal()">
                                         <i class="fas fa-trash-alt"></i> 彻底删除
                                     </button>
                                 </div>
@@ -148,7 +150,7 @@
                         <div class="ai-chat-messages" id="ai-chat-messages"></div>
                         <div class="ai-input-row">
                             <textarea id="ai-chat-input" rows="2" placeholder="输入指令让AI帮你写作... (Enter发送, Shift+Enter换行)"></textarea>
-                            <button class="btn-ai-send" id="btn-ai-send" onclick="sendAiMessage()">
+                            <button class="btn-send" id="btn-ai-send" onclick="sendAiMessage()">
                                 <i class="fas fa-paper-plane"></i>
                             </button>
                         </div>
@@ -159,14 +161,14 @@
         </div>
     </div>
 
-    <!-- 校验结果模态框（check-modal 风格） -->
-    <div class="modal-overlay" id="verify-modal">
-        <div class="modal-content check-modal">
-            <div class="modal-header">
+    <!-- 校验结果弹窗 -->
+    <div class="dialog-overlay" id="verify-modal">
+        <div class="dialog check-modal">
+            <div class="dialog-header">
                 <h5><i class="fas fa-clipboard-check me-2"></i> 章节校验结果</h5>
                 <button class="btn-close" onclick="closeVerifyModal()"><i class="fas fa-times"></i></button>
             </div>
-            <div class="modal-body" id="verify-result-body">
+            <div class="dialog-body" id="verify-result-body">
                 <div class="check-intro" id="verify-intro">
                     <p>AI 已完成章节校验，以下是发现的问题：</p>
                 </div>
@@ -177,40 +179,40 @@
                     <p>校验完成，未发现问题</p>
                 </div>
             </div>
-            <div class="modal-footer">
+            <div class="dialog-footer">
                 <button class="btn btn-outline-secondary" onclick="closeVerifyModal()">关闭</button>
-                <button class="btn btn-gradient-primary" id="btn-verify-fix" onclick="fixVerifyIssues()" style="display: none;">
+                <button class="btn btn-ai" id="btn-verify-fix" onclick="fixVerifyIssues()" style="display: none;">
                     <i class="fas fa-wand-magic-sparkles"></i> AI修复选中的问题
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- 确认操作模态框 -->
-    <div class="modal-overlay" id="confirm-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <!-- 确认操作弹窗 -->
+    <div class="dialog-overlay" id="confirm-modal">
+        <div class="dialog">
+            <div class="dialog-header">
                 <h5 id="confirm-title">确认</h5>
-                <button class="btn-close" onclick="closeModal('confirm-modal')"></button>
+                <button class="btn-close" onclick="closeModalById('confirm-modal')"></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <p id="confirm-message">确定执行此操作？</p>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline-secondary" onclick="closeModal('confirm-modal')">取消</button>
-                <button class="btn btn-gradient-primary" id="confirm-btn" onclick="executeConfirm()">确认</button>
+            <div class="dialog-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModalById('confirm-modal')">取消</button>
+                <button class="btn btn-ai" id="confirm-btn" onclick="executeConfirm()">确认</button>
             </div>
         </div>
     </div>
 
-    <!-- 拆分章节模态框 -->
-    <div class="modal-overlay" id="split-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <!-- 拆分章节弹窗 -->
+    <div class="dialog-overlay" id="split-modal">
+        <div class="dialog dialog-auto">
+            <div class="dialog-header">
                 <h5><i class="fas fa-cut me-2"></i> 拆分章节</h5>
-                <button class="btn-close" onclick="closeModal('split-modal')"></button>
+                <button class="btn-close" onclick="closeModalById('split-modal')"></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <div class="split-options">
                     <div class="split-option-group">
                         <label>拆分模式</label>
@@ -242,74 +244,74 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline-secondary" onclick="closeModal('split-modal')">取消</button>
-                <button class="btn btn-gradient-primary" onclick="executeSplit()">确认拆分</button>
+            <div class="dialog-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModalById('split-modal')">取消</button>
+                <button class="btn btn-ai" onclick="executeSplit()">确认拆分</button>
             </div>
         </div>
     </div>
 
-    <!-- 彻底删除确认模态框 -->
-    <div class="modal-overlay" id="hard-delete-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <!-- 彻底删除确认弹窗 -->
+    <div class="dialog-overlay" id="hard-delete-modal">
+        <div class="dialog dialog-auto">
+            <div class="dialog-header">
                 <h5><i class="fas fa-exclamation-triangle me-2" style="color:#f87171;"></i> 彻底删除章节</h5>
-                <button class="btn-close" onclick="closeModal('hard-delete-modal')"></button>
+                <button class="btn-close" onclick="closeModalById('hard-delete-modal')"></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <p id="hard-delete-message" style="color:#f87171; font-weight:500;"></p>
                 <input type="text" class="hard-delete-input" id="hard-delete-input" placeholder="请输入章节名确认删除" oninput="checkHardDeleteInput()">
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline-secondary" onclick="closeModal('hard-delete-modal')">取消</button>
-                <button class="btn btn-hard-delete" id="hard-delete-confirm-btn" onclick="executeHardDelete()" disabled>彻底删除</button>
+            <div class="dialog-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModalById('hard-delete-modal')">取消</button>
+                <button class="btn btn-danger" id="hard-delete-confirm-btn" onclick="executeHardDelete()" disabled>彻底删除</button>
             </div>
         </div>
     </div>
 
-    <!-- 删除后调整序号提示模态框 -->
-    <div class="modal-overlay" id="reorder-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <!-- 删除后调整序号提示弹窗 -->
+    <div class="dialog-overlay" id="reorder-modal">
+        <div class="dialog dialog-auto">
+            <div class="dialog-header">
                 <h5><i class="fas fa-sort-numeric-down me-2"></i> 调整章节序号</h5>
-                <button class="btn-close" onclick="closeModal('reorder-modal')"></button>
+                <button class="btn-close" onclick="closeModalById('reorder-modal')"></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <p>章节已删除，章节序号是否需要整体调整，以免缺少章节？</p>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline-secondary" onclick="closeModal('reorder-modal')">取消</button>
-                <button class="btn btn-gradient-primary" onclick="executeReorder()">调整序号</button>
+            <div class="dialog-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModalById('reorder-modal')">取消</button>
+                <button class="btn btn-ai" onclick="executeReorder()">调整序号</button>
             </div>
         </div>
     </div>
 
-    <!-- 相邻已删除章节警告模态框 -->
-    <div class="modal-overlay" id="deleted-warning-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <!-- 相邻已删除章节警告弹窗 -->
+    <div class="dialog-overlay" id="deleted-warning-modal">
+        <div class="dialog">
+            <div class="dialog-header">
                 <h5><i class="fas fa-exclamation-triangle me-2" style="color:#fbbf24;"></i> 提示</h5>
-                <button class="btn-close" onclick="closeModal('deleted-warning-modal')"></button>
+                <button class="btn-close" onclick="closeModalById('deleted-warning-modal')"></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <div id="deleted-warning-messages"></div>
             </div>
-            <div class="modal-footer-three">
-                <button class="btn btn-outline-secondary" onclick="closeModal('deleted-warning-modal')">取消</button>
-                <button class="btn btn-gradient-primary" id="deleted-warning-go-restore-btn">去恢复</button>
-                <button class="btn btn-gradient-primary" id="deleted-warning-confirm-btn">确认</button>
+            <div class="dialog-footer dialog-footer-three">
+                <button class="btn btn-outline-secondary" onclick="closeModalById('deleted-warning-modal')">取消</button>
+                <button class="btn btn-ai" id="deleted-warning-go-restore-btn">去恢复</button>
+                <button class="btn btn-ai" id="deleted-warning-confirm-btn">确认</button>
             </div>
         </div>
     </div>
 
     <!-- AI对话对比结果弹窗 -->
-    <div class="modal-overlay" id="chat-compare-modal">
-        <div class="modal-content modal-compare">
-            <div class="modal-header py-2">
+    <div class="dialog-overlay" id="chat-compare-modal">
+        <div class="dialog dialog-compare">
+            <div class="dialog-header py-2">
                 <h6 class="mb-0"><i class="fas fa-code-compare me-2"></i> AI 修改对比 <span class="compare-status-badge ms-2" id="compare-status-badge">已修改 0 章</span></h6>
                 <button class="btn-close" onclick="closeCompareModal()"></button>
             </div>
-            <div class="modal-body p-0" style="overflow: hidden;">
+            <div class="dialog-body p-0" style="overflow: hidden;">
                 <div class="compare-layout">
                     <!-- 左侧：章节列表 -->
                     <div class="compare-chapter-list" id="compare-chapter-list">
@@ -339,18 +341,18 @@
                         <div class="compare-chat-messages" id="compare-chat-messages"></div>
                         <div class="compare-chat-input-row">
                             <textarea id="compare-chat-input" rows="2" placeholder="继续输入指令... (Enter发送, Shift+Enter换行)"></textarea>
-                            <button class="btn-ai-send" id="btn-compare-chat-send" onclick="sendCompareChatMessage()">
+                            <button class="btn-send" id="btn-compare-chat-send" onclick="sendCompareChatMessage()">
                                 <i class="fas fa-paper-plane"></i>
                             </button>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="modal-footer compare-modal-footer">
+            <div class="dialog-footer compare-modal-footer">
                 <button class="btn btn-sm btn-outline-secondary" onclick="cancelCompareChanges()">
                     <i class="fas fa-times"></i> 取消修改
                 </button>
-                <button class="btn btn-sm btn-gradient-primary" id="btn-compare-save" onclick="saveCompareChanges()">
+                <button class="btn btn-sm btn-ai" id="btn-compare-save" onclick="saveCompareChanges()">
                     <i class="fas fa-save"></i> 保存修改
                 </button>
             </div>

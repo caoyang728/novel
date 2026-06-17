@@ -8,9 +8,10 @@ let currentExperiences = [];  // 当前编辑的角色经历
 let searchDebounceTimer = null;  // 搜索防抖计时器
 
 // 共享字段映射：API 字段名 → 表单元素 ID 后缀（配合 formPrefix 使用）
+// 注意：key 使用模型字段名（tagline），但 AI 返回的是 tags，applyPolishResult 中有兼容 shim
 const CHARACTER_FIELD_MAP = {
     'gender': 'Gender',
-    'role': 'Role',
+    'role_type': 'Role',
     'age': 'Age',
     'identity': 'Identity',
     'personality': 'Personality',
@@ -27,23 +28,70 @@ const CHARACTER_FIELD_MAP = {
     'backstory': 'Background',
     'development': 'Development',
     'weaknesses': 'Weaknesses',
-    'tags': 'Tags'
+    'tagline': 'Tags'
 };
+
+// ==================== 通用工具函数 ====================
+
+/**
+ * 设置按钮加载/空闲状态
+ * @param {string|HTMLElement} btn - 按钮 ID 或 DOM 元素
+ * @param {boolean} loading - true=加载中, false=恢复
+ * @param {string} loadingText - 加载时显示的文本
+ * @param {string} [normalHtml] - 恢复时的原始 HTML（不传则用 dataset 缓存）
+ */
+function setButtonLoading(btn, loading, loadingText, normalHtml) {
+    const el = typeof btn === 'string' ? document.getElementById(btn) : btn;
+    if (!el) return;
+    el.disabled = loading;
+    if (loading) {
+        el.dataset.originalHtml = el.innerHTML;
+        el.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + (loadingText || '处理中...');
+    } else {
+        el.innerHTML = normalHtml || el.dataset.originalHtml || el.innerHTML;
+    }
+}
+
+/**
+ * 利用 CHARACTER_FIELD_MAP 批量清空表单字段
+ */
+function clearFormFields(prefix, selectDefaults = {}) {
+    for (const [key, suffix] of Object.entries(CHARACTER_FIELD_MAP)) {
+        const el = document.getElementById(prefix + suffix);
+        if (el) {
+            if (el.tagName === 'SELECT') {
+                el.value = selectDefaults[key] || '';
+            } else {
+                el.value = '';
+            }
+        }
+    }
+    const nameEl = document.getElementById(prefix + 'Name');
+    if (nameEl) nameEl.value = '';
+}
+
+/**
+ * 利用 CHARACTER_FIELD_MAP 批量设置表单字段
+ */
+function setFormFields(prefix, values, fieldMapping = {}) {
+    for (const [key, suffix] of Object.entries(CHARACTER_FIELD_MAP)) {
+        const el = document.getElementById(prefix + suffix);
+        if (el) {
+            const mappedKey = fieldMapping[key] || key;
+            el.value = values[mappedKey] !== undefined ? values[mappedKey] : (values[key] || '');
+        }
+    }
+    const nameEl = document.getElementById(prefix + 'Name');
+    if (nameEl) nameEl.value = values.name || '';
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     checkAuth();
+    showLoading('加载中...');
     initPage();
     setupCreateFormValidation();
+    setupEventListeners();
 });
-
-// ============ 弹窗滚动锁定 ============
-function lockScroll() {
-    document.body.style.overflow = 'hidden';
-}
-
-function unlockScroll() {
-    document.body.style.overflow = '';
-}
 
 function initPage() {
     // 从URL查询参数获取项目ID
@@ -66,6 +114,7 @@ function initPage() {
     }
 
     if (currentProjectId) {
+        loadProjectInfo(currentProjectId);
         loadCharacters();
     } else {
         showEmptyState();
@@ -199,7 +248,7 @@ function renderCharacterList() {
                     </div>
                 </div>
             </div>
-            ${isDeleted ? `<div class="char-item-actions"><button class="btn btn-sm btn-restore" onclick="event.stopPropagation(); restoreCharacter(${c.id})"><i class="fas fa-undo"></i> 恢复</button></div>` : ''}
+            ${isDeleted ? `<div class="char-item-actions"><button class="btn-restore" onclick="event.stopPropagation(); restoreCharacter(${c.id})"><i class="fas fa-undo"></i> 恢复</button></div>` : ''}
         </div>`;
     }
 
@@ -247,29 +296,7 @@ async function restoreCharacter(id) {
 
 // ============ 创建角色 ============
 function openCreateDialog() {
-    // 清空表单 - 基础字段
-    document.getElementById('createName').value = '';
-    document.getElementById('createRole').value = '配角';
-    document.getElementById('createGender').value = '未知';
-    document.getElementById('createAge').value = '';
-    document.getElementById('createIdentity').value = '';
-    document.getElementById('createPersonality').value = '';
-    document.getElementById('createBackground').value = '';
-    document.getElementById('createAppearance').value = '';
-    document.getElementById('createTags').value = '';
-    document.getElementById('createFaction').value = '';
-    document.getElementById('createDevelopment').value = '';
-    document.getElementById('createWeaknesses').value = '';
-    
-    // 清空新增字段
-    document.getElementById('createStrengths').value = '';
-    document.getElementById('createFlaws').value = '';
-    document.getElementById('createObsession').value = '';
-    document.getElementById('createMotivation').value = '';
-    document.getElementById('createAbilities').value = '';
-    document.getElementById('createTaboos').value = '';
-    document.getElementById('createDarkHistory').value = '';
-    document.getElementById('createSecrets').value = '';
+    clearFormFields('create', { 'role_type': '配角', 'gender': '未知' });
     document.getElementById('createRelationships').value = '';
     
     // 清空AI生成相关字段
@@ -285,7 +312,7 @@ function openCreateDialog() {
 
     // 显示弹窗并锁定背景滚动
     lockScroll();
-    document.getElementById('createDialog').classList.add('active');
+    document.getElementById('createDialog').classList.add('show');
 }
 
 function setupCreateFormValidation() {
@@ -294,9 +321,30 @@ function setupCreateFormValidation() {
     document.getElementById('batchDescription').addEventListener('input', validateBatchCreateButtons);
 }
 
+function setupEventListeners() {
+    // 搜索/筛选事件
+    const searchInput = document.getElementById('searchInput');
+    const roleFilter = document.getElementById('roleFilter');
+    const factionFilter = document.getElementById('factionFilter');
+    if (searchInput) searchInput.addEventListener('input', filterCharacters);
+    if (roleFilter) roleFilter.addEventListener('change', filterCharacters);
+    if (factionFilter) factionFilter.addEventListener('change', filterCharacters);
+
+    // 按钮事件
+    const checkBtn = document.getElementById('checkBtn');
+    if (checkBtn) checkBtn.addEventListener('click', checkAllCharacters);
+    const createCharBtn = document.getElementById('createCharBtn');
+    if (createCharBtn) createCharBtn.addEventListener('click', openCreateDialog);
+
+    // 势力字段归一化
+    document.querySelectorAll('[id$="Faction"]').forEach(el => {
+        el.addEventListener('blur', function() { normalizeFactionInputField(this); });
+    });
+}
+
 function closeCreateDialog(e) {
     if (e) e.stopPropagation();
-    document.getElementById('createDialog').classList.remove('active');
+    document.getElementById('createDialog').classList.remove('show');
     unlockScroll();
     // 清空AI生成的内容
     document.getElementById('aiDescription').value = '';
@@ -410,34 +458,13 @@ async function createCharacter() {
         return;
     }
 
-    const btn = document.getElementById('saveCreateBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 创建中...';
+    setButtonLoading('saveCreateBtn', true, '创建中...');
 
     try {
-        const data = await api.post(`/api/projects/${currentProjectId}/characters/`, {
-            name: name,
-            gender: document.getElementById('createGender').value,
-            role_type: document.getElementById('createRole').value,
-            age: document.getElementById('createAge').value,
-            identity: document.getElementById('createIdentity').value,
-            personality: document.getElementById('createPersonality').value,
-            backstory: document.getElementById('createBackground').value,
-            appearance: document.getElementById('createAppearance').value,
-            motivation: document.getElementById('createMotivation').value,
-            tagline: document.getElementById('createTags').value,
-            faction: normalizeFactionInput(document.getElementById('createFaction').value),
-            relationships: document.getElementById('createRelationships').value,
-            strengths: document.getElementById('createStrengths').value,
-            flaws: document.getElementById('createFlaws').value,
-            obsession: document.getElementById('createObsession').value,
-            abilities: document.getElementById('createAbilities').value,
-            taboos: document.getElementById('createTaboos').value,
-            secrets: document.getElementById('createSecrets').value,
-            dark_history: document.getElementById('createDarkHistory').value,
-            development: document.getElementById('createDevelopment').value,
-            weaknesses: document.getElementById('createWeaknesses').value
-        });
+        const bodyData = collectCharacterFields('create');
+        bodyData.relationships = document.getElementById('createRelationships').value;
+
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/`, bodyData);
 
         if (data.success) {
             showSuccess('角色创建成功');
@@ -453,59 +480,12 @@ async function createCharacter() {
     } catch (error) {
         showError('网络错误');
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
+        setButtonLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 保存角色');
     }
 }
 
 // ============ AI生成角色预览（流式） ============
 let currentAiGenerated = null;
-
-// ============ 通用SSE流解析辅助函数 ============
-async function parseSSEStream(reader, onComplete, onError) {
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let fullContent = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        let searchStart = 0;
-        let dataStart;
-        while ((dataStart = buffer.indexOf('data: ', searchStart)) !== -1) {
-            const msgEnd = buffer.indexOf('\n\n', dataStart);
-            if (msgEnd === -1) break;
-
-            const dataContent = buffer.substring(dataStart + 6, msgEnd);
-            try {
-                const json = JSON.parse(dataContent);
-                if (json.type === 'chunk' && json.data) {
-                    fullContent += json.data;
-                } else if (json.type === 'complete' && json.data) {
-                    onComplete(json.data, fullContent);
-                    return;
-                } else if (json.type === 'error') {
-                    onError(json.message || '操作失败');
-                    return;
-                }
-            } catch (e) {
-                console.error('解析失败:', e);
-            }
-            searchStart = msgEnd + 2;
-        }
-        if (searchStart > 0) {
-            buffer = buffer.substring(searchStart);
-        }
-    }
-
-    // 流结束但未收到complete，尝试用fullContent
-    if (fullContent) {
-        onComplete(null, fullContent);
-    }
-}
 
 async function generateCharacterPreview() {
     const description = document.getElementById('aiDescription').value.trim();
@@ -515,11 +495,8 @@ async function generateCharacterPreview() {
         return;
     }
 
-    const btn = document.getElementById('aiActionBtn');
-    const saveBtn = document.getElementById('saveCreateBtn');
-
-    btn.disabled = true;
-    saveBtn.disabled = true;
+    setButtonLoading('aiActionBtn', true, '生成中...');
+    document.getElementById('saveCreateBtn').disabled = true;
 
     // 显示生成内容区域并清空
     document.getElementById('aiGeneratedContent').style.display = 'block';
@@ -528,108 +505,61 @@ async function generateCharacterPreview() {
     showLoading('正在生成角色...');
 
     try {
-        const response = await api.request(`/api/projects/${currentProjectId}/characters/generate/`, {
-            method: 'POST',
-            stream: true,
+        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/generate/`, {
             body: JSON.stringify({
                 requirement: description
             })
         });
 
-        const reader = response.body.getReader();
-
-        await parseSSEStream(reader,
-            function(completeData, fullContent) {
-                hideLoading();
-                try {
-                    let result;
-                    if (completeData) {
-                        result = JSON.parse(completeData);
-                    } else if (fullContent) {
-                        const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
-                        if (jsonMatch) result = JSON.parse(jsonMatch[0]);
-                    }
-                    if (result) {
-                        if (Array.isArray(result) && result.length > 0) {
-                            result = result[0];
-                        }
-                        currentAiGenerated = result;
-                        displayAiGeneratedCharacter(currentAiGenerated);
-                        btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
-                        saveBtn.disabled = false;
-                        showSuccess('角色生成完成，请确认后保存');
-                    }
-                } catch (e) {
-                    console.error('解析失败:', e);
-                    showError('解析失败，请重试');
-                }
-            },
-            function(errorMessage) {
-                hideLoading();
-                showError(errorMessage || '生成失败');
-            }
-        );
-    } catch (error) {
-        console.error('生成角色失败:', error);
-        showError('网络错误，请重试');
-    } finally {
         hideLoading();
-        btn.disabled = false;
-        if (currentAiGenerated && Object.keys(currentAiGenerated).length > 0) {
-            btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
-        } else {
-            btn.innerHTML = '<i class="fas fa-magic"></i> AI 生成';
+        let result = extractJsonFromString(resultStr);
+        if (Array.isArray(result) && result.length > 0) {
+            result = result[0];
         }
+        currentAiGenerated = result;
+        displayAiGeneratedCharacter(currentAiGenerated);
+        document.getElementById('aiActionBtn').innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
+        document.getElementById('saveCreateBtn').disabled = false;
+        showSuccess('角色生成完成，请确认后保存');
+    } catch (error) {
+        hideLoading();
+        console.error('生成角色失败:', error);
+        showError(error.message || '网络错误，请重试');
+    } finally {
+        const redoHtml = '<i class="fas fa-redo"></i> AI 重新生成';
+        const magicHtml = '<i class="fas fa-magic"></i> AI 生成';
+        const hasContent = currentAiGenerated && Object.keys(currentAiGenerated).length > 0;
+        setButtonLoading('aiActionBtn', false, null, hasContent ? redoHtml : magicHtml);
     }
 }
 
 function clearAiGeneratedFields() {
-    document.getElementById('aiGeneratedName').value = '';
-    document.getElementById('aiGeneratedRole').value = '配角';
-    document.getElementById('aiGeneratedGender').value = '未知';
-    document.getElementById('aiGeneratedAge').value = '';
-    document.getElementById('aiGeneratedIdentity').value = '';
-    document.getElementById('aiGeneratedStrengths').value = '';
-    document.getElementById('aiGeneratedFlaws').value = '';
-    document.getElementById('aiGeneratedObsession').value = '';
-    document.getElementById('aiGeneratedMotivation').value = '';
-    document.getElementById('aiGeneratedPersonality').value = '';
-    document.getElementById('aiGeneratedAppearance').value = '';
-    document.getElementById('aiGeneratedAbilities').value = '';
-    document.getElementById('aiGeneratedTaboos').value = '';
-    document.getElementById('aiGeneratedSecrets').value = '';
-    document.getElementById('aiGeneratedDarkHistory').value = '';
-    document.getElementById('aiGeneratedBackground').value = '';
-    document.getElementById('aiGeneratedDevelopment').value = '';
-    document.getElementById('aiGeneratedWeaknesses').value = '';
-    document.getElementById('aiGeneratedFaction').value = '';
-    document.getElementById('aiGeneratedTags').value = '';
+    clearFormFields('aiGenerated');
 }
 
 function displayAiGeneratedCharacter(charData) {
     document.getElementById('aiGeneratedContent').style.display = 'block';
 
-    // 填充表单
-    document.getElementById('aiGeneratedName').value = charData.name || '';
-    document.getElementById('aiGeneratedRole').value = charData.role || '配角';
-    document.getElementById('aiGeneratedGender').value = charData.gender || '未知';
-    document.getElementById('aiGeneratedAge').value = charData.age || '';
-    document.getElementById('aiGeneratedIdentity').value = charData.identity || '';
-    document.getElementById('aiGeneratedStrengths').value = charData.strengths || '';
-    document.getElementById('aiGeneratedFlaws').value = charData.flaws || '';
-    document.getElementById('aiGeneratedObsession').value = charData.obsession || '';
-    document.getElementById('aiGeneratedMotivation').value = charData.motivation || '';
-    document.getElementById('aiGeneratedPersonality').value = charData.personality || '';
-    document.getElementById('aiGeneratedAppearance').value = charData.appearance || '';
-    document.getElementById('aiGeneratedAbilities').value = charData.abilities || '';
-    document.getElementById('aiGeneratedTaboos').value = charData.taboos || '';
-    document.getElementById('aiGeneratedSecrets').value = charData.secrets || '';
-    document.getElementById('aiGeneratedDarkHistory').value = charData.dark_history || '';
-    document.getElementById('aiGeneratedBackground').value = charData.background || charData.backstory || '';
-    document.getElementById('aiGeneratedDevelopment').value = charData.development || '';
-    document.getElementById('aiGeneratedWeaknesses').value = charData.weaknesses || '';
-    document.getElementById('aiGeneratedFaction').value = charData.faction || '';
-    document.getElementById('aiGeneratedTags').value = charData.tags || '';
+    // AI 返回字段名与模型字段名不一致时的映射：AI字段名 → 模型字段名
+    const fieldMapping = {
+        'role_type': 'role',  // AI 返回 role，模型字段为 role_type
+        'backstory': 'backstory',
+        'tagline': 'tagline'
+    };
+
+    // 构造统一值对象：优先取 charData 映射后的字段，fallback 到原始字段
+    const values = {};
+    for (const key of Object.keys(CHARACTER_FIELD_MAP)) {
+        const mapped = fieldMapping[key] || key;
+        values[key] = charData[mapped] || charData[key] || '';
+    }
+    values.name = charData.name || '';
+    // role/backstory/tagline 特殊默认值
+    if (!values.role_type) values.role_type = '配角';
+    if (!values.backstory) values.backstory = charData.background || '';
+    if (!values.tagline) values.tagline = charData.tags || '';
+
+    setFormFields('aiGenerated', values);
 }
 
 async function saveAiGeneratedCharacter() {
@@ -640,9 +570,7 @@ async function saveAiGeneratedCharacter() {
         return;
     }
 
-    const btn = document.getElementById('saveCreateBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    setButtonLoading('saveCreateBtn', true, '保存中...');
 
     try {
         // 收集 relationships（LLM 可能返回对象数组或字符串）
@@ -651,29 +579,10 @@ async function saveAiGeneratedCharacter() {
             relationships = parseRelationshipsFromLLM(currentAiGenerated.relationships);
         }
 
-        const data = await api.post(`/api/projects/${currentProjectId}/characters/`, {
-            name: name,
-            gender: document.getElementById('aiGeneratedGender').value,
-            role_type: document.getElementById('aiGeneratedRole').value,
-            personality: document.getElementById('aiGeneratedPersonality').value,
-            backstory: document.getElementById('aiGeneratedBackground').value,
-            appearance: document.getElementById('aiGeneratedAppearance').value,
-            motivation: document.getElementById('aiGeneratedMotivation').value,
-            tagline: document.getElementById('aiGeneratedTags').value,
-            faction: normalizeFactionInput(document.getElementById('aiGeneratedFaction').value),
-            age: document.getElementById('aiGeneratedAge').value,
-            identity: document.getElementById('aiGeneratedIdentity').value,
-            strengths: document.getElementById('aiGeneratedStrengths').value,
-            flaws: document.getElementById('aiGeneratedFlaws').value,
-            obsession: document.getElementById('aiGeneratedObsession').value,
-            abilities: document.getElementById('aiGeneratedAbilities').value,
-            taboos: document.getElementById('aiGeneratedTaboos').value,
-            secrets: document.getElementById('aiGeneratedSecrets').value,
-            dark_history: document.getElementById('aiGeneratedDarkHistory').value,
-            development: document.getElementById('aiGeneratedDevelopment').value,
-            weaknesses: document.getElementById('aiGeneratedWeaknesses').value,
-            relationships: relationships
-        });
+        const bodyData = collectCharacterFields('aiGenerated');
+        bodyData.relationships = relationships;
+
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/`, bodyData);
 
         if (data.success) {
             showSuccess('角色保存成功');
@@ -690,8 +599,7 @@ async function saveAiGeneratedCharacter() {
         console.error('保存角色失败:', error);
         showError('网络错误');
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
+        setButtonLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 保存角色');
     }
 }
 
@@ -706,74 +614,44 @@ async function generateBatchCharacters() {
         return;
     }
 
-    const btn = document.getElementById('aiActionBtn');
-    const saveBtn = document.getElementById('saveCreateBtn');
-
-    btn.disabled = true;
-    saveBtn.disabled = true;
+    setButtonLoading('aiActionBtn', true, '生成中...');
+    document.getElementById('saveCreateBtn').disabled = true;
 
     document.getElementById('batchGeneratedContent').style.display = 'none';
     document.getElementById('batchCharactersList').innerHTML = '';
-    
+    showLoading('正在生成角色...');
     currentBatchGenerated = [];
 
-    showLoading('正在生成角色...');
-
     try {
-        const response = await api.request(`/api/projects/${currentProjectId}/characters/generate/`, {
-            method: 'POST',
-            stream: true,
+        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/generate/`, {
             body: JSON.stringify({
                 requirement: description,
                 is_batch: true
             })
         });
 
-        const reader = response.body.getReader();
-
-        await parseSSEStream(reader,
-            function(completeData, fullContent) {
-                hideLoading();
-                try {
-                    let results;
-                    if (completeData) {
-                        results = JSON.parse(completeData);
-                    } else if (fullContent) {
-                        const jsonMatch = fullContent.match(/\[[\s\S]*\]/);
-                        if (jsonMatch) results = JSON.parse(jsonMatch[0]);
-                    }
-                    if (results) {
-                        if (Array.isArray(results)) {
-                            currentBatchGenerated = results.map((char, index) => ({
-                                ...char,
-                                selected: true,
-                                index: index
-                            }));
-                            renderBatchCharacters();
-                            document.getElementById('batchGeneratedContent').style.display = 'block';
-                            btn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
-                            validateBatchCreateButtons();
-                            showSuccess(`成功生成 ${currentBatchGenerated.length} 个角色`);
-                        } else {
-                            showError('生成失败，格式错误');
-                        }
-                    }
-                } catch (e) {
-                    console.error('解析失败:', e);
-                    showError('解析失败，请重试');
-                }
-            },
-            function(errorMessage) {
-                hideLoading();
-                showError(errorMessage || '生成失败');
-            }
-        );
-    } catch (error) {
-        console.error('批量生成角色失败:', error);
-        showError('网络错误，请重试');
-    } finally {
         hideLoading();
-        btn.disabled = false;
+        let results = extractJsonFromString(resultStr);
+        if (Array.isArray(results)) {
+            currentBatchGenerated = results.map((char, index) => ({
+                ...char,
+                selected: true,
+                index: index
+            }));
+            renderBatchCharacters();
+            document.getElementById('batchGeneratedContent').style.display = 'block';
+            document.getElementById('aiActionBtn').innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
+            validateBatchCreateButtons();
+            showSuccess(`成功生成 ${currentBatchGenerated.length} 个角色`);
+        } else {
+            showError('生成失败，格式错误');
+        }
+    } catch (error) {
+        hideLoading();
+        console.error('批量生成角色失败:', error);
+        showError(error.message || '网络错误，请重试');
+    } finally {
+        setButtonLoading('aiActionBtn', false);
     }
 }
 
@@ -813,6 +691,41 @@ function toggleBatchCharacterSelection(index) {
     validateBatchCreateButtons();
 }
 
+async function saveCharacterToApi(char) {
+    const charName = (char.name || '').trim();
+    if (!charName) return { success: false, skipped: true };
+
+    try {
+        const result = await api.post(`/api/projects/${currentProjectId}/characters/`, {
+            name: charName,
+            gender: char.gender || '未知',
+            role_type: char.role || '配角',
+            personality: char.personality || '',
+            backstory: char.background || char.backstory || '',
+            appearance: char.appearance || '',
+            motivation: char.motivation || '',
+            tagline: char.tags || '',
+            faction: normalizeFactionInput(char.faction || ''),
+            age: char.age || '',
+            identity: char.identity || '',
+            strengths: char.strengths || '',
+            flaws: char.flaws || '',
+            obsession: char.obsession || '',
+            abilities: char.abilities || '',
+            taboos: char.taboos || '',
+            secrets: char.secrets || '',
+            dark_history: char.dark_history || '',
+            development: char.development || '',
+            weaknesses: char.weaknesses || '',
+            relationships: parseRelationshipsFromLLM(char.relationships)
+        });
+        return { success: result && result.success, skipped: false };
+    } catch (err) {
+        console.warn(`保存角色 ${char.name} 失败:`, err);
+        return { success: false, skipped: false };
+    }
+}
+
 async function saveBatchCharacters() {
     const selectedCharacters = currentBatchGenerated.filter(c => c.selected);
 
@@ -821,111 +734,101 @@ async function saveBatchCharacters() {
         return;
     }
 
-    const btn = document.getElementById('saveCreateBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    setButtonLoading('saveCreateBtn', true, '保存中...');
 
     try {
-        // 串行保存，避免并发请求过多
+        // 获取已有角色名集合
+        const existingNames = new Set(characters.filter(c => !c.is_deleted).map(c => c.name));
+
+        // 过滤：跳过空名和已存在的角色
+        const toSave = selectedCharacters.filter(char => {
+            const name = (char.name || '').trim();
+            if (!name) return false;
+            if (existingNames.has(name)) {
+                console.warn(`角色 "${name}" 已存在，已跳过`);
+                return false;
+            }
+            return true;
+        });
+
+        const skippedCount = selectedCharacters.length - toSave.length;
+        const CONCURRENCY = 3;
         let successCount = 0;
-        for (const char of selectedCharacters) {
-            try {
-                const result = await api.post(`/api/projects/${currentProjectId}/characters/`, {
-                    name: char.name || `角色${Date.now()}`,
-                    gender: char.gender || '未知',
-                    role_type: char.role || '配角',
-                    personality: char.personality || '',
-                    backstory: char.background || char.backstory || '',
-                    appearance: char.appearance || '',
-                    motivation: char.motivation || '',
-                    tagline: char.tags || '',
-                    faction: normalizeFactionInput(char.faction || ''),
-                    age: char.age || '',
-                    identity: char.identity || '',
-                    strengths: char.strengths || '',
-                    flaws: char.flaws || '',
-                    obsession: char.obsession || '',
-                    abilities: char.abilities || '',
-                    taboos: char.taboos || '',
-                    secrets: char.secrets || '',
-                    dark_history: char.dark_history || '',
-                    development: char.development || '',
-                    weaknesses: char.weaknesses || '',
-                    relationships: parseRelationshipsFromLLM(char.relationships)
-                });
-                if (result && result.success) successCount++;
-            } catch (err) {
-                console.warn(`保存角色 ${char.name} 失败:`, err);
+        let failCount = 0;
+
+        // 分块并发保存
+        for (let i = 0; i < toSave.length; i += CONCURRENCY) {
+            const chunk = toSave.slice(i, i + CONCURRENCY);
+            const results = await Promise.allSettled(
+                chunk.map(char => saveCharacterToApi(char))
+            );
+
+            for (let j = 0; j < results.length; j++) {
+                const result = results[j];
+                if (result.status === 'fulfilled' && result.value.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                    // 失败后重试一次
+                    if (result.status === 'fulfilled' && !result.value.skipped) {
+                        const retryChar = chunk[j];
+                        const retryResult = await saveCharacterToApi(retryChar);
+                        if (retryResult.success) {
+                            successCount++;
+                            failCount--;
+                        }
+                    }
+                }
             }
         }
 
-        showSuccess(`成功保存 ${successCount} 个角色`);
+        const parts = [`成功保存 ${successCount} 个角色`];
+        if (skippedCount > 0) parts.push(`${skippedCount} 个已跳过`);
+        if (failCount > 0) parts.push(`${failCount} 个保存失败`);
+        showSuccess(parts.join('，'));
         closeCreateDialog();
         loadCharacters();
     } catch (error) {
         console.error('批量保存角色失败:', error);
         showError('网络错误');
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> 批量保存';
+        setButtonLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 批量保存');
     }
-}
-
-// ============ 确认弹窗 ============
-let _confirmCallback = null;
-
-function showConfirmDialog(message, onConfirm) {
-    document.getElementById('confirmMessage').textContent = message;
-    _confirmCallback = onConfirm;
-    lockScroll();
-    document.getElementById('confirmDialog').classList.add('active');
-}
-
-function closeConfirmDialog() {
-    document.getElementById('confirmDialog').classList.remove('active');
-    _confirmCallback = null;
-    unlockScroll();
-}
-
-function confirmOk() {
-    const cb = _confirmCallback;
-    closeConfirmDialog();
-    if (cb) cb();
 }
 
 // ============ 编辑角色 ============
 async function openEditDialog(id) {
+    // 先弹出弹窗并显示加载状态
+    lockScroll();
+    document.getElementById('editDialog').classList.add('show');
+
+    const modalBody = document.querySelector('#editDialog .dialog-body');
+    const originalContent = modalBody.innerHTML;
+    modalBody.innerHTML = '<div class="dialog-loading"><div class="loading-spinner"><div class="loading-spinner-outer"></div><div class="loading-spinner-inner"></div></div><p>加载角色数据...</p></div>';
+
     try {
         const data = await api.get(`/api/projects/${currentProjectId}/characters/${id}/`);
-        
+
         if (!data.success || !data.character) {
+            document.getElementById('editDialog').classList.remove('show');
+            unlockScroll();
             showError('加载角色失败');
             return;
         }
-        
+
         const character = data.character;
 
+        // 恢复弹窗内容
+        modalBody.innerHTML = originalContent;
+
         document.getElementById('editCharacterId').value = character.id;
-        document.getElementById('editName').value = character.name || '';
-        document.getElementById('editRole').value = character.role_type || '配角';
-        document.getElementById('editGender').value = character.gender || '未知';
-        document.getElementById('editAge').value = character.age || '';
-        document.getElementById('editIdentity').value = character.identity || '';
-        document.getElementById('editTags').value = character.tagline || '';
-        document.getElementById('editFaction').value = character.faction || '';
-        document.getElementById('editAppearance').value = character.appearance || '';
-        document.getElementById('editPersonality').value = character.personality || '';
-        document.getElementById('editBackground').value = character.backstory || '';
-        document.getElementById('editMotivation').value = character.motivation || '';
-        document.getElementById('editDevelopment').value = character.development || '';
-        document.getElementById('editStrengths').value = character.strengths || '';
-        document.getElementById('editFlaws').value = character.flaws || '';
-        document.getElementById('editObsession').value = character.obsession || '';
-        document.getElementById('editTaboos').value = character.taboos || '';
-        document.getElementById('editAbilities').value = character.abilities || '';
-        document.getElementById('editSecrets').value = character.secrets || '';
-        document.getElementById('editDarkHistory').value = character.dark_history || '';
-        document.getElementById('editWeaknesses').value = character.weaknesses || '';
+
+        // 用 setFormFields 批量填充字段
+        const values = { name: character.name || '' };
+        for (const [key, suffix] of Object.entries(CHARACTER_FIELD_MAP)) {
+            values[key] = character[key] || '';
+        }
+        setFormFields('edit', values);
 
         // 加载关系数据
         currentRelationships = parseRelationshipsFromLLM(character.relationships);
@@ -937,10 +840,9 @@ async function openEditDialog(id) {
 
         // 切换到第一个标签页
         switchEditTab('basic');
-
-        lockScroll();
-        document.getElementById('editDialog').classList.add('active');
     } catch (error) {
+        document.getElementById('editDialog').classList.remove('show');
+        unlockScroll();
         console.error('加载角色详情失败:', error);
         showError('加载角色失败');
     }
@@ -948,18 +850,19 @@ async function openEditDialog(id) {
 
 function closeEditDialog(e) {
     if (e) e.stopPropagation();
-    document.getElementById('editDialog').classList.remove('active');
+    document.getElementById('editDialog').classList.remove('show');
     unlockScroll();
 }
 
 // 从编辑弹窗删除角色
 async function deleteCharacter() {
     const id = document.getElementById('editCharacterId').value;
-    showConfirmDialog('确定要删除这个角色吗？', async () => {
+    showModal('确认删除', '确定要删除这个角色吗？删除后可在角色列表中恢复。', async () => {
         try {
             const data = await api.delete(`/api/projects/${currentProjectId}/characters/${id}/`);
 
             if (data.success) {
+                closeModal();
                 showSuccess('角色已删除');
                 closeEditDialog();
                 loadCharacters();
@@ -1152,9 +1055,7 @@ async function saveCharacter() {
         return;
     }
 
-    const btn = document.getElementById('editSubmitBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    setButtonLoading('editSubmitBtn', true, '保存中...');
 
     try {
         // 清理关系数据：只保留后端需要的字段，过滤空目标
@@ -1167,30 +1068,11 @@ async function saveCharacter() {
                 createReverse: r.createReverse !== false
             }));
 
-        const data = await api.put(`/api/projects/${currentProjectId}/characters/${id}/`, {
-            name: name,
-            role_type: document.getElementById('editRole').value,
-            gender: document.getElementById('editGender').value,
-            tagline: document.getElementById('editTags').value,
-            faction: normalizeFactionInput(document.getElementById('editFaction').value),
-            appearance: document.getElementById('editAppearance').value,
-            personality: document.getElementById('editPersonality').value,
-            backstory: document.getElementById('editBackground').value,
-            motivation: document.getElementById('editMotivation').value,
-            age: document.getElementById('editAge').value,
-            identity: document.getElementById('editIdentity').value,
-            relationships: cleanedRelationships,
-            experiences: currentExperiences,
-            development: document.getElementById('editDevelopment').value,
-            strengths: document.getElementById('editStrengths').value,
-            flaws: document.getElementById('editFlaws').value,
-            obsession: document.getElementById('editObsession').value,
-            taboos: document.getElementById('editTaboos').value,
-            abilities: document.getElementById('editAbilities').value,
-            secrets: document.getElementById('editSecrets').value,
-            dark_history: document.getElementById('editDarkHistory').value,
-            weaknesses: document.getElementById('editWeaknesses').value
-        });
+        const bodyData = collectCharacterFields('edit');
+        bodyData.relationships = cleanedRelationships;
+        bodyData.experiences = currentExperiences;
+
+        const data = await api.put(`/api/projects/${currentProjectId}/characters/${id}/`, bodyData);
 
         if (data.success) {
             showSuccess('角色更新成功');
@@ -1202,8 +1084,7 @@ async function saveCharacter() {
     } catch (error) {
         showError('网络错误');
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> 保存修改';
+        setButtonLoading('editSubmitBtn', false, null, '<i class="fas fa-save"></i> 保存修改');
     }
 }
 
@@ -1211,17 +1092,12 @@ async function saveCharacter() {
 
 // ============ 通用润色结果应用 ============
 function applyPolishResult(formPrefix, data) {
-    // 默认值映射
-    const defaults = { 'gender': '未知', 'role': '配角' };
-
-    for (const [key, suffix] of Object.entries(CHARACTER_FIELD_MAP)) {
-        if (data[key] !== undefined) {
-            const el = document.getElementById(formPrefix + suffix);
-            if (el) {
-                el.value = data[key] !== undefined ? data[key] : (defaults[key] || '');
-            }
-        }
+    // 兼容 shim：AI 返回 tags，模型字段名为 tagline
+    if (data.tags !== undefined && data.tagline === undefined) {
+        data.tagline = data.tags;
     }
+    // 用 setFormFields 批量填充（CharacterPolishSerializer 返回的字段名与 CHARACTER_FIELD_MAP key 一致）
+    setFormFields(formPrefix, data);
 
     // 创建表单的 relationships：对象数组转为可读文本写入 textarea
     if (formPrefix === 'create' && data.relationships) {
@@ -1255,76 +1131,41 @@ async function _doPolishCharacter(formPrefix, btnId) {
         return;
     }
 
-    const btn = document.getElementById(btnId);
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 润色中...';
+    setButtonLoading(btnId, true, '润色中...');
 
     showLoading('正在润色角色...');
 
-    // 收集表单数据
-    const fieldIds = {};
-    for (const [key, suffix] of Object.entries(CHARACTER_FIELD_MAP)) {
-        fieldIds[key] = formPrefix + suffix;
-    }
-    if (formPrefix === 'create') {
-        fieldIds.relationships = 'createRelationships';
-    }
-
-    const bodyData = { name: name };
-    for (const [key, id] of Object.entries(fieldIds)) {
-        const el = document.getElementById(id);
-        bodyData[key] = el ? el.value.trim() : '';
-    }
+    // 用 collectCharacterFields 收集表单数据
+    const bodyData = collectCharacterFields(formPrefix);
 
     // 编辑表单的 relationships 使用 currentRelationships 数组
     if (formPrefix === 'edit' && currentRelationships.length > 0) {
         bodyData.relationships = currentRelationships;
     }
+    // 创建表单的 relationships 来自 createRelationships textarea
+    if (formPrefix === 'create') {
+        bodyData.relationships = document.getElementById('createRelationships').value;
+    }
 
     try {
-        const response = await api.request(`/api/projects/${currentProjectId}/characters/polish/`, {
-            method: 'POST',
-            stream: true,
+        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/polish/`, {
             body: JSON.stringify(bodyData)
         });
 
-        const reader = response.body.getReader();
-
-        await parseSSEStream(reader,
-            function(completeData, fullContent) {
-                hideLoading();
-                try {
-                    let result;
-                    if (completeData) {
-                        let contentStr = completeData;
-                        const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
-                        if (jsonMatch) contentStr = jsonMatch[0];
-                        result = JSON.parse(contentStr);
-                    } else if (fullContent) {
-                        const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
-                        if (jsonMatch) result = JSON.parse(jsonMatch[0]);
-                    }
-                    if (result) {
-                        applyPolishResult(formPrefix, result);
-                        showSuccess('AI润色完成');
-                    }
-                } catch (e) {
-                    console.error('解析完整结果失败:', e);
-                    showError('解析结果失败');
-                }
-            },
-            function(errorMessage) {
-                hideLoading();
-                showError(errorMessage || '润色失败');
-            }
-        );
-    } catch (error) {
-        console.error('AI润色失败:', error);
-        showError('网络错误');
-    } finally {
         hideLoading();
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-star"></i> AI 润色';
+        const result = extractJsonFromString(resultStr);
+        if (result && typeof result === 'object') {
+            applyPolishResult(formPrefix, result);
+            showSuccess('AI润色完成');
+        } else {
+            showError('润色结果解析失败，请重试');
+        }
+    } catch (error) {
+        hideLoading();
+        console.error('AI润色失败:', error);
+        showError(error.message || '网络错误');
+    } finally {
+        setButtonLoading(btnId, false, null, '<i class="fas fa-star"></i> AI 润色');
     }
 }
 
@@ -1351,6 +1192,34 @@ function normalizeFactionInput(input) {
 
 function normalizeFactionInputField(inputField) {
     inputField.value = normalizeFactionInput(inputField.value);
+}
+
+/**
+ * 通用角色字段收集函数
+ * 利用 CHARACTER_FIELD_MAP 从表单中动态收集字段值，减少手动枚举
+ * @param {string} prefix - 表单元素 ID 前缀（如 'create'、'aiGenerated'、'edit'）
+ * @returns {Object} 字段名→值的键值对，适用于 create/update API
+ */
+function collectCharacterFields(prefix) {
+    const data = {};
+    // name 特殊处理：不在 CHARACTER_FIELD_MAP 中
+    const nameEl = document.getElementById(prefix + 'Name');
+    if (nameEl) data.name = nameEl.value;
+
+    // 通过 FIELD_MAP 动态收集通用字段
+    for (const [key, suffix] of Object.entries(CHARACTER_FIELD_MAP)) {
+        const el = document.getElementById(prefix + suffix);
+        if (el) {
+            data[key] = el.value;
+        }
+    }
+
+    // 势力字段归一化
+    if (data.faction) {
+        data.faction = normalizeFactionInput(data.faction);
+    }
+
+    return data;
 }
 
 // ==================== 经历表格 ====================
@@ -1444,9 +1313,7 @@ async function checkAllCharacters() {
         return;
     }
 
-    const btn = document.getElementById('checkBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 检测中...';
+    setButtonLoading('checkBtn', true, '检测中...');
 
     // 隐藏优化按钮并重置文字
     const optimizeBtn = document.getElementById('optimizeCheckBtn');
@@ -1471,13 +1338,10 @@ async function checkAllCharacters() {
         }
 
         // resultStr 是 streamRequest 拼接返回的纯文本字符串
-        let contentStr = resultStr;
-        const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
-        if (jsonMatch) contentStr = jsonMatch[0];
-        const result = JSON.parse(contentStr);
+        const result = extractJsonFromString(resultStr) || {};
         currentCheckIssues = result.issues || [];
         lockScroll();
-        document.getElementById('checkDialog').classList.add('active');
+        document.getElementById('checkDialog').classList.add('show');
         renderCheckResult(result);
         showSuccess('检测完成');
     } catch (error) {
@@ -1485,8 +1349,7 @@ async function checkAllCharacters() {
         console.error('角色检测失败:', error);
         showError('网络错误，请重试');
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-search-plus"></i> AI检测';
+        setButtonLoading('checkBtn', false, null, '<i class="fas fa-search-plus"></i> AI检测');
     }
 }
 
@@ -1571,39 +1434,41 @@ async function optimizeFromCheck() {
 
     showLoading('正在AI优化角色...');
 
+    // 禁用优化按钮防止重复提交
+    const optimizeBtn = document.getElementById('optimizeCheckBtn');
+    const originalHtml = optimizeBtn.innerHTML;
+    optimizeBtn.disabled = true;
+
     try {
         const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/optimize/`, {
-            method: 'POST',
             body: JSON.stringify({ issues: issuesWithInstructions })
         });
 
         hideLoading();
-
         if (!resultStr) {
             showError('优化结果为空');
             return;
         }
-
-        // resultStr 是 streamRequest 拼接返回的 JSON 数组字符串
-        let contentStr = resultStr;
-        // 如果是 JSON 数组，直接用 JSON.parse
-        const trimmed = contentStr.trim();
-        if (trimmed.startsWith('[')) {
-            currentOptimizeResult = JSON.parse(trimmed);
+        // 尝试解析 JSON 数组
+        const trimmed = resultStr.trim();
+        const parsed = extractJsonFromString(trimmed);
+        if (Array.isArray(parsed)) {
+            currentOptimizeResult = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+            currentOptimizeResult = parsed.optimizations || parsed.data || parsed;
         } else {
-            // 兼容对象格式的 fallback
-            const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
-            if (jsonMatch) contentStr = jsonMatch[0];
-            const obj = JSON.parse(contentStr);
-            currentOptimizeResult = obj.optimizations || obj.data || obj;
+            showError('优化结果解析失败');
+            return;
         }
         renderOptimizeResult(currentOptimizeResult);
         showSuccess('优化完成');
     } catch (error) {
-        console.error('AI优化失败:', error);
-        showError('网络错误，请重试');
-    } finally {
         hideLoading();
+        console.error('AI优化失败:', error);
+        showError(error.message || '网络错误，请重试');
+    } finally {
+        optimizeBtn.disabled = false;
+        optimizeBtn.innerHTML = originalHtml;
     }
 }
 
@@ -1646,12 +1511,12 @@ function parseRelationshipsFromLLM(rels) {
     // 字符串格式：逗号分隔的 "类型-目标名-描述"
     if (typeof rels === 'string') {
         return rels.split(',').map(s => s.trim()).filter(Boolean).map(s => {
-            const parts = s.split('-', 3);
+            const parts = s.split('-');
             if (parts.length >= 2) {
                 return {
                     targetName: parts[1].trim(),
                     relationshipType: normalizeRelationshipType(parts[0].trim()),
-                    description: parts.length > 2 ? parts[2].trim() : '',
+                    description: parts.slice(2).join('-').trim() || '',
                     createReverse: true
                 };
             }
@@ -1672,12 +1537,12 @@ function parseRelationshipsFromLLM(rels) {
             }
             // 数组中的字符串元素
             if (typeof r === 'string') {
-                const parts = r.split('-', 3);
+                const parts = r.split('-');
                 if (parts.length >= 2) {
                     return {
                         targetName: parts[1].trim(),
                         relationshipType: normalizeRelationshipType(parts[0].trim()),
-                        description: parts.length > 2 ? parts[2].trim() : '',
+                        description: parts.slice(2).join('-').trim() || '',
                         createReverse: true
                     };
                 }
@@ -1848,9 +1713,7 @@ async function saveOptimizeResult() {
         return;
     }
 
-    const btn = document.getElementById('optimizeCheckBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    setButtonLoading('optimizeCheckBtn', true, '保存中...');
 
     try {
         const data = await api.post(`/api/projects/${currentProjectId}/characters/optimize/save/`, {
@@ -1868,14 +1731,13 @@ async function saveOptimizeResult() {
         console.error('保存优化失败:', error);
         showError('网络错误');
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> 保存优化';
+        setButtonLoading('optimizeCheckBtn', false, null, '<i class="fas fa-save"></i> 保存优化');
     }
 }
 
 function closeCheckDialog(e) {
     if (e) e.stopPropagation();
-    document.getElementById('checkDialog').classList.remove('active');
+    document.getElementById('checkDialog').classList.remove('show');
     unlockScroll();
     // 重置优化按钮
     const optimizeBtn = document.getElementById('optimizeCheckBtn');

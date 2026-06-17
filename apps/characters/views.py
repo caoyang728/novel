@@ -1,6 +1,6 @@
 import json
 import re
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from loguru import logger
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -47,6 +47,31 @@ class BaseCharacterAPIView(APIView):
     def get_project(self, request, pk):
         """获取项目，如果不存在则抛出404异常"""
         return get_object_or_404(ProjectList, pk=pk, user=request.user)
+
+    def _handle_validation_error(self, serializer):
+        """统一处理序列化器校验错误，返回标准错误响应"""
+        name_errors = serializer.errors.get('name', [])
+        is_duplicate = any(
+            getattr(e, 'code', '') == 'DUPLICATE_NAME'
+            for e in name_errors
+        )
+
+        error_messages = []
+        for field, errors in serializer.errors.items():
+            for err in errors:
+                err_str = str(err)
+                if err_str == '该角色名称已存在':
+                    error_messages.append(err_str)
+                elif field != 'non_field_errors':
+                    error_messages.append(err_str)
+                else:
+                    error_messages.append(err_str)
+
+        return Response({
+            'success': False,
+            'error': '; '.join(error_messages) if error_messages else '参数校验失败',
+            'error_type': 'duplicate' if is_duplicate else 'validation'
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     def _get_worldview_str(self, project):
         """获取项目世界观描述字符串"""
@@ -131,8 +156,9 @@ class BaseCharacterAPIView(APIView):
             characters_data_parts.append('\n'.join(parts))
         return '\n\n'.join(characters_data_parts)
 
+    @transaction.atomic
     def _create_reverse_relationships(self, project, character, relationships):
-        """创建反向关系"""
+        """创建反向关系（事务保护）"""
         # 批量查询所有目标角色，避免 N+1
         target_names = [
             rel.get('targetName') for rel in relationships
@@ -160,7 +186,7 @@ class BaseCharacterAPIView(APIView):
             rel_type = normalize_relationship_type(rel.get('relationshipType'))
             reverse_type = get_reverse_type(rel_type)
 
-            target_rels = target_char.relationships or []
+            target_rels = list(target_char.relationships or [])
 
             # 检查是否已存在指向该角色的同向或反向关系（避免重复创建）
             existing_rel = next(
@@ -495,26 +521,7 @@ class ApiCharacterListView(BaseCharacterAPIView):
         )
         
         if not serializer.is_valid():
-            # 检查是否为重复名称错误
-            name_errors = serializer.errors.get('name', [])
-            is_duplicate = any(getattr(e, 'code', '') == 'DUPLICATE_NAME' or 'DUPLICATE_NAME' in str(e) for e in name_errors)
-
-            error_messages = []
-            for field, errors in serializer.errors.items():
-                for err in errors:
-                    err_str = str(err)
-                    if err_str == 'DUPLICATE_NAME':
-                        error_messages.append('该角色名称已存在')
-                    elif field != 'non_field_errors':
-                        error_messages.append(f"{field}: {err_str}")
-                    else:
-                        error_messages.append(err_str)
-
-            return Response({
-                'success': False,
-                'error': '; '.join(error_messages) if error_messages else '参数校验失败',
-                'error_type': 'duplicate' if is_duplicate else 'validation'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self._handle_validation_error(serializer)
 
         character = serializer.save(project=project)
         
@@ -546,15 +553,15 @@ class ApiCharacterDetailView(BaseCharacterAPIView):
     def put(self, request, pk, character_id):
         """更新角色"""
         project = self.get_project(request, pk)
-        character = get_object_or_404(Character, pk=character_id, project=project)
 
         # 支持恢复已删除角色
         action = request.data.get('action')
         if action == 'restore':
+            character = get_object_or_404(Character, pk=character_id, project=project)
             try:
                 character.is_deleted = False
                 character.save()
-            except Exception:
+            except IntegrityError:
                 # 同名角色已存在时，唯一约束冲突
                 return Response(
                     {'success': False, 'error': f'已存在同名角色"{character.name}"，无法恢复'},
@@ -562,8 +569,7 @@ class ApiCharacterDetailView(BaseCharacterAPIView):
                 )
             return Response({'success': True})
 
-        if character.is_deleted:
-            return Response({'success': False, 'error': '已删除的角色不能编辑，请先恢复'}, status=400)
+        character = get_object_or_404(Character, pk=character_id, project=project, is_deleted=False)
 
         serializer = CharacterUpdateSerializer(
             instance=character,
@@ -572,26 +578,7 @@ class ApiCharacterDetailView(BaseCharacterAPIView):
         )
         
         if not serializer.is_valid():
-            # 检查是否为重复名称错误
-            name_errors = serializer.errors.get('name', [])
-            is_duplicate = any(getattr(e, 'code', '') == 'DUPLICATE_NAME' or 'DUPLICATE_NAME' in str(e) for e in name_errors)
-
-            error_messages = []
-            for field, errors in serializer.errors.items():
-                for err in errors:
-                    err_str = str(err)
-                    if err_str == 'DUPLICATE_NAME':
-                        error_messages.append('该角色名称已存在')
-                    elif field != 'non_field_errors':
-                        error_messages.append(f"{field}: {err_str}")
-                    else:
-                        error_messages.append(err_str)
-
-            return Response({
-                'success': False,
-                'error': '; '.join(error_messages) if error_messages else '参数校验失败',
-                'error_type': 'duplicate' if is_duplicate else 'validation'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self._handle_validation_error(serializer)
 
         # 保存旧关系用于清理
         old_relationships = list(character.relationships or []) if character.relationships else []
@@ -657,6 +644,8 @@ class ApiCharacterGenerateView(BaseCharacterAPIView):
             request.user,
             scene="character_design",
             error_msg='角色生成失败，请重试',
+            project=project,
+            task_type='character_generate',
         )
 
 
@@ -668,15 +657,7 @@ class ApiCharacterPolishView(BaseCharacterAPIView):
 
         serializer = CharacterPolishSerializer(data=request.data)
         if not serializer.is_valid():
-            error_messages = []
-            for field, errors in serializer.errors.items():
-                for err in errors:
-                    error_messages.append(f"{field}: {str(err)}" if field != 'non_field_errors' else str(err))
-
-            return Response({
-                'success': False,
-                'error': '; '.join(error_messages) if error_messages else '参数校验失败',
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self._handle_validation_error(serializer)
 
         character_data = serializer.validated_data
         character_json = json.dumps(character_data, ensure_ascii=False)
@@ -688,6 +669,8 @@ class ApiCharacterPolishView(BaseCharacterAPIView):
             request.user,
             scene="character_polish",
             error_msg='角色润色失败，请重试',
+            project=project,
+            task_type='character_polish',
         )
 
 
@@ -714,6 +697,8 @@ class ApiCharacterCheckView(BaseCharacterAPIView):
             request.user,
             scene="character_check",
             error_msg='角色检测失败，请重试',
+            project=project,
+            task_type='character_check',
         )
 
 
@@ -776,6 +761,8 @@ class ApiCharacterOptimizeView(BaseCharacterAPIView):
             scene="character_optimize",
             error_msg='角色优化失败，请重试',
             post_process=self._post_process_optimize,
+            project=project,
+            task_type='character_optimize',
         )
 
 

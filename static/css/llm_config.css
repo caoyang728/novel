@@ -1,22 +1,18 @@
-.content-card {
-    background: #334155;
-    border-radius: 16px;
-    border: 1px solid #374151;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-}
+/* ==================== 内容卡片 ==================== */
+/* .content-card 已在 common.css 中定义 */
 .content-card h5 {
     color: #f9fafb;
     font-weight: 600;
     margin: 0;
 }
+
 .content-card h5 i {
     background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
+
 .content-card .btn-primary {
     background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
     border: none;
@@ -27,10 +23,13 @@
     color: white;
     cursor: pointer;
 }
+
 .content-card .btn-primary:hover {
     background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
     box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
 }
+
+/* ==================== 配置卡片 ==================== */
 .config-card {
     border: 1px solid #374151;
     border-radius: 12px;
@@ -40,38 +39,46 @@
     background: #334155;
     transition: all 0.2s;
 }
+
 .config-card:hover {
     border-color: rgba(99, 102, 241, 0.4);
     background: rgba(99, 102, 241, 0.06);
 }
+
 .config-card.default {
     border-color: rgba(52, 211, 153, 0.4);
     background: rgba(16, 185, 129, 0.06);
 }
+
 .config-card.disabled {
     opacity: 0.5;
     background: #1e293b;
 }
+
 .config-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 0.75rem;
 }
+
 .config-name {
     font-weight: 600;
     color: #f9fafb;
 }
+
 .config-provider {
     font-size: 0.875rem;
     color: #9ca3af;
 }
+
 .config-info {
     display: flex;
     gap: 2rem;
     font-size: 0.875rem;
     color: #9ca3af;
 }
+
 .config-card .btn-sm {
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
@@ -83,28 +90,21 @@
     background: transparent;
     color: #d1d5db;
 }
+
 .config-card .btn-sm:hover {
     border-color: #818cf8;
     color: #818cf8;
     background: rgba(99, 102, 241, 0.1);
 }
-.config-card .btn-sm.btn-danger {
-    border-color: rgba(248, 113, 113, 0.3);
-    color: #f87171;
-}
-.config-card .btn-sm.btn-danger:hover {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: #f87171;
-}
+
 .config-card .badge {
     font-size: 0.75rem;
     padding: 0.25rem 0.625rem;
     border-radius: 9999px;
     font-weight: 500;
 }
-.config-card .badge.bg-success {
-    background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
-}
+
+/* ==================== 任务配置项 ==================== */
 .task-config-item {
     display: flex;
     justify-content: space-between;
@@ -115,37 +115,25 @@
     margin-bottom: 0.5rem;
     transition: all 0.2s;
 }
+
 .task-config-item:hover {
     background: rgba(99, 102, 241, 0.08);
 }
+
 .task-config-item .task-name {
     font-weight: 600;
     color: #f9fafb;
 }
-.task-config-item .btn-sm {
-    padding: 0.35rem 0.75rem;
-    font-size: 0.8rem;
-    border-radius: 8px;
-    font-weight: 500;
-    transition: all 0.2s;
-    cursor: pointer;
-    border: 1px solid #5b6a7a;
-    background: transparent;
-    color: #d1d5db;
+
+/* 配置列表容器 - 占满剩余空间，内部滚动 */
+#configs-container,
+#task-configs-container {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
-.task-config-item .btn-sm:hover {
-    border-color: #818cf8;
-    color: #818cf8;
-    background: rgba(99, 102, 241, 0.1);
-}
-.task-config-item .btn-sm.btn-danger {
-    border-color: rgba(248, 113, 113, 0.3);
-    color: #f87171;
-}
-.task-config-item .btn-sm.btn-danger:hover {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: #f87171;
-}
+
+/* ==================== 开关 ==================== */
 .toggle-switch {
     position: relative;
     display: inline-block;
@@ -153,11 +141,13 @@
     height: 24px;
     cursor: pointer;
 }
+
 .toggle-switch input {
     opacity: 0;
     width: 0;
     height: 0;
 }
+
 .toggle-switch .slider {
     position: absolute;
     cursor: pointer;
@@ -169,6 +159,7 @@
     transition: 0.3s;
     border-radius: 24px;
 }
+
 .toggle-switch .slider:before {
     position: absolute;
     content: "";
@@ -180,12 +171,16 @@
     transition: 0.3s;
     border-radius: 50%;
 }
+
 .toggle-switch input:checked + .slider {
     background-color: #818cf8;
 }
+
 .toggle-switch input:checked + .slider:before {
     transform: translateX(20px);
 }
+
+/* ==================== Tab 标签页 ==================== */
 #configTabs .nav-link {
     color: #9ca3af;
     font-weight: 500;
@@ -195,115 +190,18 @@
     transition: all 0.2s ease;
     background: transparent;
 }
+
 #configTabs .nav-link:hover {
     color: #818cf8;
     background: rgba(99, 102, 241, 0.08);
 }
+
 #configTabs .nav-link.active {
     color: #818cf8;
     background: rgba(99, 102, 241, 0.15);
     font-weight: 600;
 }
+
 #configTabs .nav-link i {
     margin-right: 0.5rem;
-}
-
-/* 暗色 nav-tabs */
-.nav-tabs {
-    border-bottom: 1px solid #374151;
-}
-
-/* 暗色 tab-pane */
-.tab-pane {
-    background: transparent;
-}
-
-.text-muted {
-    color: #9ca3af !important;
-}
-
-/* Bootstrap 弹窗暗色化 */
-.modal-content {
-    background: #334155;
-    border: 1px solid #374151;
-}
-
-.modal-header {
-    border-bottom: 1px solid #374151;
-}
-
-.modal-header .btn-close {
-    filter: brightness(0) invert(1);
-    opacity: 0.8;
-}
-
-.modal-header .btn-close:hover {
-    opacity: 1;
-}
-
-.modal-title {
-    color: #f9fafb;
-}
-
-.modal-footer {
-    border-top: 1px solid #374151;
-    background: #334155;
-}
-
-.modal-body {
-    color: #d1d5db;
-}
-
-.modal .form-label {
-    color: #d1d5db;
-    font-weight: 500;
-    margin-bottom: 0.5rem;
-}
-
-.modal .form-control,
-.modal .form-select {
-    background: #1e293b;
-    border: 1.5px solid #5b6a7a;
-    color: #f9fafb;
-    border-radius: 10px;
-    padding: 0.75rem 1rem;
-}
-
-.modal .form-control:focus,
-.modal .form-select:focus {
-    border-color: #818cf8;
-    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
-}
-
-.modal .form-control::placeholder {
-    color: #6b7280;
-}
-
-.modal .btn-secondary {
-    background: #374151;
-    border: 1.5px solid #5b6a7a;
-    color: #d1d5db;
-    border-radius: 10px;
-    padding: 0.5rem 1.25rem;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-.modal .btn-secondary:hover {
-    background: #5b6a7a;
-    border-color: #818cf8;
-    color: #fff;
-}
-
-.modal .btn-primary {
-    background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-    border: none;
-    color: white;
-    border-radius: 10px;
-    padding: 0.5rem 1.25rem;
-    font-weight: 600;
-    transition: all 0.2s;
-}
-.modal .btn-primary:hover {
-    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
-    transform: translateY(-1px);
 }

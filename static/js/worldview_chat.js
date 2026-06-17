@@ -10,8 +10,7 @@ let isSelectionMode = false;
 let selectedMessages = new Set();
 let isGenerating = false;
 let worldviewId = '';
-const urlParams = new URLSearchParams(window.location.search);
-const projectId = urlParams.get('project_id') || '';
+const projectId = getProjectIdFromUrl() || '';
 
 // 供 common.js 回调：选择模式变化时重渲染聊天
 function onSelectionModeChanged() {
@@ -24,57 +23,44 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (projectId) showLoading('加载世界观数据...');
 
     checkAuth();
-    if (!projectId) return;
+    if (!projectId) {
+        hideLoading();
+        return;
+    }
+
+    // 使用 common.js 的 initBackToProjectButton 初始化返回按钮
+    initBackToProjectButton('#backBtn', 'worldview.html');
 
     const sendBtn = document.getElementById('send-btn');
     const chatInput = document.getElementById('chat-input');
 
     if (sendBtn) sendBtn.addEventListener('click', sendMessage);
     if (chatInput) {
-        chatInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage(); }
-        });
-        chatInput.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = Math.min(this.scrollHeight, 160) + 'px';
-        });
+        initChatInput(chatInput, { onSend: () => { if (!isGenerating) sendMessage(); }, maxHeight: 160 });
     }
 
-    await loadExistingWorldview();
-    if (worldviewId) {
-        await initChatQuestion();
+    try {
+        await loadProjectInfo(projectId);
+        await loadExistingWorldview();
+        if (worldviewId) {
+            await initChatQuestion();
+        }
+    } catch(e) {
+        console.error('初始化失败:', e);
+    } finally {
+        hideLoading();
     }
-    hideLoading();
 });
 
 // ==================== 导航 ====================
-function goBack() {
-    if (projectId) {
-        window.location.href = `/worldview.html?project_id=${projectId}`;
-    } else {
-        window.location.href = '/index.html';
-    }
-}
+// 使用 common.js 的 initBackToProjectButton，无需自定义 goBack()
 
-// ==================== 认证 ====================
-async function checkAuth() {
-    if (!api.isAuthenticated()) {
-        window.location.href = '/login.html';
-        return;
-    }
-    try {
-        const d = await api.get('/api/auth/user/');
-        if (!d || !d.success) api.forceReLogin();
-    } catch(e) {
-        api.forceReLogin();
-    }
-}
 
 // ==================== 世界观加载（仅内容，不含聊天记录）====================
 async function loadExistingWorldview() {
     if (!projectId) return;
     try {
-        const d = await api.get(`/api/worldview/?project_id=${projectId}`);
+        const d = await api.get(`/api/projects/${projectId}/worldviews/`);
         if (d.success && d.data) {
             worldviewId = d.data.worldview_id;
         }
@@ -87,7 +73,7 @@ async function loadExistingWorldview() {
 async function initChatQuestion() {
     if (!worldviewId) return;
     try {
-        const d = await api.post(`/api/worldview/${worldviewId}/chat/open/`, {});
+        const d = await api.post(`/api/projects/${projectId}/worldviews/${worldviewId}/chat/open/`, {});
         if (!d.success || !d.data) return;
 
         // 渲染 Markdown
@@ -120,12 +106,25 @@ function updateWelcomeBubble(question, options) {
     let html = escapeHtml(question).replace(/\n/g, '<br>');
     if (options && options.length > 0) {
         html += '<div class="init-options">';
-        options.forEach(opt => {
-            html += `<button class="init-option-btn" onclick="selectInitOption('${escapeHtml(opt).replace(/'/g, "\\'")}')">${escapeHtml(opt)}</button>`;
+        options.forEach((opt, idx) => {
+            html += `<button class="init-option-btn" data-init-idx="${idx}">${escapeHtml(opt)}</button>`;
         });
         html += '</div>';
+        // 存储选项供点击时使用
+        bubble._initOptions = options;
     }
     bubble.innerHTML = html;
+
+    // 使用事件委托绑定点击，避免 inline onclick 的 XSS 风险
+    bubble.querySelectorAll('.init-option-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const idx = parseInt(this.dataset.initIdx);
+            const opts = bubble._initOptions;
+            if (opts && opts[idx]) {
+                selectInitOption(opts[idx]);
+            }
+        });
+    });
 }
 
 function renderWorldviewEmptyHint() {
@@ -135,7 +134,7 @@ function renderWorldviewEmptyHint() {
         <div class="worldview-empty">
             <i class="fas fa-lightbulb"></i>
             <p>还没有世界观数据</p>
-            <p style="font-size:0.85rem; color: var(--text-muted);">在右侧对话框向AI描述你想要的<br>题材、风格、基本设定，开始构建吧</p>
+            <p class="empty-hint">在右侧对话框向AI描述你想要的<br>题材、风格、基本设定，开始构建吧</p>
         </div>
     `;
     preview.classList.remove('d-none');
@@ -187,9 +186,11 @@ function renderChatHistory() {
 function renderWorldview(content) {
     const preview = document.getElementById('wv-preview');
     if (!preview) return;
-    if (content.trim()) {
+    if (content && content.trim()) {
         preview.innerHTML = safeMarkdownParse(content);
         preview.classList.remove('d-none');
+    } else {
+        renderWorldviewEmptyHint();
     }
 }
 
@@ -258,6 +259,12 @@ async function sendMessage() {
     }
 
     isGenerating = true;
+    // 每次发送前重置流式状态变量
+    let isComplete = false;
+    let finalMarkdown = '';
+    let finalReply = '';
+    let finalOptions = [];
+
     const sendBtn = document.getElementById('send-btn');
     if (sendBtn) {
         sendBtn.disabled = true;
@@ -268,17 +275,28 @@ async function sendMessage() {
     // 用户消息
     const userDiv = document.createElement('div');
     userDiv.className = 'chat-message user';
-    userDiv.innerHTML = `<div class="chat-bubble chat-bubble-user">${escapeHtml(message).replace(/\n/g,'<br>')}</div><div class="chat-message-avatar avatar-me ms-2">我</div>`;
+    userDiv.innerHTML = `
+        <div class="chat-message-content">
+            <div class="chat-bubble chat-bubble-user">${escapeHtml(message).replace(/\n/g,'<br>')}</div>
+            <div class="chat-message-avatar avatar-me ms-2">我</div>
+        </div>
+    `;
     chatMessages.appendChild(userDiv);
 
     // 思考状态
     const thinkDiv = document.createElement('div');
     thinkDiv.className = 'chat-message assistant';
+    const thinkAvatar = document.createElement('div');
+    thinkAvatar.className = 'chat-message-avatar avatar-wv me-2';
+    thinkAvatar.textContent = 'WV';
     const thinkBubble = document.createElement('div');
     thinkBubble.className = 'chat-bubble chat-bubble-assistant';
     thinkBubble.innerHTML = `<i class="fas fa-spinner fa-spin"></i> 思考中...`;
-    thinkDiv.innerHTML = `<div class="chat-message-avatar avatar-wv me-2">WV</div>`;
-    thinkDiv.appendChild(thinkBubble);
+    const thinkContent = document.createElement('div');
+    thinkContent.className = 'chat-message-content';
+    thinkContent.appendChild(thinkAvatar);
+    thinkContent.appendChild(thinkBubble);
+    thinkDiv.appendChild(thinkContent);
     chatMessages.appendChild(thinkDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
@@ -292,84 +310,50 @@ async function sendMessage() {
     const contextMessages = ctxCount >= messages.length ? messages : messages.slice(messages.length - ctxCount * 2);
 
     try {
-        const response = await fetch(`/api/worldview/${worldviewId}/chat/stream/`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${api.getToken()}`,
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
+        await api.streamRequestRaw(`/api/projects/${projectId}/worldviews/${worldviewId}/chat/stream/`, {
             body: JSON.stringify({
                 message: message,
                 messages: contextMessages
             })
-        });
-
-        if (response.status === 401) {
-            api.forceReLogin();
-            return;
-        }
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.message || `请求失败: ${response.status}`);
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        let streamingBuffer = '';
-        let isComplete = false;
-        let finalMarkdown = '';
-        let finalReply = '';
-        let finalOptions = [];
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            streamingBuffer += chunk;
-
-            const lines = streamingBuffer.split('\n');
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    try {
-                        const data = JSON.parse(line.substring(6));
-                        if (data.type === 'chunk' && data.chunk) {
-                            // 流式 Markdown 分块 → 实时渲染到左侧预览区
-                            currentWorldview += data.chunk;
-                            renderWorldview(currentWorldview);
-                        } else if (data.type === 'complete') {
-                            isComplete = true;
-                            finalMarkdown = data.markdown || '';
-                            finalReply = data.reply || '';
-                            finalOptions = data.options || [];
-                            if (finalMarkdown) {
-                                currentWorldview = finalMarkdown;
-                                renderWorldview(currentWorldview);
-                            }
-                        } else if (data.type === 'error') {
-                            thinkBubble.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ef4444;"></i> ${escapeHtml(data.message || '')}`;
-                            chatMessages.scrollTop = chatMessages.scrollHeight;
-                        }
-                    } catch (e) {
-                        // JSON 解析失败，忽略
-                    }
+        }, (chunk) => {
+            if (chunk.done) return;
+            const parsed = chunk.data;
+            if (parsed && parsed.type === 'error') {
+                thinkBubble.innerHTML = `<i class="fas fa-exclamation-circle" style="color:#ef4444;"></i> ${escapeHtml(parsed.message || '')}`;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                return;
+            }
+            if (parsed && parsed.type === 'chunk' && parsed.chunk) {
+                currentWorldview += parsed.chunk;
+                renderWorldview(currentWorldview);
+            } else if (parsed && parsed.type === 'complete') {
+                isComplete = true;
+                finalMarkdown = parsed.markdown || '';
+                finalReply = parsed.reply || '';
+                finalOptions = parsed.options || [];
+                if (finalMarkdown) {
+                    currentWorldview = finalMarkdown;
+                    renderWorldview(currentWorldview);
                 }
             }
-        }
+        });
 
         // 完成 — 显示助手回复
-        thinkDiv.innerHTML = '';
+        thinkDiv.remove();
         if (isComplete) {
             if (finalReply) {
                 const replyDiv = document.createElement('div');
                 replyDiv.className = 'chat-message assistant';
-                replyDiv.innerHTML = `<div class="chat-message-avatar avatar-wv me-2">WV</div>`;
+                const replyAvatar = document.createElement('div');
+                replyAvatar.className = 'chat-message-avatar avatar-wv me-2';
+                replyAvatar.textContent = 'WV';
                 const replyBubble = document.createElement('div');
                 replyBubble.className = 'chat-bubble chat-bubble-assistant';
-                replyDiv.appendChild(replyBubble);
+                const replyContent = document.createElement('div');
+                replyContent.className = 'chat-message-content';
+                replyContent.appendChild(replyAvatar);
+                replyContent.appendChild(replyBubble);
+                replyDiv.appendChild(replyContent);
                 chatMessages.appendChild(replyDiv);
 
                 await typeText(replyBubble, finalReply, () => {
@@ -383,7 +367,7 @@ async function sendMessage() {
                         const btn = document.createElement('button');
                         btn.className = 'init-option-btn';
                         btn.textContent = opt;
-                        btn.onclick = () => selectInitOption(opt);
+                        btn.addEventListener('click', () => selectInitOption(opt));
                         optionsDiv.appendChild(btn);
                     });
                     replyBubble.appendChild(optionsDiv);
@@ -393,33 +377,47 @@ async function sendMessage() {
                 // 没有 reply 时显示简要确认
                 const doneDiv = document.createElement('div');
                 doneDiv.className = 'chat-message assistant';
-                doneDiv.innerHTML = `<div class="chat-message-avatar avatar-wv me-2">WV</div>
-                    <div class="chat-bubble chat-bubble-assistant">世界观内容已更新，请查看左侧预览区</div>`;
+                doneDiv.innerHTML = `
+                    <div class="chat-message-content">
+                        <div class="chat-message-avatar avatar-wv me-2">WV</div>
+                        <div class="chat-bubble chat-bubble-assistant">世界观内容已更新，请查看左侧预览区</div>
+                    </div>
+                `;
                 chatMessages.appendChild(doneDiv);
                 messages.push({ role: 'assistant', content: '世界观内容已更新' });
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
         } else {
-            thinkDiv.innerHTML = `<div class="chat-message-avatar avatar-wv me-2">WV</div>
-                <div class="chat-bubble chat-bubble-assistant" style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> 抱歉，生成失败，请重试。</div>`;
+            const failDiv = document.createElement('div');
+            failDiv.className = 'chat-message assistant';
+            failDiv.innerHTML = `
+                <div class="chat-message-content">
+                    <div class="chat-message-avatar avatar-wv me-2">WV</div>
+                    <div class="chat-bubble chat-bubble-assistant" style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> 抱歉，生成失败，请重试。</div>
+                </div>
+            `;
+            chatMessages.appendChild(failDiv);
         }
 
+    } catch(error) {
+        console.error(error);
+        thinkDiv.remove();
+        const errDiv = document.createElement('div');
+        errDiv.className = 'chat-message assistant';
+        errDiv.innerHTML = `
+            <div class="chat-message-content">
+                <div class="chat-message-avatar avatar-wv me-2">WV</div>
+                <div class="chat-bubble chat-bubble-assistant" style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> 发生错误，请重试。</div>
+            </div>
+        `;
+        chatMessages.appendChild(errDiv);
+    } finally {
         isGenerating = false;
         if (sendBtn) {
             sendBtn.disabled = false;
             sendBtn.classList.remove('generating');
         }
         chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    } catch(error) {
-        console.error(error);
-        thinkDiv.innerHTML = `<div class="chat-message-avatar avatar-wv me-2">WV</div>
-            <div class="chat-bubble chat-bubble-assistant" style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> 发生错误，请重试。</div>`;
-        isGenerating = false;
-        if (sendBtn) {
-            sendBtn.disabled = false;
-            sendBtn.classList.remove('generating');
-        }
     }
 }
 
@@ -427,7 +425,12 @@ async function sendMessage() {
 async function typeText(element, text, callback, speed) {
     element.innerHTML = '';
     for (let i = 0; i < text.length; i++) {
-        element.innerHTML += escapeHtml(text.charAt(i)).replace(/\n/g, '<br>');
+        const char = text.charAt(i);
+        if (char === '\n') {
+            element.appendChild(document.createElement('br'));
+        } else {
+            element.appendChild(document.createTextNode(char));
+        }
         const chatMessages = document.getElementById('chat-messages');
         if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
         await new Promise(r => setTimeout(r, speed || 15));

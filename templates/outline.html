@@ -9,45 +9,45 @@
     <link href="/static/css/common.css" rel="stylesheet">
     <link href="/static/css/outline.css" rel="stylesheet">
 </head>
-<body>
-    <div class="main-content-full">
-        <div class="content-header">
-            <div class="d-flex align-items-center gap-3">
-                <button class="btn btn-outline back-btn">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
-                <div>
-                    <h5 class="mb-0">大纲构建</h5>
-                    <span class="badge badge-info" id="project-title">-</span>
-                </div>
+<body class="page-full-height">
+    <div class="page-header">
+        <div class="page-header-inner">
+            <button class="back-btn">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <div class="header-title-area">
+                <h1 class="header-title">大纲构建</h1>
+                <p class="header-subtitle" id="project-title">-</p>
             </div>
-            <div class="btn-group-custom">
+            <div class="header-actions">
                 <select class="form-select form-select-sm" id="version-select" style="width: 180px;">
                     <option value="">选择版本...</option>
                 </select>
-                <button class="btn btn-primary" onclick="saveVersion(false)" id="save-btn" disabled>
+                <button class="btn-success" onclick="saveVersion(false)" id="save-btn" disabled>
                     <i class="fas fa-save"></i> 保存当前
                 </button>
-                <button class="btn btn-primary" onclick="saveVersion(true)" id="save-as-btn" disabled>
+                <button class="btn-success" onclick="saveVersion(true)" id="save-as-btn" disabled>
                     <i class="fas fa-file-plus"></i> 另存新版
                 </button>
             </div>
         </div>
+    </div>
 
+    <div class="page-content">
         <div class="split-view">
             <div class="middle-panel">
                 <div class="outline-card">
-                    <div class="outline-card-header d-flex justify-content-between align-items-center">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                         <div class="d-flex align-items-center gap-2">
                             <h5><i class="fas fa-edit me-2"></i>大纲内容</h5>
                             <span class="badge badge-secondary text-sm" id="outline-version">-</span>
                             <span class="badge badge-info text-sm" id="outline-word-count">0 字</span>
-                            <button class="btn btn-danger-outline btn-sm" onclick="confirmDeleteVersion()" id="delete-version-btn" disabled>
+                            <button class="btn-danger btn-sm" onclick="confirmDeleteVersion()" id="delete-version-btn" disabled>
                                 <i class="fas fa-trash"></i> 删除版本
                             </button>
                         </div>
                         <div class="d-flex align-items-center gap-1">
-                            <button class="btn btn-outline btn-sm" onclick="confirmLock()" id="lock-btn" disabled>
+                            <button class="btn-success btn-sm" onclick="confirmLock()" id="lock-btn" disabled>
                                 <i class="fas fa-lock"></i> 锁定
                             </button>
                             <div class="btn-group-toggle d-flex gap-1">
@@ -65,17 +65,17 @@
 
             <div class="right-panel">
                 <div class="chat-card">
-                    <div class="outline-card-header d-flex justify-content-between align-items-center">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                         <h5><i class="fas fa-robot me-2"></i>AI助手</h5>
                         <div class="chat-card-header-actions" id="chat-actions">
                             <div class="selection-actions" id="selection-actions" style="display: none;">
-                                <button class="btn btn-cancel-selection" id="cancel-selection-btn" onclick="cancelSelection()">
+                                <button class="btn-cancel btn-sm" id="cancel-selection-btn" onclick="cancelSelection()">
                                     <i class="fas fa-times"></i> 取消
                                 </button>
-                                <button class="btn btn-delete-selected" id="delete-selected-btn" onclick="deleteSelectedMessages()" disabled>
+                                <button class="btn-danger btn-sm" id="delete-selected-btn" onclick="deleteSelectedMessages()" disabled>
                                     <i class="fas fa-trash"></i> 删除选中
                                 </button>
-                                <button class="btn btn-select-all" id="select-all-btn" onclick="toggleSelectAll()">
+                                <button class="btn-ai btn-sm" id="select-all-btn" onclick="toggleSelectAll()">
                                     <i class="fas fa-check-square"></i> 全选
                                 </button>
                             </div>
@@ -116,18 +116,18 @@
         </div>
     </div>
 
-    <div class="modal-overlay" id="confirm-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="confirm-modal">
+        <div class="dialog dialog-sm">
+            <div class="dialog-header">
                 <h5 id="modal-title">确认操作</h5>
-                <button class="btn btn-close" onclick="closeModal()"></button>
+                <button class="btn-close" onclick="closeModal()"></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <p id="modal-message">确定要执行此操作吗？</p>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closeModal()">取消</button>
-                <button class="btn btn-primary" id="modal-confirm-btn" onclick="executeModalAction()">确认</button>
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeModal()">取消</button>
+                <button class="btn-success" id="modal-confirm-btn" onclick="executeModalAction()">确认</button>
             </div>
         </div>
     </div>

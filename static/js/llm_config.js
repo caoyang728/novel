@@ -1,31 +1,9 @@
 let configs = [];
 
 document.addEventListener('DOMContentLoaded', function() {
-    loadUserInfo();
-    loadConfigs();
+    showLoading('加载中...');
+    Promise.all([loadUserInfo(), loadConfigs()]).finally(() => hideLoading());
 });
-
-async function loadUserInfo() {
-    try {
-        const data = await api.get('/api/auth/user/');
-        if (data.success) {
-            document.getElementById('username').textContent = data.user.username;
-        }
-    } catch (error) {
-        window.location.href = 'login.html';
-    }
-    
-    try {
-        const data = await api.get('/api/token-usage/today/');
-        if (data.success) {
-            const total = data.usage.total_tokens || 0;
-            const formatted = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : total;
-            document.getElementById('token-usage').textContent = '今日 Token: ' + formatted;
-        }
-    } catch (error) {
-        console.error('Failed to load token usage:', error);
-    }
-}
 
 async function loadConfigs() {
     try {
@@ -125,6 +103,9 @@ function openConfigModal(configId) {
     document.getElementById('config-model').value = '';
     document.getElementById('config-temperature').value = '0.7';
     document.getElementById('config-max-tokens').value = '4096';
+    document.getElementById('config-input-price').value = '0';
+    document.getElementById('config-output-price').value = '0';
+    document.getElementById('config-cache-hit-price').value = '0';
     document.getElementById('config-default').checked = false;
     
     if (configId) {
@@ -136,6 +117,9 @@ function openConfigModal(configId) {
             document.getElementById('config-model').value = config.model_name;
             document.getElementById('config-temperature').value = config.temperature;
             document.getElementById('config-max-tokens').value = config.max_tokens;
+            document.getElementById('config-input-price').value = config.input_price || 0;
+            document.getElementById('config-output-price').value = config.output_price || 0;
+            document.getElementById('config-cache-hit-price').value = config.cache_hit_price || 0;
             document.getElementById('config-default').checked = config.is_default;
         }
     }
@@ -158,10 +142,13 @@ async function saveConfig() {
     const modelName = document.getElementById('config-model').value.trim();
     const temperature = parseFloat(document.getElementById('config-temperature').value);
     const maxTokens = parseInt(document.getElementById('config-max-tokens').value);
+    const inputPrice = parseFloat(document.getElementById('config-input-price').value) || 0;
+    const outputPrice = parseFloat(document.getElementById('config-output-price').value) || 0;
+    const cacheHitPrice = parseFloat(document.getElementById('config-cache-hit-price').value) || 0;
     const isDefault = document.getElementById('config-default').checked;
 
     if (!name || !modelName) {
-        alert('请填写必填字段');
+        showError('请填写必填字段');
         return;
     }
 
@@ -178,6 +165,9 @@ async function saveConfig() {
                 model_name: modelName,
                 temperature,
                 max_tokens: maxTokens,
+                input_price: inputPrice,
+                output_price: outputPrice,
+                cache_hit_price: cacheHitPrice,
                 is_default: isDefault
             })
         });
@@ -185,11 +175,12 @@ async function saveConfig() {
         if (data.success) {
             closeConfigModal();
             loadConfigs();
+            showSuccess('保存成功');
         } else {
-            alert(data.message || '保存失败');
+            showError(data.message || '保存失败');
         }
     } catch (error) {
-        alert('保存失败，请重试');
+        showError('保存失败，请重试');
     }
 }
 
@@ -241,11 +232,12 @@ async function saveTaskConfig() {
         if (data.success) {
             closeTaskConfigModal();
             loadConfigs();
+            showSuccess('保存成功');
         } else {
-            alert(data.message || '保存失败');
+            showError(data.message || '保存失败');
         }
     } catch (error) {
-        alert('保存失败，请重试');
+        showError('保存失败，请重试');
     }
 }
 
@@ -264,34 +256,36 @@ async function toggleConfigActive(configId, checkbox) {
 
         if (!data.success) {
             checkbox.checked = !isActive;
-            alert(data.message || '操作失败');
+            showError(data.message || '操作失败');
         }
     } catch (error) {
         checkbox.checked = !isActive;
-        alert('操作失败，请重试');
+        showError('操作失败，请重试');
     }
 }
 
-async function deleteConfig(configId) {
-    if (!confirm('确定要删除这个配置吗？')) return;
+function deleteConfig(configId) {
+    showModal('删除配置', '确定要删除这个配置吗？', async function() {
+        try {
+            const data = await api.request('/api/llm-config/', {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'delete',
+                    config_id: configId
+                })
+            });
 
-    try {
-        const data = await api.request('/api/llm-config/', {
-            method: 'POST',
-            body: JSON.stringify({
-                action: 'delete',
-                config_id: configId
-            })
-        });
-
-        if (data.success) {
-            loadConfigs();
-        } else {
-            alert(data.message || '删除失败');
+            if (data.success) {
+                loadConfigs();
+                showSuccess('删除成功');
+            } else {
+                showError(data.message || '删除失败');
+            }
+        } catch (error) {
+            showError('删除失败，请重试');
         }
-    } catch (error) {
-        alert('删除失败，请重试');
-    }
+        closeModal();
+    });
 }
 
 function getProviderName(provider) {
@@ -316,26 +310,5 @@ function getTaskTypeName(type) {
     return names[type] || type;
 }
 
-async function logout() {
-    try {
-        await api.post('/logout/', {});
-        window.location.href = 'login.html';
-    } catch (error) {
-        window.location.href = 'login.html';
-    }
-}
+// logout 函数使用 common.js 中的统一实现
 
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
-        }
-    }
-    return cookieValue;
-}

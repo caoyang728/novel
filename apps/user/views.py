@@ -83,10 +83,10 @@ class RegisterView(APIView):
 
     def post(self, request):
         try:
-            username = request.POST.get('username', '').strip()
-            email = request.POST.get('email', '').strip()
-            password = request.POST.get('password', '')
-            password_confirm = request.POST.get('password_confirm', '')
+            username = request.data.get('username', '').strip()
+            email = request.data.get('email', '').strip()
+            password = request.data.get('password', '')
+            password_confirm = request.data.get('password_confirm', '')
 
             if not username or not email or not password:
                 return Response({'success': False, 'message': '请填写所有必填字段'}, status=status.HTTP_400_BAD_REQUEST)
@@ -133,10 +133,10 @@ class ResetPasswordView(APIView):
 
     def post(self, request):
         try:
-            username = request.POST.get('username', '').strip()
-            email = request.POST.get('email', '').strip()
-            password = request.POST.get('password', '')
-            password_confirm = request.POST.get('password_confirm', '')
+            username = request.data.get('username', '').strip()
+            email = request.data.get('email', '').strip()
+            password = request.data.get('password', '')
+            password_confirm = request.data.get('password_confirm', '')
 
             if not username or not email or not password:
                 return Response({'success': False, 'message': '请填写所有必填字段'}, status=status.HTTP_400_BAD_REQUEST)
@@ -240,7 +240,7 @@ class ApiTokenUsageStats(APIView):
             user = request.user
             time_range = request.GET.get('range', 'all')
 
-            today = timezone.now().date()
+            today = timezone.localtime().date()
             start_of_week = today - timedelta(days=7)
             start_of_month = today.replace(day=1)
 
@@ -256,23 +256,21 @@ class ApiTokenUsageStats(APIView):
 
             def aggregate(logs):
                 data = logs.aggregate(
-                    prompt=models.Sum('prompt_tokens'),
-                    prompt_hit=models.Sum('prompt_tokens', filter=models.Q(cache_hit=True)),
-                    prompt_miss=models.Sum('prompt_tokens', filter=models.Q(cache_hit=False)),
-                    completion=models.Sum('completion_tokens'),
+                    input=models.Sum('input_tokens'),
+                    input_cache_hit=models.Sum('input_cache_hit_tokens'),
+                    input_cache_miss=models.Sum('input_cache_miss_tokens'),
+                    output=models.Sum('output_tokens'),
                     total=models.Sum('total_tokens'),
-                    hits=models.Count('id', filter=models.Q(cache_hit=True)),
-                    misses=models.Count('id', filter=models.Q(cache_hit=False)),
+                    cost=models.Sum('cost'),
                     count=models.Count('id')
                 )
                 return {
-                    'prompt_tokens': data['prompt'] or 0,
-                    'prompt_hit': data['prompt_hit'] or 0,
-                    'prompt_miss': data['prompt_miss'] or 0,
-                    'completion_tokens': data['completion'] or 0,
+                    'input_tokens': data['input'] or 0,
+                    'input_cache_hit_tokens': data['input_cache_hit'] or 0,
+                    'input_cache_miss_tokens': data['input_cache_miss'] or 0,
+                    'output_tokens': data['output'] or 0,
                     'total_tokens': data['total'] or 0,
-                    'cache_hits': data['hits'] or 0,
-                    'cache_misses': data['misses'] or 0,
+                    'cost': float(data['cost'] or 0),
                     'count': data['count'] or 0
                 }
 
@@ -289,11 +287,11 @@ class ApiTokenUsageStats(APIView):
             current_logs = get_logs_by_range(time_range)
             recent_logs = list(current_logs.order_by('-created_at')[:100].values(
                 'created_at', 'task_type', 'project__title',
-                'prompt_tokens', 'completion_tokens', 'total_tokens', 'cache_hit'
+                'input_tokens', 'output_tokens', 'total_tokens', 'input_cache_hit_tokens', 'input_cache_miss_tokens', 'cost'
             ))
 
             for log in recent_logs:
-                log['created_at'] = log['created_at'].strftime('%Y-%m-%d %H:%M')
+                log['created_at'] = timezone.localtime(log['created_at']).strftime('%Y-%m-%d %H:%M')
                 log['task_type'] = log['task_type'] or 'other'
                 log['project'] = log['project__title'] or '-'
 
@@ -306,24 +304,20 @@ class ApiTokenUsageStats(APIView):
                     project_stats[project_id] = {
                         'project_id': project_id,
                         'project_title': project_title,
-                        'prompt_tokens': 0,
-                        'prompt_hit': 0,
-                        'prompt_miss': 0,
-                        'completion_tokens': 0,
+                        'input_tokens': 0,
+                        'input_cache_hit_tokens': 0,
+                        'input_cache_miss_tokens': 0,
+                        'output_tokens': 0,
                         'total_tokens': 0,
-                        'cache_hits': 0,
-                        'cache_misses': 0,
+                        'cost': 0,
                         'count': 0
                     }
-                project_stats[project_id]['prompt_tokens'] += log.prompt_tokens
-                if log.cache_hit:
-                    project_stats[project_id]['prompt_hit'] += log.prompt_tokens
-                    project_stats[project_id]['cache_hits'] += 1
-                else:
-                    project_stats[project_id]['prompt_miss'] += log.prompt_tokens
-                    project_stats[project_id]['cache_misses'] += 1
-                project_stats[project_id]['completion_tokens'] += log.completion_tokens
+                project_stats[project_id]['input_tokens'] += log.input_tokens
+                project_stats[project_id]['input_cache_hit_tokens'] += log.input_cache_hit_tokens
+                project_stats[project_id]['input_cache_miss_tokens'] += log.input_cache_miss_tokens
+                project_stats[project_id]['output_tokens'] += log.output_tokens
                 project_stats[project_id]['total_tokens'] += log.total_tokens
+                project_stats[project_id]['cost'] += float(log.cost)
                 project_stats[project_id]['count'] += 1
 
             project_list = sorted(project_stats.values(), key=lambda x: x['total_tokens'], reverse=True)
@@ -431,7 +425,10 @@ class ApiLLMConfigView(APIView):
                 'max_tokens': config.max_tokens,
                 'is_default': config.is_default,
                 'is_active': getattr(config, 'is_active', True),
-                'base_url': config.base_url
+                'base_url': config.base_url,
+                'input_price': config.input_price,
+                'output_price': config.output_price,
+                'cache_hit_price': config.cache_hit_price
             })
 
         task_configs_data = []
@@ -463,6 +460,9 @@ class ApiLLMConfigView(APIView):
                 model_name = request.data.get('model_name')
                 temperature = float(request.data.get('temperature', 0.7))
                 max_tokens = int(request.data.get('max_tokens', 4096))
+                input_price = float(request.data.get('input_price', 0))
+                output_price = float(request.data.get('output_price', 0))
+                cache_hit_price = float(request.data.get('cache_hit_price', 0))
                 is_default = request.data.get('is_default') == True or request.data.get('is_default') == 'true'
 
                 if is_default:
@@ -475,6 +475,9 @@ class ApiLLMConfigView(APIView):
                     model_name=model_name,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    input_price=input_price,
+                    output_price=output_price,
+                    cache_hit_price=cache_hit_price,
                     is_default=is_default
                 )
                 if base_url:
@@ -530,6 +533,9 @@ class ApiLLMConfigView(APIView):
                 model_name = request.data.get('model_name')
                 temperature = float(request.data.get('temperature', 0.7))
                 max_tokens = int(request.data.get('max_tokens', 4096))
+                input_price = float(request.data.get('input_price', 0))
+                output_price = float(request.data.get('output_price', 0))
+                cache_hit_price = float(request.data.get('cache_hit_price', 0))
                 is_default = request.data.get('is_default') == True or request.data.get('is_default') == 'true'
 
                 if is_default:
@@ -540,6 +546,9 @@ class ApiLLMConfigView(APIView):
                 config.model_name = model_name
                 config.temperature = temperature
                 config.max_tokens = max_tokens
+                config.input_price = input_price
+                config.output_price = output_price
+                config.cache_hit_price = cache_hit_price
                 config.is_default = is_default
                 config.base_url = base_url
 

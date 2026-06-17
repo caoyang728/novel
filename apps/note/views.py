@@ -45,7 +45,7 @@ class NoteSerializer(ModelSerializer):
         return representation
 
 
-class NotesAPIView(BaseAPIView):
+class ApiNotesView(BaseAPIView):
 
     def get(self, request, project_id):
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
@@ -91,7 +91,7 @@ class NotesAPIView(BaseAPIView):
         })
 
 
-class NoteDetailAPIView(BaseAPIView):
+class ApiNoteDetailView(BaseAPIView):
 
     def get(self, request, project_id, note_id):
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
@@ -135,7 +135,7 @@ class NoteDetailAPIView(BaseAPIView):
         return Response({'success': True})
 
 
-class NoteAIPolishAPIView(BaseAPIView):
+class ApiNotePolishView(BaseAPIView):
 
     def post(self, request, project_id):
         try:
@@ -159,7 +159,7 @@ class NoteAIPolishAPIView(BaseAPIView):
                         {'role': 'user', 'content': user_prompt}
                     ]
                     
-                    stream_response = call_llm_with_retry(messages, stream=True, user=request.user, scene="default")
+                    stream_response = call_llm_with_retry(messages, stream=True, user=request.user, scene="default", project=project, task_type='note_polish')
                     
                     for chunk in stream_response:
                         chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)

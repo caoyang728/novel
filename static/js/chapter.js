@@ -76,16 +76,32 @@ function initDomCache() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    const urlParams = new URLSearchParams(window.location.search);
-    projectId = urlParams.get('project_id');
+    projectId = getProjectIdFromUrl();
+
+    // 立即显示loading，避免白屏等待
+    showLoading('加载中...');
+
+    // 先检查本地token，没有则直接跳转登录
+    if (!api.isAuthenticated()) {
+        hideLoading();
+        api.forceReLogin();
+        return;
+    }
 
     initDomCache();
     initBackToProjectButton('.btn-back');
 
     if (projectId) {
-        // console.log('projectId:', projectId);
-        loadProjectInfo();
-        loadVolumeVersions();
+        (async () => {
+            try {
+                await loadProjectInfo(projectId);
+                await loadVolumeVersions(true);
+            } finally {
+                hideLoading();
+            }
+        })();
+    } else {
+        hideLoading();
     }
 
     document.getElementById('volume-version-select').addEventListener('change', function() {
@@ -120,34 +136,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // AI对话输入框
-    const aiInput = document.getElementById('ai-chat-input');
-    if (aiInput) {
-        aiInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendAiMessage();
-            }
-        });
-        aiInput.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = Math.min(this.scrollHeight, 168) + 'px';
-        });
-    }
+    initChatInput('#ai-chat-input', { onSend: sendAiMessage, maxHeight: 168 });
 
     // 对比弹窗AI输入框
-    const compareInput = document.getElementById('compare-chat-input');
-    if (compareInput) {
-        compareInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendCompareChatMessage();
-            }
-        });
-        compareInput.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-        });
-    }
+    initChatInput('#compare-chat-input', { onSend: sendCompareChatMessage, maxHeight: 120 });
 
     // 标题行内编辑：Enter确认，Escape取消
     const titleInput = document.getElementById('chapter-title-input');
@@ -163,15 +155,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-async function loadProjectInfo() {
-    const data = await api.get(`/api/projects/${projectId}/`);
-    if (data.success) {
-        document.getElementById('project-title').textContent = data.project.title;
-    }
-}
-
-async function loadVolumeVersions() {
-    const data = await api.get(`/api/volume-versions/?project_id=${projectId}`);
+async function loadVolumeVersions(silent = false) {
+    const data = await api.get(`/api/projects/${projectId}/volume-versions/`);
     if (data.success) {
         const select = document.getElementById('volume-version-select');
         select.innerHTML = '<option value="">请选择卷版本</option>';
@@ -191,17 +176,17 @@ async function loadVolumeVersions() {
             currentVolumeVersionId = finalizedVersion.id;
             document.getElementById('volume-select').disabled = false;
             // console.log('Calling loadVolumes with versionId:', finalizedVersion.id);
-            loadVolumes(finalizedVersion.id);
+            await loadVolumes(finalizedVersion.id, silent);
         }
     }
 }
 
-async function loadVolumes(versionId) {
+async function loadVolumes(versionId, silent = false) {
     if (!versionId) return;
 
-    showLoading('加载卷列表...', 0.3);
+    if (!silent) showLoading('加载卷列表...', 0.3);
     try {
-        const data = await api.get(`/api/volume-versions/${versionId}/`);
+        const data = await api.get(`/api/projects/${projectId}/volume-versions/${versionId}/`);
         // console.log('loadVolumes API response:', data);
         if (data.success) {
             volumes = data.volumes;
@@ -223,22 +208,22 @@ async function loadVolumes(versionId) {
                 currentVolumeId = volumes[0].id;
                 // console.log('currentVolumeId after auto-select:', currentVolumeId);
                 document.getElementById('generate-chapters-btn').disabled = false;
-                await loadChaptersByVolume(currentVolumeId);
+                await loadChaptersByVolume(currentVolumeId, silent);
             }
         }
-        hideLoading();
     } catch (e) {
         console.error('加载卷列表失败:', e);
-        hideLoading();
+    } finally {
+        if (!silent) hideLoading();
     }
 }
 
-async function loadChaptersByVolume(volumeId) {
+async function loadChaptersByVolume(volumeId, silent = false) {
     if (!volumeId) return;
 
-    showLoading('加载章节列表...', 0.3);
+    if (!silent) showLoading('加载章节列表...', 0.3);
     try {
-        const data = await api.get(`/api/chapter/volume/${volumeId}/load/`);
+        const data = await api.get(`/api/projects/${projectId}/chapters/volume/${volumeId}/load/`);
         if (data.success) {
             allChapters = data.chapters || [];
             renderChapterList();
@@ -248,10 +233,10 @@ async function loadChaptersByVolume(volumeId) {
                 showToast(data.message, 'error');
             }
         }
-        hideLoading();
     } catch (e) {
         console.error('加载章节列表失败:', e);
-        hideLoading();
+    } finally {
+        if (!silent) hideLoading();
     }
 }
 
@@ -528,7 +513,7 @@ function cancelEdit() {
 
     isDirty = false;
     updateEditorButtons();
-    repdrrList();Lis
+    refreshSingleChapterItem(currentChapterId);
 }
 
 async function selectChapter(chapterId) {
@@ -589,7 +574,7 @@ async function selectChapter(chapterId) {
     if (chapter.content === undefined && chapter.state !== 'deleted') {
         showLoading('加载章节内容...', 0.3);
         try {
-            const data = await api.get(`/api/chapter/${chapterId}/detail/`);
+            const data = await api.get(`/api/projects/${projectId}/chapters/${chapterId}/`);
             if (data && data.success && data.chapter) {
                 chapter.content = data.chapter.content || '';
                 chapter.summary = data.chapter.summary || '';
@@ -701,7 +686,7 @@ async function generateChapterSummaries() {
         let totalWords = 0;
         let completeVolumeId = null;
 
-        await api.streamRequestRaw('/api/chapter/generate/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/chapters/generate/`, {
             body: { volume_id: volumeId }
         }, (event) => {
             if (event.done) return;
@@ -710,7 +695,7 @@ async function generateChapterSummaries() {
 
             try {
                 if (data.type === 'progress') {
-                    const loadingText = document.querySelector('#global-loading .loading-text');
+                    const loadingText = document.querySelector('#global-loading #loading-message');
                     if (loadingText) loadingText.textContent = data.message;
                 } else if (data.type === 'outline') {
                     // 阶段1：收到章节概述，添加到列表
@@ -737,7 +722,7 @@ async function generateChapterSummaries() {
                     });
 
                     const completedCount = allChapters.filter(c => c.status === 'summary' || c.status === 'draft').length;
-                    const _lt = document.querySelector('#global-loading .loading-text');
+                    const _lt = document.querySelector('#global-loading #loading-message');
                     if (_lt) _lt.textContent = `正在生成章节概述... 第${chap.chapter_number}章\n已完成${completedCount}/${allChapters.length} 章`;
 
                 } else if (data.type === 'chapter') {
@@ -766,7 +751,7 @@ async function generateChapterSummaries() {
                     typewriterEffect('chapter-content-input', chap.content || '');
 
                     const completedCount = allChapters.filter(c => c.status === 'draft').length;
-                    const _lt2 = document.querySelector('#global-loading .loading-text');
+                    const _lt2 = document.querySelector('#global-loading #loading-message');
                     if (_lt2) _lt2.textContent = `正在生成第${chap.chapter_number}章: ${chap.title}\n已完成${completedCount}/${allChapters.length} 章`;
 
                     // 自动选中
@@ -785,7 +770,7 @@ async function generateChapterSummaries() {
                     }
                     renderChapterList();
                     const completedCount = allChapters.filter(c => c.status === 'draft').length;
-                    const _lt3 = document.querySelector('#global-loading .loading-text');
+                    const _lt3 = document.querySelector('#global-loading #loading-message');
                     if (_lt3) _lt3.textContent = `第${data.chapter_number}章生成失败\n已完成${completedCount}/${allChapters.length} 章`;
 
                 } else if (data.type === 'complete') {
@@ -862,7 +847,7 @@ async function saveChapter() {
         const content = document.getElementById('chapter-content-input').value;
         const summary = document.getElementById('chapter-summary-input').value;
 
-        const data = await api.post('/api/chapter/save/', { chapter_id: currentChapterId, title, content, summary });
+        const data = await api.post(`/api/projects/${projectId}/chapters/save/`, { chapter_id: currentChapterId, title, content, summary });
         if (data && data.success) {
             updateLocalChapter(currentChapterId, { title, content, summary, word_count: data.chapter.word_count });
             isDirty = false;
@@ -916,7 +901,7 @@ function closeCompareModal() {
         isSaving: false,
         isSending: false,
     };
-    closeModal('chat-compare-modal');
+    closeModalById('chat-compare-modal');
 }
 
 function renderCompareChapterList() {
@@ -1182,7 +1167,7 @@ async function sendCompareChatMessage() {
         const aiMsgBubble = msgDiv.querySelector('.ai-message-bubble');
         container.scrollTop = container.scrollHeight;
 
-        await api.streamRequestRaw('/api/chapter/chat/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/chapters/chat/`, {
             body: {
                 chapter_id: chapterId,
                 message,
@@ -1280,14 +1265,14 @@ async function saveCompareChanges() {
             let data;
             if (mod.chapter_id) {
                 // 现有章节：更新
-                data = await api.post('/api/chapter/save/', {
+                data = await api.post(`/api/projects/${projectId}/chapters/save/`, {
                     chapter_id: mod.chapter_id,
                     title: mod.modified.title,
                     content: mod.modified.content,
                 });
             } else {
                 // 新章节（拆分产生）：创建
-                data = await api.post('/api/chapter/save/', {
+                data = await api.post(`/api/projects/${projectId}/chapters/save/`, {
                     chapter_id: 0,
                     volume_id: parseInt(currentVolumeId),
                     chapter_number: chapterNumber,
@@ -1425,7 +1410,7 @@ async function sendAiMessage() {
         container.appendChild(msgDiv);
         aiMsgBubble = msgDiv.querySelector('.ai-message-bubble');
 
-        await api.streamRequestRaw('/api/chapter/chat/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/chapters/chat/`, {
             body: { chapter_id: currentChapterId, message, history: aiChatHistory }
         }, (event) => {
             if (event.done) return;
@@ -1575,7 +1560,7 @@ async function publishChapter() {
         showLoading('发布中...', 0.3);
 
         try {
-            const data = await api.post('/api/chapter/status/', { chapter_id: currentChapterId, action: 'publish' });
+            const data = await api.post(`/api/projects/${projectId}/chapters/status/`, { chapter_id: currentChapterId, action: 'publish' });
             if (data.success) {
                 showToast('发布成功！', 'success');
                 updateLocalChapter(currentChapterId, { status: 'published' });
@@ -1604,11 +1589,11 @@ async function toggleLock() {
     showLoading('操作中...', 0.3);
 
     try {
-        const data = await api.post('/api/chapter/status/', { chapter_id: currentChapterId, action: action });
+        const data = await api.post(`/api/projects/${projectId}/chapters/status/`, { chapter_id: currentChapterId, action: action });
         if (data.success) {
             const newState = data.state;
             updateLocalChapter(currentChapterId, { state: newState });
-            repdrrList();Lis
+            refreshSingleChapterItem(currentChapterId);
             selectChapter(currentChapterId);
             showToast(newState === 'locked' ? '章节已锁定' : '章节已解锁', 'success');
         } else {
@@ -1631,7 +1616,7 @@ async function deleteChapter() {
         showLoading('删除中...', 0.3);
 
         try {
-            const data = await api.post('/api/chapter/status/', { chapter_id: currentChapterId, action: 'soft_delete' });
+            const data = await api.post(`/api/projects/${projectId}/chapters/status/`, { chapter_id: currentChapterId, action: 'soft_delete' });
             if (data.success) {
                 showToast('章节已删除', 'success');
                 // 更新本地数据为已删除状态
@@ -1672,13 +1657,8 @@ function getStatusBadgeClass(status) {
     return 'badge-draft';
 }
 
-function openModal(id) {
-    document.getElementById(id).classList.add('show');
-}
-
-function closeModal(id) {
-    document.getElementById(id).classList.remove('show');
-}
+/* openModal 已迁移到 common.js (openModalById)，保留别名兼容 */
+function openModal(id) { openModalById(id); }
 
 function showConfirm(title, message, callback) {
     document.getElementById('confirm-title').textContent = title;
@@ -1688,7 +1668,7 @@ function showConfirm(title, message, callback) {
 }
 
 async function executeConfirm() {
-    closeModal('confirm-modal');
+    closeModalById('confirm-modal');
     const callback = confirmCallback;
     confirmCallback = null;
     if (callback) {
@@ -1696,17 +1676,7 @@ async function executeConfirm() {
     }
 }
 
-function showToast(message, type) {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast-item toast-${type}`;
-    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>${escapeHtml(message)}`;
-    container.appendChild(toast);
-    setTimeout(() => {
-        toast.style.animation = 'toastSlideOut 0.3s ease forwards';
-        setTimeout(() => toast.remove(), 300);
-    }, 3500);
-}
+
 
 // ========== 相邻已删除章节检查 ==========
 
@@ -1767,11 +1737,11 @@ function showDeletedWarning(messages, onConfirm, onGoRestore) {
     goRestoreBtn.parentNode.replaceChild(newGoRestoreBtn, goRestoreBtn);
 
     newConfirmBtn.addEventListener('click', function() {
-        closeModal('deleted-warning-modal');
+        closeModalById('deleted-warning-modal');
         if (onConfirm) onConfirm();
     });
     newGoRestoreBtn.addEventListener('click', function() {
-        closeModal('deleted-warning-modal');
+        closeModalById('deleted-warning-modal');
         if (onGoRestore) onGoRestore();
     });
 
@@ -1786,7 +1756,7 @@ async function restoreChapter() {
     showLoading('恢复中...', 0.3);
 
     try {
-        const data = await api.post('/api/chapter/status/', { chapter_id: currentChapterId, action: 'restore' });
+        const data = await api.post(`/api/projects/${projectId}/chapters/status/`, { chapter_id: currentChapterId, action: 'restore' });
         if (data.success) {
             showToast('章节已恢复', 'success');
             updateLocalChapter(currentChapterId, { state: 'normal', status: data.status || 'draft' });
@@ -1831,13 +1801,13 @@ function checkHardDeleteInput() {
 async function executeHardDelete() {
     if (!hardDeleteChapterId) return;
 
-    closeModal('hard-delete-modal');
+    closeModalById('hard-delete-modal');
     showLoading('彻底删除中...', 0.3);
 
     try {
         const chapter = allChapters.find(c => c.id === hardDeleteChapterId);
         const confirmTitle = chapter ? chapter.title : '';
-        const data = await api.post('/api/chapter/hard-delete/', { chapter_id: hardDeleteChapterId, confirm_title: confirmTitle });
+        const data = await api.post(`/api/projects/${projectId}/chapters/hard-delete/`, { chapter_id: hardDeleteChapterId, confirm_title: confirmTitle });
         if (data.success) {
             showToast('章节已彻底删除', 'success');
             // 从本地列表移除
@@ -1865,7 +1835,7 @@ async function executeHardDelete() {
 }
 
 async function executeReorder() {
-    closeModal('reorder-modal');
+    closeModalById('reorder-modal');
 
     if (!currentVolumeId) {
         showToast('缺少卷信息', 'error');
@@ -1875,7 +1845,7 @@ async function executeReorder() {
     showLoading('正在调整章节序号', 0.3);
 
     try {
-        const data = await api.post('/api/chapter/reorder/', { volume_id: currentVolumeId });
+        const data = await api.post(`/api/projects/${projectId}/chapters/reorder/`, { volume_id: currentVolumeId });
         if (data.success) {
             showToast('章节序号已调整', 'success');
             await loadChaptersByVolume(currentVolumeId);
@@ -1915,7 +1885,7 @@ function updateSplitDesc() {
         handlingDesc.textContent = '拆分内容作为新章节，自动调整序号';
     }
 
-    const confirmBtn = document.querySelector('#split-modal .btn-gradient-primary');
+    const confirmBtn = document.querySelector('#split-modal .btn-ai');
     if (confirmBtn) {
         confirmBtn.disabled = !splitMode || !contentHandling;
     }
@@ -1943,7 +1913,7 @@ async function executeSplit() {
     const splitMode = document.querySelector('input[name="split-mode"]:checked')?.value || 'by_word_count';
     const contentHandling = document.querySelector('input[name="content-handling"]:checked')?.value || 'create_new';
 
-    closeModal('split-modal');
+    closeModalById('split-modal');
     showLoading('拆分中...', 0.3);
 
     const chapter = allChapters.find(c => c.id === currentChapterId);
@@ -1970,7 +1940,7 @@ async function executeSplit() {
         let modalOpened = false;
         let typingBuffer = '';  // 当前流式文本（未解析的 JSON）
 
-        await api.streamRequestRaw('/api/chapter/split/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/chapters/split/`, {
             body: { chapter_id: currentChapterId, split_mode: splitMode }
         }, (event) => {
             if (event.done) return;
@@ -2116,7 +2086,7 @@ async function doVerifyChapter() {
 
     try {
         let fullVerification = '';
-        await api.streamRequestRaw('/api/chapter/verify/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/chapters/verify/`, {
             body: { chapter_id: currentChapterId }
         }, (event) => {
             if (event.done) return;
@@ -2253,7 +2223,7 @@ function renderVerifyIssues(issues) {
 }
 
 function closeVerifyModal() {
-    closeModal('verify-modal');
+    closeModalById('verify-modal');
     verifyResultIssues = [];
 }
 
@@ -2292,7 +2262,7 @@ async function fixVerifyIssues() {
         return text;
     }).join('\n\n');
 
-    closeModal('verify-modal');
+    closeModalById('verify-modal');
 
     const chapter = allChapters.find(c => c.id === currentChapterId);
     if (!chapter) return;
@@ -2301,7 +2271,7 @@ async function fixVerifyIssues() {
 
     try {
         let fullContent = '';
-        await api.streamRequestRaw('/api/chapter/verify-fix/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/chapters/verify-fix/`, {
             body: {
                 chapter_id: currentChapterId,
                 issues_text: issuesText,
@@ -2353,7 +2323,7 @@ async function doGenerateSingleChapterContent(chapter) {
 
     try {
         let fullContent = '';
-        await api.streamRequestRaw('/api/chapter/content/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/chapters/content/`, {
             body: { chapter_id: currentChapterId }
         }, (event) => {
             if (event.done) return;

@@ -1,11 +1,4 @@
-body {
-    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-    min-height: 100vh;
-    margin: 0;
-    background: linear-gradient(135deg, #1e293b 0%, #1e293b 50%, #1e293b 100%);
-    background-attachment: fixed;
-    color: #f9fafb;
-}
+/* body 基础样式已在 common.css 中定义 */
 .sidebar {
     width: 220px;
     background: #1e293b;
@@ -105,14 +98,18 @@ body {
 }
 .main-content {
     margin-left: 220px;
-    padding: 1.5rem;
 }
-.page-header {
-    margin-bottom: 2rem;
+/* 侧边栏页面的 .page-header 覆盖 common.css 的固定定位 */
+.main-content .page-header {
+    position: fixed;
+    top: 0;
+    left: 220px;
+    right: 0;
+    margin-bottom: 0;
 }
-.page-header h1 {
-    font-weight: 700;
-    color: #f9fafb;
+/* 侧边栏页面内容区域的内边距（page-header 为 fixed，需留出高度） */
+.main-content > .page-header + div {
+    padding: calc(var(--page-header-height) + 1.5rem) 1.5rem 1.5rem;
 }
 .page-header h1 i {
     background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
@@ -120,139 +117,9 @@ body {
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
-.page-header p {
-    color: #9ca3af;
-}
-.custom-modal-overlay {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
-    z-index: 9999;
-    justify-content: center;
-    align-items: center;
-}
-.custom-modal-overlay.show {
-    display: flex;
-}
-.custom-modal {
-    background: #334155;
-    border-radius: 16px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    min-width: 360px;
-    max-width: 480px;
-    animation: slideIn 0.3s ease;
-    border: 1px solid #374151;
-}
-@keyframes slideIn {
-    from { transform: translateY(-30px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-}
-.custom-modal-header {
-    padding: 1.25rem 1.5rem;
-    border-bottom: 1px solid #374151;
-    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-    border-radius: 16px 16px 0 0;
-    color: white;
-}
-.custom-modal-header h5 {
-    margin: 0;
-    color: white;
-    font-weight: 600;
-}
-.custom-modal-body {
-    padding: 1.5rem;
-}
-.custom-modal-body .form-label {
-    font-weight: 500;
-    color: #d1d5db;
-    margin-bottom: 0.5rem;
-}
-.custom-modal-body .form-control {
-    background: #1e293b;
-    border: 1px solid #5b6a7a;
-    color: #f9fafb;
-    border-radius: 10px;
-    padding: 0.75rem 1rem;
-    font-size: 0.9rem;
-    transition: all 0.2s;
-}
-.custom-modal-body .form-control:focus {
-    border-color: #818cf8;
-    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
-    outline: none;
-}
-.custom-modal-body .form-control::placeholder {
-    color: #6b7280;
-}
-.custom-modal-body textarea.form-control {
-    resize: none;
-}
-.custom-modal-footer {
-    padding: 1rem 1.5rem;
-    border-top: 1px solid #374151;
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.75rem;
-    background: #334155;
-    border-radius: 0 0 16px 16px;
-}
-.custom-modal-footer .btn-secondary {
-    background: #374151;
-    border: 1px solid #5b6a7a;
-    color: #d1d5db;
-    border-radius: 10px;
-    padding: 0.625rem 1.25rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.custom-modal-footer .btn-secondary:hover {
-    background: #5b6a7a;
-    border-color: #818cf8;
-    color: #fff;
-}
-.custom-modal-footer .btn-primary {
-    background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-    border: none;
-    color: white;
-    border-radius: 10px;
-    padding: 0.625rem 1.25rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
-}
-.custom-modal-footer .btn-primary:hover {
-    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
-    transform: translateY(-1px);
-}
-.empty-state {
-    text-align: center;
-    padding: 4rem;
-}
-.empty-state i {
-    font-size: 4rem;
-    color: #5b6a7a;
-    margin-bottom: 1rem;
-}
-.empty-state p {
-    color: #9ca3af;
-    margin: 0;
-}
-.badge-success {
-    background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-}
-.badge-info {
-    background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-}
-.badge-warning {
-    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-}
-.badge-danger {
-    background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
-}
+/* .dialog-overlay, .custom-modal, .custom-modal-header/body/footer 等已在 common.css 中定义 */
+/* @keyframes slideIn 已在 common.css 中定义（作为 modalSlideIn） */
+
+/* .empty-state 已在 common.css 中定义 */
+
+/* .badge-primary, .badge-danger 已在 common.css 中定义 */

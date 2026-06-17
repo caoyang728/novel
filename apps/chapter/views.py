@@ -86,7 +86,7 @@ class BaseChapterAPIView(BaseAPIView):
 class ApiChapterGenerateView(BaseChapterAPIView):
     """两阶段章节生成：阶段1生成标题+概述，阶段2逐章生成正文"""
 
-    def post(self, request):
+    def post(self, request, project_id):
 
         volume_id = request.data.get('volume_id')
         if not volume_id:
@@ -144,8 +144,10 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                 in_content = False
                 outline_chapters = []  # 存储阶段1结果
                 chapter_number_counter = 0  # 章节计数器，确保连续
+                last_outline_chunk = None
 
                 for chunk in outline_chain.stream(outline_input_vars):
+                    last_outline_chunk = chunk
                     chunk_content = self.get_chunk_text(chunk)
                     buffer += chunk_content
 
@@ -231,6 +233,9 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                     yield self.sse_event('error', {'message': '未生成任何章节概述'})
                     return
 
+                # 记录阶段1 token 使用量
+                self.log_token_usage('chapter_outline', result=last_outline_chunk, user=request.user, project=project)
+
                 # 更新总数（如果之前未知）
                 if not total_chapters:
                     total_chapters = len(outline_chapters)
@@ -238,8 +243,7 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                 # ========== 阶段2：逐章生成正文 ==========
                 yield self.sse_event('progress', {'message': '生成中...', 'phase': 'content'})
 
-                worldview = self.get_worldview_context(project)
-                characters = self.get_characters_context(project)
+                worldview, characters, extra_context = self.get_knowledge_context(project)
                 volume_outline = volume.content or volume.summary or ""
 
                 for i, chap_info in enumerate(outline_chapters):
@@ -271,6 +275,7 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                     content_input_vars = {
                         "worldview": worldview,
                         "characters": characters,
+                        "extra_context": extra_context,
                         "volume_title": volume.title,
                         "volume_summary": volume.summary or "",
                         "volume_outline": volume_outline,
@@ -289,11 +294,16 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                     try:
                         # 流式生成正文
                         full_content = ""
+                        last_content_chunk = None
                         for chunk in content_chain.stream(content_input_vars):
+                            last_content_chunk = chunk
                             chunk_content = self.get_chunk_text(chunk)
                             full_content += chunk_content
 
                         word_count = len(full_content) if full_content else 0
+
+                        # 记录阶段2 token 使用量（逐章累加）
+                        self.log_token_usage('chapter_content', result=last_content_chunk, user=request.user, project=project)
 
                         # 更新数据库
                         chapter_obj = ChapterList.objects.filter(
@@ -354,7 +364,7 @@ class ApiChapterGenerateView(BaseChapterAPIView):
 
 
 class ApiChapterContentView(BaseChapterAPIView):
-    def _generate_chapter_content_stream(self, volume_outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_summary, reference_content=None, user=None, project=None, worldview="", characters=""):
+    def _generate_chapter_content_stream(self, volume_outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_summary, reference_content=None, user=None, project=None, worldview="", characters="", extra_context=""):
         reference_context = ""
         if reference_content:
             reference_context = f"上一章节的内容（作为写作参考，保持风格和情节连续性）:\n{reference_content}\n\n"
@@ -371,6 +381,7 @@ class ApiChapterContentView(BaseChapterAPIView):
             "reference_context": reference_context,
             "worldview": worldview,
             "characters": characters,
+            "extra_context": extra_context,
         }
 
         prompt = ChatPromptTemplate.from_messages([
@@ -379,11 +390,11 @@ class ApiChapterContentView(BaseChapterAPIView):
         ])
         chain = prompt | llm
 
-        for chunk in call_llm_with_retry(chain, input_vars=input_vars, stream=True, user=user, scene="content_generate", project=project):
+        for chunk in call_llm_with_retry(chain, input_vars=input_vars, stream=True, user=user, scene="content_generate", project=project, task_type='chapter_content'):
             if chunk:
                 yield chunk
 
-    def post(self, request):
+    def post(self, request, project_id):
         chapter_id = request.data.get('chapter_id')
         if not chapter_id:
             return JsonResponse({'success': False, 'message': '缺少chapter_id'}, status=400)
@@ -404,8 +415,7 @@ class ApiChapterContentView(BaseChapterAPIView):
             reference_content = ref_chapter.content
 
         project = chapter.volume.volume_version.project
-        worldview = self.get_worldview_context(project)
-        characters = self.get_characters_context(project)
+        worldview, characters, extra_context = self.get_knowledge_context_for_chapter(project, chapter)
 
         def generate():
             full_content = ""
@@ -424,6 +434,7 @@ class ApiChapterContentView(BaseChapterAPIView):
                     project=project,
                     worldview=worldview,
                     characters=characters,
+                    extra_context=extra_context,
                 ):
                     full_content += chunk
                     yield self.sse_event('chunk', {'content': chunk})
@@ -463,12 +474,12 @@ class ApiChapterVerifyView(BaseChapterAPIView):
         chain = prompt | llm
 
         if stream:
-            return call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="default", project=project, task_type='content', stream=True)
+            return call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="default", project=project, task_type='chapter_verify', stream=True)
         else:
-            response = call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="default", project=project, task_type='content')
+            response = call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="default", project=project, task_type='chapter_verify')
             return response
 
-    def post(self, request):
+    def post(self, request, project_id):
         chapter, err = self.get_chapter(request)
         if err:
             return err
@@ -517,7 +528,7 @@ class ApiChapterVerifyView(BaseChapterAPIView):
 class ApiChapterVerifyFixView(BaseChapterAPIView):
     """章节校验修复 - 根据选中的校验问题+用户意见，流式生成修复后的内容"""
 
-    def post(self, request):
+    def post(self, request, project_id):
         chapter, err = self.get_chapter(request)
         if err:
             return err
@@ -550,7 +561,7 @@ class ApiChapterVerifyFixView(BaseChapterAPIView):
             chain, input_vars=input_vars,
             user=request.user, scene="default",
             project=volume.volume_version.project,
-            task_type='content', stream=True
+            task_type='chapter_verify_fix', stream=True
         )
 
         def generate():
@@ -572,7 +583,7 @@ class ApiChapterVerifyFixView(BaseChapterAPIView):
 class ApiChapterSplitView(BaseChapterAPIView):
     """章节拆分 - 流式响应，返回拆分对比数据，不自动保存"""
 
-    def post(self, request):
+    def post(self, request, project_id):
         chapter, err = self.get_chapter(request)
         if err:
             return err
@@ -622,8 +633,15 @@ class ApiChapterSplitView(BaseChapterAPIView):
             TAIL_RESERVE = max(len(CONTENT_START), len(CONTENT_END)) - 1
 
             try:
+                last_chunk = None
+                usage_chunk = None
+                full_content = ''
                 for chunk in chain.stream(input_vars):
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = self.get_chunk_text(chunk)
+                    full_content += chunk_content
                     buffer += chunk_content
 
                     while True:
@@ -678,6 +696,9 @@ class ApiChapterSplitView(BaseChapterAPIView):
                     },
                     'split_chapters': split_chapters,
                 })
+
+                # 记录 token 使用量
+                self.log_token_usage('chapter_split', result=last_chunk, usage_result=usage_chunk, user=request.user, project=volume.volume_version.project)
             except Exception as e:
                 logger.error(f"流式拆分章节失败: {e}")
                 yield self.sse_event('error', {'message': str(e)})
@@ -686,7 +707,7 @@ class ApiChapterSplitView(BaseChapterAPIView):
 
 
 class ApiChapterSaveView(BaseChapterAPIView):
-    def post(self, request):
+    def post(self, request, project_id):
         chapter_id = request.data.get('chapter_id')
 
         # 新建章节模式（拆分产生的新章节）
@@ -793,7 +814,7 @@ class ApiChapterStatusView(BaseChapterAPIView):
     """章节状态操作：发布、归档、锁定/解锁、软删除、恢复"""
     VALID_ACTIONS = {'publish', 'archive', 'lock', 'unlock', 'soft_delete', 'restore'}
 
-    def post(self, request):
+    def post(self, request, project_id):
         chapter, err = self.get_chapter(request)
         if err:
             return err
@@ -853,7 +874,7 @@ class ApiChapterStatusView(BaseChapterAPIView):
 
 class ApiChapterLoadView(BaseChapterAPIView):
     """按卷加载章节列表（不含正文内容，减少传输量）"""
-    def get(self, request, volume_id):
+    def get(self, request, project_id, volume_id):
 
         volume = get_object_or_404(VolumeList, pk=volume_id, volume_version__project__user=request.user)
 
@@ -878,7 +899,7 @@ class ApiChapterLoadView(BaseChapterAPIView):
 
 class ApiChapterDetailView(BaseChapterAPIView):
     """获取单个章节详细信息（含正文）"""
-    def get(self, request, chapter_id):
+    def get(self, request, project_id, chapter_id):
         chapter, err = self.get_chapter(request, chapter_id)
         if err:
             return err
@@ -915,7 +936,7 @@ class ApiChapterChatView(BaseChapterAPIView):
 
         return chapter_title, chapter_content, chapter_summary, volume, volume_outline, prev_chapter_tail, next_chapter_summary
 
-    def post(self, request):
+    def post(self, request, project_id):
         chapter, err = self.get_chapter(request)
         if err:
             return err
@@ -986,10 +1007,18 @@ class ApiChapterChatView(BaseChapterAPIView):
         def generate():
             full_response = ""
             try:
+                last_chunk = None
+                usage_chunk = None
                 for chunk in chain.stream(input_vars):
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = self.get_chunk_text(chunk)
                     full_response += chunk_content
                     yield self.sse_event('chunk', {'content': chunk_content})
+
+                # 记录 token 使用量
+                self.log_token_usage('chapter_chat', result=last_chunk, usage_result=usage_chunk, user=request.user, project=chapter.volume.volume_version.project)
 
                 # 尝试解析 JSON 响应（支持纯JSON或包裹在文本/markdown中）
                 try:
@@ -1034,7 +1063,7 @@ class ApiChapterChatView(BaseChapterAPIView):
 
 class ApiChapterHardDeleteView(BaseChapterAPIView):
     """永久删除章节（需确认标题）"""
-    def post(self, request):
+    def post(self, request, project_id):
         chapter, err = self.get_chapter(request)
         if err:
             return err
@@ -1053,7 +1082,7 @@ class ApiChapterHardDeleteView(BaseChapterAPIView):
 
 class ApiChapterReorderView(BaseChapterAPIView):
     """重新排列卷内章节序号"""
-    def post(self, request):
+    def post(self, request, project_id):
         volume_id = request.data.get('volume_id')
         if not volume_id:
             return JsonResponse({'success': False, 'message': '缺少volume_id'}, status=400)

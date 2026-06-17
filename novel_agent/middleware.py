@@ -74,7 +74,6 @@ class JWTAuthenticationMiddleware:
             '/llm_config.html',
             '/volume.html',
             '/content.html',
-            '/new_project.html',
             '/worldview_builder.html',
             '/character.html',
             '/chapter.html',

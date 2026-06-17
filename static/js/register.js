@@ -29,18 +29,14 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('api对象是否存在:', typeof api);
         
         try {
-            // 使用普通fetch请求，避免api.postForm可能的问题
-            const response = await fetch('/api/auth/register/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `username=${encodeURIComponent(username)}&email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
+            const data = await api.post('/register.html', {
+                username: username,
+                email: email,
+                password: password,
+                password_confirm: passwordConfirm
             });
             
-            console.log('收到响应:', response);
-            const data = await response.json();
-            console.log('解析后的JSON:', data);
+            console.log('收到响应:', data);
             
             if (data.success) {
                 successText.textContent = '注册成功，正在跳转...';

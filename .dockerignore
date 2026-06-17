@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git/
+.gitignore
+*.md
+milvus_demo.db
+.vscode/
+.idea/
+*.log
+node_modules/

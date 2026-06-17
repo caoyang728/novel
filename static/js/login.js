@@ -15,15 +15,7 @@ document.addEventListener('DOMContentLoaded', function() {
         errorMessage.classList.add('d-none');
 
         try {
-            const response = await fetch('/login/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ username, password })
-            });
-
-            const data = await response.json();
+            const data = await api.post('/login/', { username, password });
             
             if (data.success) {
                 // 保存 token 到 localStorage

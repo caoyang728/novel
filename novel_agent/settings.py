@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'apps.worldview.apps.WorldviewConfig',
     'apps.note.apps.NoteConfig',
     'apps.timeline.apps.TimelineConfig',
+    'apps.knowledge.apps.KnowledgeConfig',
 ]
 
 MIDDLEWARE = [
@@ -116,6 +117,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -139,6 +141,21 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
+
+# ========== Milvus 向量库配置 ==========
+MILVUS_MODE = os.getenv('MILVUS_MODE', 'local')  # local | docker
+MILVUS_HOST = os.getenv('MILVUS_HOST', 'localhost')
+MILVUS_PORT = os.getenv('MILVUS_PORT', '19530')
+MILVUS_COLLECTION_NAME = os.getenv('MILVUS_COLLECTION_NAME', 'novel_knowledge')
+MILVUS_LOCAL_DB = os.getenv('MILVUS_LOCAL_DB', str(BASE_DIR / 'milvus_demo.db'))
+
+# ========== Embedding 配置 ==========
+EMBEDDING_PROVIDER = os.getenv('EMBEDDING_PROVIDER', 'deepseek')  # deepseek | local
+EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'deepseek-embedding')
+EMBEDDING_DIM = int(os.getenv('EMBEDDING_DIM', '1024'))
+LOCAL_EMBEDDING_MODEL = os.getenv('LOCAL_EMBEDDING_MODEL', 'BAAI/bge-large-zh-v1.5')
+LOCAL_EMBEDDING_DEVICE = os.getenv('LOCAL_EMBEDDING_DEVICE', 'cpu')
+LOCAL_EMBEDDING_URL = os.getenv('LOCAL_EMBEDDING_URL', '')
 
 import rest_framework_simplejwt
 

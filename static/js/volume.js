@@ -37,10 +37,9 @@ function getOutlineContent() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    const urlParams = new URLSearchParams(window.location.search);
-    projectId = urlParams.get('project_id');
+    projectId = getProjectIdFromUrl();
 
-    initBackToProjectButton('.btn-back');
+    initBackToProjectButton('.back-btn');
 
     if (projectId) {
         // 检查认证状态，未登录则弹窗，登录成功后加载数据
@@ -64,18 +63,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    document.getElementById('chat-input').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-
-    const chatInput = document.getElementById('chat-input');
-    chatInput.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = Math.min(this.scrollHeight, 160) + 'px';
-    });
+    initChatInput('#chat-input', { onSend: () => { if (!isSending) sendMessage(); }, maxHeight: 160 });
 
     const contextDropdown = document.getElementById('context-count-dropdown');
     if (contextDropdown) {
@@ -93,7 +81,7 @@ async function loadAllData() {
     showLoading('加载中...');
     try {
         await Promise.all([
-            loadProjectInfo(),
+            loadProjectInfo(projectId),
             loadOutlineVersions(),
             loadVolumeVersions()
         ]);
@@ -104,13 +92,6 @@ async function loadAllData() {
             genBtn.style.display = '';
             genBtn.disabled = !selectedOutlineVersionId;
         }
-    }
-}
-
-async function loadProjectInfo() {
-    const data = await api.get(`/api/projects/${projectId}/`);
-    if (data && data.success) {
-        document.getElementById('project-title').textContent = data.project.title;
     }
 }
 
@@ -141,7 +122,7 @@ async function loadOutlineVersions() {
 }
 
 async function loadVolumeVersions() {
-    const data = await api.get(`/api/volume-versions/?project_id=${projectId}`);
+    const data = await api.get(`/api/projects/${projectId}/volume-versions/`);
     if (!data || !data.success) return;
 
     const select = document.getElementById('volume-version-select');
@@ -172,7 +153,7 @@ async function loadVolumeVersions() {
 async function loadVolumeVersion(versionId) {
     currentVolumeVersionId = versionId;
 
-    const data = await api.get(`/api/volume-versions/${versionId}/`);
+    const data = await api.get(`/api/projects/${projectId}/volume-versions/${versionId}/`);
     if (data.success) {
         currentVolumes = data.volumes;
         isVersionFinalized = data.is_finalized || false;
@@ -212,9 +193,9 @@ async function generateVolumes() {
     try {
         let versionId = null;
 
-        await api.streamRequestRaw('/api/volume-versions/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/volume-versions/`, {
             method: 'POST',
-            body: { project_id: projectId, outline_version_id: outlineVersionId }
+            body: { outline_version_id: outlineVersionId }
         }, (chunk) => {
             if (chunk.done) return;
             const data = chunk.data;
@@ -281,9 +262,9 @@ async function generateSingleVolume(volumeId, volumeNumber) {
     showLoading(`正在生成第 ${volumeNumber} 卷...`);
 
     try {
-        await api.streamRequestRaw(`/api/volume/${volumeId}/generate/`, {
+        await api.streamRequestRaw(`/api/projects/${projectId}/volumes/${volumeId}/generate/`, {
             method: 'POST',
-            body: { project_id: projectId }
+            body: {}
         }, (chunk) => {
             if (chunk.done) return;
             const data = chunk.data;
@@ -317,12 +298,11 @@ async function generateSingleVolume(volumeId, volumeNumber) {
 function renderVolumes(volumes) {
     const container = document.getElementById('volume-list');
     const addVolumeBtn = document.getElementById('add-volume-btn');
-    const generateBtn = document.getElementById('generate-btn');
     
     if (!volumes || volumes.length === 0) {
         container.innerHTML = `
             <div class="volume-empty">
-                <button class="btn btn-gradient-success generate-btn-center" onclick="generateVolumes()" ${!selectedOutlineVersionId ? 'disabled' : ''}>
+                <button class="btn-gradient-success generate-btn-center" onclick="generateVolumes()" ${!selectedOutlineVersionId ? 'disabled' : ''}>
                     <i class="fas fa-magic"></i> AI生成卷
                 </button>
                 <p>暂无卷, 选择大纲版本并生成卷</p>
@@ -424,7 +404,7 @@ function renderVolumeDetail(volume) {
         ? `<div class="markdown-content">${safeMarkdownParse(volume.content)}</div>`
         : volume.id
             ? `<div class="detail-content-empty">
-                    <button class="btn btn-gradient-success generate-btn-center" onclick="generateSingleVolume(${volume.id}, ${volume.volume_number})" ${!currentVolumeVersionId ? 'disabled' : ''}>
+                    <button class="btn-gradient-success generate-btn-center" onclick="generateSingleVolume(${volume.id}, ${volume.volume_number})" ${!currentVolumeVersionId ? 'disabled' : ''}>
                         <i class="fas fa-magic"></i> AI生成卷大纲
                     </button>
                     <p>该卷暂无大纲，点击生成</p>
@@ -528,10 +508,9 @@ async function aiOptimizeVolume() {
     const ta = document.getElementById('edit-outline-textarea');
 
     try {
-        await api.streamRequestRaw('/api/volume/optimize/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/volumes/optimize/`, {
             method: 'POST',
             body: {
-                project_id: projectId,
                 version_id: currentVolumeVersionId,
                 volume_number: volume.volume_number,
                 volume_title: title,
@@ -651,11 +630,10 @@ async function saveEditVolume() {
     showLoading('保存中...');
     try {
         const payload = {
-            project_id: projectId,
             outline_version_id: selectedOutlineVersionId || '',
             volumes: JSON.stringify(volumesToSave)
         };
-        const data = await api.put(`/api/volume-versions/${currentVolumeVersionId}/`, payload);
+        const data = await api.put(`/api/projects/${projectId}/volume-versions/${currentVolumeVersionId}/`, payload);
         if (!data.success) {
             showError(`保存失败：${data.message}`);
             return;
@@ -731,11 +709,10 @@ async function doDeleteVolume() {
     try {
         const remainingVolumes = currentVolumes.filter((_, i) => i !== deleteIndex);
         const payload = {
-            project_id: projectId,
             outline_version_id: selectedOutlineVersionId || '',
             volumes: JSON.stringify(remainingVolumes)
         };
-        const data = await api.put(`/api/volume-versions/${currentVolumeVersionId}/`, payload);
+        const data = await api.put(`/api/projects/${projectId}/volume-versions/${currentVolumeVersionId}/`, payload);
         if (!data.success) {
             showError(`删除失败：${data.message}`);
         } else {
@@ -757,7 +734,7 @@ async function doDeleteVolume() {
 async function deleteVersion(versionId) {
     showLoading('删除中...');
     try {
-        await api.delete(`/api/volume-versions/${versionId}/`);
+        await api.delete(`/api/projects/${projectId}/volume-versions/${versionId}/`);
     } catch (e) {
         // 忽略错误，继续清理
     } finally {
@@ -791,7 +768,7 @@ async function lockVolume() {
     if (volume.id && currentVolumeVersionId) {
         showLoading(newLockState ? '锁定中...' : '解锁中...');
         try {
-            const data = await api.put(`/api/volume/${volume.id}/lock/`, {
+            const data = await api.put(`/api/projects/${projectId}/volumes/${volume.id}/lock/`, {
                 is_locked: newLockState
             });
             if (!data.success) {
@@ -852,12 +829,11 @@ async function doSaveVersion() {
     showLoading('保存中...');
     try {
         const payload = {
-            project_id: projectId,
             outline_version_id: selectedOutlineVersionId || '',
             volumes: JSON.stringify(currentVolumes)
         };
 
-        const data = await api.post(`/api/volume-versions/${currentVolumeVersionId}/save/`, payload);
+        const data = await api.post(`/api/projects/${projectId}/volume-versions/${currentVolumeVersionId}/save/`, payload);
         if (data.success) {
             showSuccess(`另存成功！版本号：v${data.version_number}`);
             currentVolumeVersionId = data.version_id;
@@ -890,7 +866,7 @@ function finalizeVersion() {
 async function doFinalizeVersion() {
     showLoading(isVersionFinalized ? '解锁中...' : '锁定中...');
     try {
-        const data = await api.post(`/api/volume-versions/${currentVolumeVersionId}/finalize/`);
+        const data = await api.post(`/api/projects/${projectId}/volume-versions/${currentVolumeVersionId}/finalize/`);
         if (data.success) {
             isVersionFinalized = data.is_finalized;
             showSuccess(isVersionFinalized ? '版本锁定成功！' : '版本解锁成功！');
@@ -1015,8 +991,6 @@ async function sendMessage() {
 
             if (oldLine === newLine) {
                 result += newLine + '\n';
-            } else if (!oldLine) {
-                result += `<div class="diff-change">${newLine}</div>\n`;
             } else {
                 result += `<div class="diff-change">${newLine}</div>\n`;
             }
@@ -1115,7 +1089,7 @@ async function sendMessage() {
         // 获取当前选中卷的卷号
         const currentVolumeNumber = currentVolume ? currentVolume.volume_number : null;
 
-        await api.streamRequestRaw(`/api/volume-versions/${currentVolumeVersionId}/chat/`, {
+        await api.streamRequestRaw(`/api/projects/${projectId}/volume-versions/${currentVolumeVersionId}/chat/`, {
             method: 'POST',
             body: { message, context_messages: historyMessages, current_volume_number: currentVolumeNumber }
         }, (chunk) => {
@@ -1234,61 +1208,7 @@ function renderChatHistory() {
     container.scrollTop = container.scrollHeight;
 }
 
-function enterSelectionMode() {
-    isSelectionMode = true;
-    selectedMessages.clear();
-    document.getElementById('toggle-selection-btn').style.display = 'none';
-    document.getElementById('selection-actions').style.display = 'flex';
-    document.getElementById('context-count-select').style.display = 'none';
+// 供 common.js 回调：选择模式变化时重渲染聊天
+function onSelectionModeChanged() {
     renderChatHistory();
-}
-
-function cancelSelection() {
-    isSelectionMode = false;
-    selectedMessages.clear();
-    document.getElementById('toggle-selection-btn').style.display = 'flex';
-    document.getElementById('selection-actions').style.display = 'none';
-    document.getElementById('context-count-select').style.display = 'flex';
-    renderChatHistory();
-}
-
-function toggleMessageSelect(index) {
-    if (selectedMessages.has(index)) {
-        selectedMessages.delete(index);
-    } else {
-        selectedMessages.add(index);
-    }
-    const div = document.querySelector(`.chat-message[data-message-index="${index}"]`);
-    if (div) div.classList.toggle('selected');
-    const delBtn = document.getElementById('delete-selected-btn');
-    if (delBtn) delBtn.disabled = selectedMessages.size === 0;
-}
-
-function toggleSelectAll() {
-    const checkboxes = document.querySelectorAll('.chat-message-checkbox');
-    const allChecked = selectedMessages.size === messages.length;
-    if (allChecked) {
-        selectedMessages.clear();
-    } else {
-        messages.forEach((_, i) => selectedMessages.add(i));
-    }
-    checkboxes.forEach((cb, i) => {
-        cb.checked = !allChecked;
-        const div = document.querySelector(`.chat-message[data-message-index="${i}"]`);
-        if (div) div.classList.toggle('selected', !allChecked);
-    });
-    const delBtn = document.getElementById('delete-selected-btn');
-    if (delBtn) delBtn.disabled = selectedMessages.size === 0;
-}
-
-function deleteSelectedMessages() {
-    if (selectedMessages.size === 0) return;
-    showModal('删除对话', `确定要删除选中的 ${selectedMessages.size} 条对话吗？`, function() {
-        const sorted = Array.from(selectedMessages).sort((a, b) => b - a);
-        sorted.forEach(i => messages.splice(i, 1));
-        selectedMessages.clear();
-        cancelSelection();
-        closeModal();
-        showSuccess('删除成功！');
-    });
 }

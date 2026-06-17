@@ -16,14 +16,14 @@ class BaseOutlineAPIView(BaseAPIView):
     """大纲API基础类 - 继承项目基础类，添加大纲相关工具方法"""
 
 
-class APIChatOutlineView(BaseOutlineAPIView):
+class ApiChatOutlineView(BaseOutlineAPIView):
     # 输入长度限制
     MAX_USER_INPUT_LENGTH = 5000
     MAX_OUTLINE_LENGTH = 200000
     MAX_HISTORY_COUNT = 100
 
-    def post(self, request):
-        project_id = request.data.get('project_id')
+    def post(self, request, project_id):
+        project_id = project_id or request.data.get('project_id')
         version_number = request.data.get('version_number', 0)
         user_input = request.data.get('message', '')
         current_outline = request.data.get('current_outline', '')
@@ -157,18 +157,20 @@ class APIChatOutlineView(BaseOutlineAPIView):
             timeout=300,
             error_msg='大纲生成失败，请重试',
             post_process=post_process,
+            project=project,
+            task_type='outline',
         )
 
 
-class SaveOutlineVersionView(BaseOutlineAPIView):
+class ApiSaveOutlineVersionView(BaseOutlineAPIView):
     # 大纲内容最大长度限制
     MAX_CONTENT_LENGTH = 200000
 
-    def post(self, request):
-        project_id = request.POST.get('project_id')
-        content = request.POST.get('content')
-        new_version = request.POST.get('new_version', 'false') == 'true'
-        version_id = request.POST.get('version_id')
+    def post(self, request, project_id):
+        project_id = project_id or request.data.get('project_id')
+        content = request.data.get('content')
+        new_version = request.data.get('new_version', 'false') == 'true'
+        version_id = request.data.get('version_id')
 
         if not project_id:
             return JsonResponse({'success': False, 'error': 'project_id 参数不能为空'}, status=400)
@@ -224,8 +226,8 @@ class SaveOutlineVersionView(BaseOutlineAPIView):
         })
 
 
-class LoadOutlineVersionView(BaseOutlineAPIView):
-    def get(self, request, version_id):
+class ApiLoadOutlineVersionView(BaseOutlineAPIView):
+    def get(self, request, project_id, version_id):
         outline_version = get_object_or_404(OutlineVersion, pk=version_id, is_deleted=False)
         # 校验版本属于当前用户
         self.get_project_or_404(request, outline_version.project_id)
@@ -238,14 +240,14 @@ class LoadOutlineVersionView(BaseOutlineAPIView):
         })
 
 
-class FinalizeOutlineVersionView(BaseOutlineAPIView):
+class ApiFinalizeOutlineVersionView(BaseOutlineAPIView):
     MAX_CONTENT_LENGTH = 200000
 
-    def post(self, request):
-        project_id = request.POST.get('project_id')
-        version_id = request.POST.get('version_id')
-        content = request.POST.get('content')
-        
+    def post(self, request, project_id):
+        project_id = project_id or request.data.get('project_id')
+        version_id = request.data.get('version_id')
+        content = request.data.get('content')
+
         if not project_id:
             return JsonResponse({'success': False, 'error': 'project_id 参数不能为空'}, status=400)
         
@@ -290,15 +292,15 @@ class FinalizeOutlineVersionView(BaseOutlineAPIView):
         })
 
 
-class DeleteOutlineVersionView(BaseOutlineAPIView):
+class ApiDeleteOutlineVersionView(BaseOutlineAPIView):
     def post(self, request):
-        version_id = request.POST.get('version_id')
+        version_id = request.data.get('version_id')
         if not version_id:
             return JsonResponse({'success': False, 'error': 'version_id 参数不能为空'}, status=400)
         outline_version = get_object_or_404(OutlineVersion, pk=version_id)
         # 校验版本属于当前用户
         self.get_project_or_404(request, outline_version.project_id)
-        
+
         if outline_version.is_finalized:
             return JsonResponse({
                 'success': False,
@@ -311,9 +313,9 @@ class DeleteOutlineVersionView(BaseOutlineAPIView):
         return JsonResponse({'success': True})
 
 
-class RestoreOutlineVersionView(BaseOutlineAPIView):
+class ApiRestoreOutlineVersionView(BaseOutlineAPIView):
     def post(self, request):
-        version_id = request.POST.get('version_id')
+        version_id = request.data.get('version_id')
         if not version_id:
             return JsonResponse({'success': False, 'error': 'version_id 参数不能为空'}, status=400)
         outline_version = get_object_or_404(OutlineVersion, pk=version_id, is_deleted=True)
@@ -328,9 +330,9 @@ class RestoreOutlineVersionView(BaseOutlineAPIView):
 
 class ApiOutlineVersionsView(BaseOutlineAPIView):
 
-    def get(self, request, pk):
+    def get(self, request, project_id):
         try:
-            project = self.get_project_or_404(request, pk)
+            project = self.get_project_or_404(request, project_id)
 
             outline_versions = OutlineVersion.objects.filter(
                 project=project,
@@ -368,11 +370,11 @@ class ApiOutlineVersionsView(BaseOutlineAPIView):
 
 class ApiOutlineVersionDetailView(BaseOutlineAPIView):
 
-    def get(self, request, version_id):
+    def get(self, request, project_id, version_id):
         try:
             outline_version = get_object_or_404(
-                OutlineVersion, 
-                pk=version_id, 
+                OutlineVersion,
+                pk=version_id,
                 is_deleted=False
             )
             # 校验版本属于当前用户
@@ -396,9 +398,9 @@ class ApiOutlineVersionDetailView(BaseOutlineAPIView):
 
 class ApiLatestOutlineView(BaseOutlineAPIView):
 
-    def get(self, request, pk):
+    def get(self, request, project_id):
         try:
-            project = self.get_project_or_404(request, pk)
+            project = self.get_project_or_404(request, project_id)
             
             outline_version = OutlineVersion.objects.filter(
                 project=project,
@@ -433,16 +435,16 @@ class ApiLatestOutlineView(BaseOutlineAPIView):
 
 class ApiOutlineFinalizeView(BaseOutlineAPIView):
 
-    def post(self, request):
+    def post(self, request, project_id):
         try:
             version_id = request.data.get('version_id')
-            
+
             if not version_id:
                 return JsonResponse({'success': False, 'error': 'version_id 参数不能为空'}, status=400)
-            
+
             outline_version = get_object_or_404(
-                OutlineVersion, 
-                pk=version_id, 
+                OutlineVersion,
+                pk=version_id,
                 project__user=request.user,
                 is_deleted=False
             )
@@ -468,17 +470,17 @@ class ApiOutlineFinalizeView(BaseOutlineAPIView):
 
 class ApiOutlineLockView(BaseOutlineAPIView):
 
-    def post(self, request):
+    def post(self, request, project_id):
         try:
             version_id = request.data.get('version_id')
-            project_id = request.data.get('project_id')
-            
+            project_id = project_id or request.data.get('project_id')
+
             if not version_id or not project_id:
                 return JsonResponse({'success': False, 'error': 'version_id 和 project_id 参数不能为空'}, status=400)
-            
+
             outline_version = get_object_or_404(
-                OutlineVersion, 
-                pk=version_id, 
+                OutlineVersion,
+                pk=version_id,
                 project__user=request.user,
                 is_deleted=False
             )
@@ -498,20 +500,20 @@ class ApiOutlineLockView(BaseOutlineAPIView):
 
 class ApiOutlineDeleteView(BaseOutlineAPIView):
 
-    def post(self, request):
+    def post(self, request, project_id):
         try:
             version_id = request.data.get('version_id')
-            
+
             if not version_id:
                 return JsonResponse({'success': False, 'error': 'version_id 参数不能为空'}, status=400)
-            
+
             outline_version = get_object_or_404(
-                OutlineVersion, 
-                pk=version_id, 
+                OutlineVersion,
+                pk=version_id,
                 project__user=request.user,
                 is_deleted=False
             )
-            
+
             if outline_version.is_finalized:
                 return JsonResponse({
                     'success': False,
@@ -530,7 +532,7 @@ class ApiOutlineDeleteView(BaseOutlineAPIView):
 class ApiChatHistoryDeleteView(BaseOutlineAPIView):
     MAX_DELETE_COUNT = 100
 
-    def post(self, request):
+    def post(self, request, project_id):
         try:
             message_ids_str = request.data.get('message_ids', '')
             

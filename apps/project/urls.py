@@ -18,8 +18,6 @@ from .views import (
     ApiProjectListView,
     ApiProjectCreateView,
     ApiProjectDetailView,
-    ApiProjectDeleteView,
-    ApiProjectUpdateView,
     ApiProjectStatsView,
     ApiTitleSuggestView,
     ApiDescriptionSuggestView,
@@ -46,13 +44,12 @@ urlpatterns = [
     # API Project
     path('api/projects/', ApiProjectListView.as_view(), name='api_project_list'),
     path('api/projects/create/', ApiProjectCreateView.as_view(), name='api_project_create'),
+    path('api/projects/description-optimization/', ApiEnhanceDescriptionView.as_view(), name='api_project_description_enhance_no_id'),
     path('api/projects/<int:pk>/', ApiProjectDetailView.as_view(), name='api_project_detail'),
-    path('api/title/suggest/', ApiTitleSuggestView.as_view(), name='api_title_suggest'),
-    path('api/description/suggest/', ApiDescriptionSuggestView.as_view(), name='api_description_suggest'),
+    path('api/projects/<int:pk>/title/suggest/', ApiTitleSuggestView.as_view(), name='api_title_suggest'),
+    path('api/projects/<int:pk>/description/suggest/', ApiDescriptionSuggestView.as_view(), name='api_description_suggest'),
     path('api/projects/<int:pk>/stats/', ApiProjectStatsView.as_view(), name='api_project_stats'),
-    path('api/projects/<int:pk>/delete/', ApiProjectDeleteView.as_view(), name='api_project_delete'),
-    path('api/projects/<int:pk>/update/', ApiProjectUpdateView.as_view(), name='api_project_update'),
-    path('api/projects/description-optimization/', ApiEnhanceDescriptionView.as_view(), name='api_project_description_enhance'),
+    path('api/projects/<int:pk>/description-optimization/', ApiEnhanceDescriptionView.as_view(), name='api_project_description_enhance'),
 
     # 角色路由 - 移至 characters app
     path('api/', include('apps.characters.urls')),

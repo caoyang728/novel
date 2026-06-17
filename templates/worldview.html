@@ -17,19 +17,13 @@
                 <i class="fas fa-arrow-left"></i>
             </button>
             <div class="header-title-area">
-                <h1 class="header-title" id="pageTitle">
-                    <i class="fas fa-globe-americas me-2"></i>世界观管理
-                    <span id="projectNameDisplay" class="header-subtitle"></span>
-                </h1>
-                <p class="header-subtitle" id="pageSubtitle">版本: <span id="worldVersionDisplay">v1</span></p>
+                <h1 class="header-title">世界观管理</h1>
+                <p class="header-subtitle" id="project-title">-</p>
             </div>
             <div class="header-actions">
-                <a href="#" id="chatBuildBtn" class="btn-secondary me-2">
+                <a href="#" id="chatBuildBtn" class="btn-ai me-2">
                     <i class="fas fa-comments me-1"></i> 通过聊天构建
                 </a>
-                <!-- <button class="btn-primary" onclick="saveSetting()">
-                    <i class="fas fa-save me-1"></i> 保存基本信息 待实现
-                </button> -->
             </div>
         </div>
     </div>
@@ -107,7 +101,7 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">世界名称</label>
-                                            <input type="text" class="form-control" id="worldName" placeholder="输入世界名称" oninput="updateExpandBtn()">
+                                            <input type="text" class="form-control" id="worldName" placeholder="输入世界名称">
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">小说类型</label>
@@ -127,33 +121,33 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">世界身份 / 类型气质</label>
-                                            <textarea class="form-control" rows="10" id="worldIdentity" placeholder="如：高武世界、修仙文明、蒸汽朋克" oninput="updateExpandBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="worldIdentity" placeholder="如：高武世界、修仙文明、蒸汽朋克"></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">整体调性</label>
-                                            <textarea class="form-control" rows="10" id="worldTone" placeholder="如：严肃、轻松、黑暗、光明" oninput="updateExpandBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="worldTone" placeholder="如：严肃、轻松、黑暗、光明"></textarea>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div id="setting-overview" class="setting-section hidden">
                                     <div class="form-group">
-                                        <textarea class="form-control" id="worldOverview" rows="10" placeholder="详细描述这个世界的背景、特征和核心设定（输入内容后可使用AI完善）" oninput="updateExpandBtn()"></textarea>
+                                        <textarea class="form-control" id="worldOverview" rows="10" placeholder="详细描述这个世界的背景、特征和核心设定（输入内容后可使用AI完善）"></textarea>
                                     </div>
                                 </div>
 
                                 <div id="setting-conflict" class="setting-section hidden">
                                     <div class="form-group">
-                                        <textarea class="form-control" id="worldCoreConflict" rows="10" placeholder="这个世界的主要矛盾是什么？例如：人族与妖族的对立、正道与魔道的纷争、资源枯竭的危机..." oninput="updateExpandBtn()"></textarea>
+                                        <textarea class="form-control" id="worldCoreConflict" rows="10" placeholder="这个世界的主要矛盾是什么？例如：人族与妖族的对立、正道与魔道的纷争、资源枯竭的危机..."></textarea>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillSetting()" id="expandSectionBtn">
+                            <button class="btn-ai" onclick="aiFillSetting()" id="expandSectionBtn">
                                 <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
-                            <button class="btn-primary" onclick="saveSetting()">
+                            <button class="btn-success" onclick="saveSetting()">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -225,7 +219,7 @@
                                             <input type="text" class="form-control mb-2" placeholder="核心规则 1" >
                                         </div>
                                         <div class="d-flex gap-2">
-                                            <button class="btn-secondary btn-sm" onclick="addAxiom()">
+                                            <button class="btn-cancel btn-sm" onclick="addAxiom()">
                                                 <i class="fas fa-plus me-1"></i> 新增一条
                                             </button>
                                         </div>
@@ -241,10 +235,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillFoundation()" id="expandFoundationBtn">
+                            <button class="btn-ai" onclick="aiFillFoundation()" id="expandFoundationBtn">
                                 <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
-                            <button class="btn-primary" onclick="saveFoundation()">
+                            <button class="btn-success" onclick="saveFoundation()">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -329,10 +323,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillPower()" id="expandPowerBtn">
+                            <button class="btn-ai" onclick="aiFillPower()" id="expandPowerBtn">
                                 <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
-                            <button class="btn-primary" onclick="savePower()">
+                            <button class="btn-success" onclick="savePower()">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -389,10 +383,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillRaces()" id="expandRacesBtn">
+                            <button class="btn-ai" onclick="aiFillRaces()" id="expandRacesBtn">
                                 <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
-                            <button class="btn-primary" onclick="saveRaces()">
+                            <button class="btn-success" onclick="saveRaces()">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -495,10 +489,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillSociety()" id="expandSocietyBtn">
+                            <button class="btn-ai" onclick="aiFillSociety()" id="expandSocietyBtn">
                                 <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
-                            <button class="btn-primary" onclick="saveSociety()">
+                            <button class="btn-success" onclick="saveSociety()">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -521,11 +515,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">节日庆典</label>
-                                            <textarea class="form-control" rows="10" id="cultureFestival" placeholder="重要节日及其庆祝方式" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="cultureFestival" placeholder="重要节日及其庆祝方式"></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">婚丧嫁娶</label>
-                                            <textarea class="form-control" rows="10" id="cultureRitual" placeholder="婚俗、葬礼等仪式" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="cultureRitual" placeholder="婚俗、葬礼等仪式"></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -534,11 +528,11 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">语言种类</label>
-                                            <textarea class="form-control" rows="10" id="cultureLanguage" placeholder="通用语、种族语言、古语" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="cultureLanguage" placeholder="通用语、种族语言、古语"></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">文字体系</label>
-                                            <textarea class="form-control" rows="10" id="cultureScript" placeholder="文字起源、书写方式" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="10" id="cultureScript" placeholder="文字起源、书写方式"></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -547,19 +541,19 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">服饰风格</label>
-                                            <textarea class="form-control" rows="5" id="cultureClothing" placeholder="不同阶层的服饰特点" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="5" id="cultureClothing" placeholder="不同阶层的服饰特点"></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">饮食文化</label>
-                                            <textarea class="form-control" rows="5" id="cultureFood" placeholder="特色美食、饮食习惯" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="5" id="cultureFood" placeholder="特色美食、饮食习惯"></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">建筑特色</label>
-                                            <textarea class="form-control" rows="5" id="cultureArchitecture" placeholder="建筑风格、材料" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="5" id="cultureArchitecture" placeholder="建筑风格、材料"></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">交通方式</label>
-                                            <textarea class="form-control" rows="5" id="cultureTransport" placeholder="交通工具、道路网络" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="5" id="cultureTransport" placeholder="交通工具、道路网络"></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -568,25 +562,25 @@
                                     <div class="overview-grid">
                                         <div class="form-group">
                                             <label class="form-label">神祇体系</label>
-                                            <textarea class="form-control" rows="6" id="cultureDeity" placeholder="信仰的神祇、神话传说" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="6" id="cultureDeity" placeholder="信仰的神祇、神话传说"></textarea>
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label">宗教组织</label>
-                                            <textarea class="form-control" rows="6" id="cultureReligionOrg" placeholder="教会、祭祀仪式" oninput="updateCultureBtn()"></textarea>
+                                            <textarea class="form-control" rows="6" id="cultureReligionOrg" placeholder="教会、祭祀仪式"></textarea>
                                         </div>
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">种族信仰差异</label>
-                                        <textarea class="form-control" rows="4" id="cultureFaithDiff" placeholder="不同种族的信仰差异、冲突与融合" oninput="updateCultureBtn()"></textarea>
+                                        <textarea class="form-control" rows="4" id="cultureFaithDiff" placeholder="不同种族的信仰差异、冲突与融合"></textarea>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillCulture()" id="expandCultureBtn">
+                            <button class="btn-ai" onclick="aiFillCulture()" id="expandCultureBtn">
                                 <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
-                            <button class="btn-primary" onclick="saveCulture()">
+                            <button class="btn-success" onclick="saveCulture()">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -628,10 +622,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillHistory()" id="expandHistoryBtn">
+                            <button class="btn-ai" onclick="aiFillHistory()" id="expandHistoryBtn">
                                 <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
-                            <button class="btn-primary" onclick="saveHistory()">
+                            <button class="btn-success" onclick="saveHistory()">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -711,80 +705,43 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-secondary" onclick="aiFillSpecial()" id="expandSpecialBtn">
+                            <button class="btn-ai" onclick="aiFillSpecial()" id="expandSpecialBtn">
                                 <i class="fas fa-magic me-1"></i> AI 完善
                             </button>
-                            <button class="btn-primary" onclick="saveSpecial()">
+                            <button class="btn-success" onclick="saveSpecial()">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <div id="tab-deepening" class="tab-content hidden">
+                <div id="tab-deepening" class="tab-content hidden" x-data="deepeningState()">
                     <div class="dc-panel-container">
                         <h3 class="dc-panel-header">
                             <i class="fas fa-comments"></i> 问答深化
                         </h3>
                         <div class="d-flex gap-2 mb-3 dc-panel-actions">
-                            <div class="d-flex gap-2" id="deepeningPrimaryButtons">
-                                <button class="btn-primary" onclick="generateQuestions()">
+                            <template x-if="state === 'empty' || state === 'noQuestions'">
+                                <button class="btn-ai" @click="generateQuestions()">
                                     <i class="fas fa-magic me-1"></i> 生成深化问题
-                                </button>
-                            </div>
-                            <div class="d-flex gap-2 dc-hidden" id="deepeningAnswerButtons">
-                                <button class="btn-primary" onclick="generateQuestions()">
-                                    <i class="fas fa-magic me-1"></i> 生成深化问题
-                                </button>
-                                <button class="btn-accent" id="submitAnswersBtn" onclick="submitAnswers()">
-                                    <i class="fas fa-paper-plane me-1"></i> 提交并整合回答
-                                </button>
-                            </div>
-                            <div class="ml-auto d-flex gap-2 dc-hidden" id="deepeningActionButtons">
-                                <button class="btn-secondary" onclick="clearSuggestions()">
-                                    <i class="fas fa-times me-1"></i> 清除建议
-                                </button>
-                                <button class="btn-primary" id="applyChangesBtn" onclick="applyChanges()">
-                                    <i class="fas fa-check me-1"></i> 应用选中的修改
-                                </button>
-                            </div>
-                        </div>
-                        <div class="dc-panel-content">
-                            <div class="border rounded p-4 dc-report-box" id="questionsList">
-                                <p class="text-muted mb-0">点击上方按钮生成深化问题</p>
-                            </div>
-                            <div id="suggestionsContainer" class="dc-hidden"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="tab-consistency" class="tab-content hidden" x-data="consistencyState()" x-init="window.consistencyStateInstance = $data">
-                    <div class="dc-panel-container">
-                        <h3 class="dc-panel-header">
-                            <i class="fas fa-check-double"></i> 一致性检查
-                        </h3>
-                        <div class="d-flex gap-2 mb-3 dc-panel-actions">
-                            <template x-if="state === 'empty' || state === 'noIssues'">
-                                <button class="btn-primary" @click="checkConsistency()">
-                                    <i class="fas fa-search me-1"></i> 检查一致性
                                 </button>
                             </template>
-                            <template x-if="state === 'hasIssues'">
+                            <template x-if="state === 'hasQuestions'">
                                 <div class="d-flex gap-2">
-                                    <button class="btn-primary" @click="checkConsistency()">
-                                        <i class="fas fa-search me-1"></i> 检查一致性
+                                    <button class="btn-ai" @click="generateQuestions()">
+                                        <i class="fas fa-magic me-1"></i> 生成深化问题
                                     </button>
-                                    <button class="btn-accent" @click="fixConsistency()">
-                                        <i class="fas fa-wand-magic-sparkles me-1"></i> AI 修复
+                                    <button class="btn-success" :disabled="!hasAnswer" @click="submitAnswers()">
+                                        <i class="fas fa-paper-plane me-1"></i> 提交并整合回答
                                     </button>
                                 </div>
                             </template>
                             <template x-if="state === 'hasSuggestions'">
                                 <div class="d-flex gap-2">
-                                    <button class="btn-secondary" @click="resetState()">
+                                    <button class="btn-cancel" @click="resetState()">
                                         <i class="fas fa-times me-1"></i> 清除建议
                                     </button>
-                                    <button class="btn-primary" @click="applyConsistencyChanges()">
+                                    <button class="btn-success" @click="applyChanges()">
                                         <i class="fas fa-check me-1"></i> 应用选中的修改
                                     </button>
                                 </div>
@@ -792,87 +749,191 @@
                         </div>
                         <div class="dc-panel-content">
                             <!-- 初始状态 -->
-                            <div x-show="state === 'empty'" class="border rounded p-4 dc-report-box">
-                                <p class="text-muted mb-0">点击上方按钮检查设定一致性</p>
+                            <div x-show="state === 'empty'" class="dc-report-box dc-report-box--center">
+                                <p class="dc-report-empty">点击上方按钮生成深化问题</p>
                             </div>
-                            
+
                             <!-- 无问题状态 -->
-                            <div x-show="state === 'noIssues'">
-                                <div style="text-align: center; padding: 20px 0;">
-                                    <span style="font-size: 32px; color: #22c55e;">✓</span>
-                                    <p style="color: #e8b840; font-size: 16px; margin: 8px 0 0 0;">设定之间逻辑自洽，未发现矛盾，继续加油！</p>
+                            <div x-show="state === 'noQuestions'" class="dc-report-box dc-report-box--center">
+                                <div class="dc-report-success">
+                                    <span class="dc-report-success-icon">✓</span>
+                                    <p class="dc-report-success-text">世界观设定已经比较完善了，AI 都找不到需要深化的问题</p>
                                 </div>
                             </div>
-                            
+
                             <!-- 问题列表 -->
-                            <div x-show="state === 'hasIssues'">
+                            <div x-show="state === 'hasQuestions'" class="dc-report-box dc-report-box--top">
+                                <template x-for="(q, index) in questions" :key="index">
+                                    <div class="question-item">
+                                        <p class="question-text mb-2"><strong x-text="(index + 1) + '. ' + q.question"></strong></p>
+                                        <textarea class="form-control auto-resize" rows="2" placeholder="输入答案..."
+                                                  x-model="q.answer"></textarea>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- 修复建议 -->
+                            <div x-show="state === 'hasSuggestions'" class="dc-report-box dc-report-box--top">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h4>修改建议</h4>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn-cancel btn-sm" @click="selectAllSuggestions(true)">
+                                            <i class="fas fa-check-square me-1"></i>全选
+                                        </button>
+                                        <button class="btn-cancel btn-sm" @click="selectAllSuggestions(false)">
+                                            <i class="fas fa-square me-1"></i>取消全选
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <template x-for="(suggestion, index) in suggestions" :key="index">
+                                        <div class="suggestion-item" :data-index="index">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <input type="checkbox" class="suggestion-checkbox" :checked="suggestion.selected" @change="toggleSuggestion(index)">
+                                                    <span class="font-medium" x-text="'修改 ' + (index + 1)"></span>
+                                                </div>
+                                                <span class="suggestion-impact" x-text="getImpactText(suggestion.impact)"></span>
+                                            </div>
+                                            <div class="suggestion-content">
+                                                <p class="text-sm text-muted mb-1">
+                                                    <strong>目标:</strong> <span class="text-primary" x-text="getLayerName(suggestion.targetLayer)"></span> / <code class="text-sm" x-text="translateFieldPath(suggestion.targetField)"></code>
+                                                </p>
+                                                <div class="suggestion-section">
+                                                    <p class="text-sm mb-1"><strong>原值:</strong></p>
+                                                    <div class="suggestion-old-value" x-html="formatValue(suggestion.oldValue)"></div>
+                                                </div>
+                                                <div class="suggestion-section">
+                                                    <p class="text-sm mb-1"><strong>新值:</strong></p>
+                                                    <textarea class="suggestion-edit" :data-index="index" data-field="newValue"
+                                                              x-model="suggestion.newValue"></textarea>
+                                                </div>
+                                                <div class="suggestion-section">
+                                                    <p class="text-sm mb-1"><strong>原因:</strong></p>
+                                                    <div class="suggestion-reason" x-text="suggestion.reason"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-consistency" class="tab-content hidden" x-data="consistencyState()">
+                    <div class="dc-panel-container">
+                        <h3 class="dc-panel-header">
+                            <i class="fas fa-check-double"></i> 一致性检查
+                        </h3>
+                        <div class="d-flex gap-2 mb-3 dc-panel-actions">
+                            <template x-if="state === 'empty' || state === 'noIssues'">
+                                <button class="btn-ai" @click="checkConsistency()">
+                                    <i class="fas fa-search me-1"></i> 检查一致性
+                                </button>
+                            </template>
+                            <template x-if="state === 'hasIssues'">
+                                <div class="d-flex gap-2">
+                                    <button class="btn-ai" @click="checkConsistency()">
+                                        <i class="fas fa-search me-1"></i> 检查一致性
+                                    </button>
+                                    <button class="btn-ai" @click="fixConsistency()">
+                                        <i class="fas fa-wand-magic-sparkles me-1"></i> AI 修复
+                                    </button>
+                                </div>
+                            </template>
+                            <template x-if="state === 'hasSuggestions'">
+                                <div class="d-flex gap-2">
+                                    <button class="btn-cancel" @click="resetState()">
+                                        <i class="fas fa-times me-1"></i> 清除建议
+                                    </button>
+                                    <button class="btn-success" @click="applyConsistencyChanges()">
+                                        <i class="fas fa-check me-1"></i> 应用选中的修改
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                        <div class="dc-panel-content">
+                            <!-- 初始状态 -->
+                            <div x-show="state === 'empty'" class="dc-report-box dc-report-box--center">
+                                <p class="dc-report-empty">点击上方按钮检查设定一致性</p>
+                            </div>
+
+                            <!-- 无问题状态 -->
+                            <div x-show="state === 'noIssues'" class="dc-report-box dc-report-box--center">
+                                <div class="dc-report-success">
+                                    <span class="dc-report-success-icon">✓</span>
+                                    <p class="dc-report-success-text">设定之间逻辑自洽，未发现矛盾，继续加油！</p>
+                                </div>
+                            </div>
+
+                            <!-- 问题列表 -->
+                            <div x-show="state === 'hasIssues'" class="dc-report-box dc-report-box--top">
                                 <template x-for="(issue, index) in issues" :key="index">
-                                    <div class="consistency-card" style="border: 1px solid #374151; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
-                                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 12px;">
-                                            <div style="font-size: 16px; line-height: 1.6; flex: 1; word-break: break-word;">
+                                    <div class="consistency-card">
+                                        <div class="consistency-card-header">
+                                            <div class="consistency-card-title">
                                                 <strong x-text="(index + 1) + '. ' + issue.message"></strong>
                                             </div>
-                                            <span style="display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 14px; font-weight: 600; flex-shrink: 0; white-space: nowrap;"
-                                                  :style="{ background: issue.severity === 'error' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(234, 179, 8, 0.2)', color: issue.severity === 'error' ? '#f87171' : '#fbbf24' }"
+                                            <span class="consistency-severity-badge"
+                                                  :class="issue.severity === 'error' ? 'severity-error' : 'severity-warning'"
                                                   x-text="issue.severity === 'error' ? '严重' : '警告'"></span>
                                         </div>
-                                        <p style="color: #d1d5db; font-size: 15px; margin: 0 0 8px 0; line-height: 1.8;" x-text="issue.detail"></p>
-                                        <p style="color: #9ca3af; font-size: 14px; margin: 0 0 8px 0;">
-                                            目标层级: <span style="color: #d1d5db;" x-text="getLayerName(issue.targetLayer)"></span>
+                                        <p class="consistency-card-detail" x-text="issue.detail"></p>
+                                        <p class="consistency-card-meta">
+                                            目标层级: <span x-text="getLayerName(issue.targetLayer)"></span>
                                             <span x-show="issue.targetField"> / </span>
-                                            <code x-show="issue.targetField" style="font-family: monospace; color: #a78bfa; font-size: 13px;" x-text="translateFieldPath(issue.targetField)"></code>
+                                            <code x-show="issue.targetField" class="consistency-field-code" x-text="translateFieldPath(issue.targetField)"></code>
                                         </p>
-                                        <textarea class="consistency-note" rows="3" style="width: 100%; background: #1f2937; color: #f3f4f6; border: 1px solid #374151; border-radius: 4px; padding: 8px 10px; font-size: 15px; line-height: 1.7; resize: vertical; box-sizing: border-box;" placeholder="输入你期望的修复方向...（可选）"
+                                        <textarea class="consistency-note" rows="3" placeholder="输入你期望的修复方向...（可选）"
                                                   :id="'consistency-fix-note-' + index"></textarea>
                                     </div>
                                 </template>
                             </div>
-                            
+
                             <!-- 修复建议 -->
-                            <div x-show="state === 'hasSuggestions'">
-                                <div class="border rounded p-4">
-                                    <div class="d-flex justify-content-between align-items-center mb-3">
-                                        <h4>修改建议</h4>
-                                        <div class="d-flex gap-2">
-                                            <button class="btn btn-sm btn-outline-secondary" @click="selectAllSuggestions(true)">
-                                                <i class="fas fa-check-square me-1"></i>全选
-                                            </button>
-                                            <button class="btn btn-sm btn-outline-secondary" @click="selectAllSuggestions(false)">
-                                                <i class="fas fa-square me-1"></i>取消全选
-                                            </button>
-                                        </div>
+                            <div x-show="state === 'hasSuggestions'" class="dc-report-box dc-report-box--top">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h4>修改建议</h4>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn-cancel btn-sm" @click="selectAllSuggestions(true)">
+                                            <i class="fas fa-check-square me-1"></i>全选
+                                        </button>
+                                        <button class="btn-cancel btn-sm" @click="selectAllSuggestions(false)">
+                                            <i class="fas fa-square me-1"></i>取消全选
+                                        </button>
                                     </div>
-                                    <div>
-                                        <template x-for="(suggestion, index) in suggestions" :key="index">
-                                            <div class="suggestion-item" :data-index="index">
-                                                <div class="d-flex justify-content-between align-items-start mb-2">
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        <input type="checkbox" class="suggestion-checkbox" :checked="suggestion.selected" @change="toggleSuggestion(index)">
-                                                        <span class="font-medium" x-text="'修改 ' + (index + 1)"></span>
-                                                    </div>
-                                                    <span class="suggestion-impact" x-text="getImpactText(suggestion.impact)"></span>
+                                </div>
+                                <div>
+                                    <template x-for="(suggestion, index) in suggestions" :key="index">
+                                        <div class="suggestion-item" :data-index="index">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <input type="checkbox" class="suggestion-checkbox" :checked="suggestion.selected" @change="toggleSuggestion(index)">
+                                                    <span class="font-medium" x-text="'修改 ' + (index + 1)"></span>
                                                 </div>
-                                                <div class="suggestion-content">
-                                                    <p class="text-sm text-muted mb-1">
-                                                        <strong>目标:</strong> <span class="text-primary" x-text="getLayerName(suggestion.targetLayer)"></span> / <code class="text-sm" x-text="translateFieldPath(suggestion.targetField)"></code>
-                                                    </p>
-                                                    <div class="suggestion-section">
-                                                        <p class="text-sm mb-1"><strong>原值:</strong></p>
-                                                        <div class="suggestion-old-value" x-html="formatValue(suggestion.oldValue)"></div>
-                                                    </div>
-                                                    <div class="suggestion-section">
-                                                        <p class="text-sm mb-1"><strong>新值:</strong></p>
-                                                        <textarea class="suggestion-edit" :data-index="index" data-field="newValue" style="width: 100%; background: #1f2937; color: #f3f4f6; border: 1px solid #374151; border-radius: 4px; padding: 8px; font-size: 14px; resize: vertical;"
-                                                                  x-model="suggestion.newValue"></textarea>
-                                                    </div>
-                                                    <div class="suggestion-section">
-                                                        <p class="text-sm mb-1"><strong>原因:</strong></p>
-                                                        <div class="suggestion-reason" x-text="suggestion.reason"></div>
-                                                    </div>
+                                                <span class="suggestion-impact" x-text="getImpactText(suggestion.impact)"></span>
+                                            </div>
+                                            <div class="suggestion-content">
+                                                <p class="text-sm text-muted mb-1">
+                                                    <strong>目标:</strong> <span class="text-primary" x-text="getLayerName(suggestion.targetLayer)"></span> / <code class="text-sm" x-text="translateFieldPath(suggestion.targetField)"></code>
+                                                </p>
+                                                <div class="suggestion-section">
+                                                    <p class="text-sm mb-1"><strong>原值:</strong></p>
+                                                    <div class="suggestion-old-value" x-html="formatValue(suggestion.oldValue)"></div>
+                                                </div>
+                                                <div class="suggestion-section">
+                                                    <p class="text-sm mb-1"><strong>新值:</strong></p>
+                                                    <textarea class="suggestion-edit" :data-index="index" data-field="newValue"
+                                                              x-model="suggestion.newValue"></textarea>
+                                                </div>
+                                                <div class="suggestion-section">
+                                                    <p class="text-sm mb-1"><strong>原因:</strong></p>
+                                                    <div class="suggestion-reason" x-text="suggestion.reason"></div>
                                                 </div>
                                             </div>
-                                        </template>
-                                    </div>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                         </div>
@@ -892,7 +953,7 @@
                                 </div>
                                 <p class="text-muted small mt-2">已选择 0 个文档。保持为空会显式关闭知识库检索。</p>
                             </div>
-                            <button class="btn-primary refs-save-btn" onclick="showToast('功能开发中')">
+                            <button class="btn-success refs-save-btn" onclick="showToast('功能开发中')">
                                 <i class="fas fa-save me-1"></i> 保存绑定
                             </button>
                         </div>
@@ -915,7 +976,7 @@
                                     <h5 class="assets-card-title">版本快照</h5>
                                     <div class="assets-snapshot-header">
                                         <input type="text" class="assets-search" id="snapshotLabel" placeholder="快照标签...">
-                                        <button class="btn-primary btn-sm" onclick="createSnapshot()">
+                                        <button class="btn-success btn-sm" onclick="createSnapshot()">
                                             <i class="fas fa-camera me-1"></i> 创建快照
                                         </button>
                                     </div>
@@ -925,10 +986,10 @@
                                 </div>
                             </div>
                             <div class="assets-export">
-                                <button class="btn-secondary" onclick="exportWorld('json')">
+                                <button class="btn-cancel" onclick="exportWorld('json')">
                                     <i class="fas fa-download me-1"></i> 导出 JSON
                                 </button>
-                                <button class="btn-secondary" onclick="exportWorld('markdown')">
+                                <button class="btn-cancel" onclick="exportWorld('markdown')">
                                     <i class="fas fa-download me-1"></i> 导出 Markdown
                                 </button>
                             </div>
@@ -939,130 +1000,8 @@
         </div>
     </div>
 
-    <!-- <div class="modal-overlay" id="addFactionModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5><i class="fas fa-users me-2"></i>新增势力</h5>
-                <button class="btn-close-modal" onclick="hideAddFactionModal()">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">阵营名称</label>
-                    <input type="text" class="form-control" id="factionNameInput" placeholder="请输入阵营名称">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">立场 / 世界站队</label>
-                    <input type="text" class="form-control" id="factionPositionInput" placeholder="请输入立场">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">阵营理念</label>
-                    <textarea class="form-control doctrine-textarea" id="factionDoctrineInput" rows="3" placeholder="请输入阵营理念（可使用AI生成）"></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="generateFactionByAI()">
-                    <i class="fas fa-magic me-1"></i> AI 生成
-                </button>
-                <button class="btn-secondary" onclick="hideAddFactionModal()">取消</button>
-                <button class="btn-primary" onclick="saveNewFaction()">
-                    <i class="fas fa-check me-1"></i> 保存势力
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="addLocationModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5><i class="fas fa-map-marker-alt me-2"></i>新增地点</h5>
-                <button class="btn-close-modal" onclick="hideAddLocationModal()">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">地点名称</label>
-                    <input type="text" class="form-control" id="locationNameInput" placeholder="请输入地点名称">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">地形 / 地貌</label>
-                    <input type="text" class="form-control" id="locationTerrainInput" placeholder="请输入地形地貌">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">地点概述</label>
-                    <textarea class="form-control doctrine-textarea" id="locationSummaryInput" rows="3" placeholder="请输入地点概述（可使用AI生成）"></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="generateLocationByAI()">
-                    <i class="fas fa-magic me-1"></i> AI 生成
-                </button>
-                <button class="btn-secondary" onclick="hideAddLocationModal()">取消</button>
-                <button class="btn-primary" onclick="saveNewLocation()">
-                    <i class="fas fa-check me-1"></i> 保存地点
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="addRelationModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5><i class="fas fa-link me-2"></i>新增关系</h5>
-                <button class="btn-close-modal" onclick="hideAddRelationModal()">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">源势力</label>
-                    <select class="form-control" id="relationSourceInput">
-                        <option value="">请选择源势力</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">关系类型</label>
-                    <select class="form-control" id="relationTypeInput">
-                        <option value="alliance">同盟</option>
-                        <option value="enemy">敌对</option>
-                        <option value="neutral">中立</option>
-                        <option value="subordinate">从属</option>
-                        <option value="trade">贸易</option>
-                        <option value="conflict">冲突</option>
-                        <option value="allied">友好</option>
-                        <option value="rivalry">竞争</option>
-                        <option value="ancestor">渊源</option>
-                        <option value="other">其他</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">目标势力</label>
-                    <select class="form-control" id="relationTargetInput">
-                        <option value="">请选择目标势力</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">关系描述</label>
-                    <textarea class="form-control doctrine-textarea" id="relationDescriptionInput" rows="3" placeholder="详细描述这种关系的背景、现状和影响"></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" id="aiGenerateRelationBtn" onclick="generateRelationByAI()" disabled>
-                    <i class="fas fa-magic me-1"></i> AI 生成
-                </button>
-                <button class="btn-secondary" onclick="hideAddRelationModal()">取消</button>
-                <button class="btn-primary" onclick="saveNewRelation()">
-                    <i class="fas fa-check me-1"></i> 保存关系
-                </button>
-            </div>
-        </div>
-    </div> -->
-
     <div class="toast-container" id="toast-container"></div>
 
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/common.js"></script>
     <script>

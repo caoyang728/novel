@@ -27,6 +27,9 @@ class LLMConfig(models.Model):
     temperature = models.FloatField(default=0.7, verbose_name='温度参数')
     is_default = models.BooleanField(default=False, verbose_name='是否默认')
     is_active = models.BooleanField(default=True, verbose_name='是否激活')
+    input_price = models.FloatField(default=0, verbose_name='输入单价(元/百万Token)')
+    output_price = models.FloatField(default=0, verbose_name='输出单价(元/百万Token)')
+    cache_hit_price = models.FloatField(default=0, verbose_name='缓存命中单价(元/百万Token)')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
@@ -88,12 +91,13 @@ class TokenUsageLog(models.Model):
     project = models.ForeignKey('project.ProjectList', on_delete=models.CASCADE, related_name='token_usage_logs', verbose_name='项目', null=True, blank=True)
     llm_config = models.ForeignKey(LLMConfig, on_delete=models.SET_NULL, null=True, blank=True, related_name='token_usage_logs', verbose_name='LLM配置')
     model_name = models.CharField(max_length=200, verbose_name='模型名称')
-    prompt_tokens = models.IntegerField(default=0, verbose_name='提示Token数')
-    completion_tokens = models.IntegerField(default=0, verbose_name='完成Token数')
+    input_tokens = models.IntegerField(default=0, verbose_name='输入Token数')
+    output_tokens = models.IntegerField(default=0, verbose_name='输出Token数')
     total_tokens = models.IntegerField(default=0, verbose_name='总Token数')
+    input_cache_hit_tokens = models.IntegerField(default=0, verbose_name='输入缓存命中Token数')
+    input_cache_miss_tokens = models.IntegerField(default=0, verbose_name='输入缓存未命中Token数')
     cost = models.DecimalField(max_digits=10, decimal_places=4, default=0, verbose_name='费用')
     task_type = models.CharField(max_length=50, blank=True, verbose_name='任务类型')
-    cache_hit = models.BooleanField(default=False, verbose_name='缓存命中')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
 
     class Meta:
@@ -117,7 +121,9 @@ class TokenUsageLog(models.Model):
         logs = cls.objects.filter(user=user, created_at__date=today)
         return logs.aggregate(
             total_tokens=models.Sum('total_tokens'),
-            prompt_tokens=models.Sum('prompt_tokens'),
-            completion_tokens=models.Sum('completion_tokens'),
+            input_tokens=models.Sum('input_tokens'),
+            output_tokens=models.Sum('output_tokens'),
+            input_cache_hit_tokens=models.Sum('input_cache_hit_tokens'),
+            input_cache_miss_tokens=models.Sum('input_cache_miss_tokens'),
             count=models.Count('id')
         )

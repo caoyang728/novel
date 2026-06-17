@@ -24,15 +24,6 @@ function saveBaseline(content) {
     }
 }
 
-function loadBaseline() {
-    const key = getBaselineKey();
-    if (key) {
-        savedOutlineBaseline = localStorage.getItem(key) || '';
-    } else {
-        savedOutlineBaseline = '';
-    }
-}
-
 function hasUnsavedChanges() {
     const currentContent = document.getElementById('outline-content').value;
     return currentContent !== savedOutlineBaseline;
@@ -40,14 +31,14 @@ function hasUnsavedChanges() {
 
 document.addEventListener('DOMContentLoaded', function() {
     checkAuth();
+    projectId = getProjectIdFromUrl();
     const urlParams = new URLSearchParams(window.location.search);
-    projectId = urlParams.get('project_id');
     currentVersionId = urlParams.get('version_id');
 
     // 校验 projectId 为有效正整数，防止模板变量未渲染等异常
     if (projectId && /^\d+$/.test(projectId)) {
-        loadProjectInfo();
-        loadOutlineVersions();
+        showLoading('加载中...');
+        Promise.all([loadProjectInfo(projectId), loadOutlineVersions()]).finally(() => hideLoading());
     } else {
         projectId = null;
         showModal('参数错误', '项目ID参数无效，请从项目列表进入。', function() {
@@ -68,19 +59,15 @@ document.addEventListener('DOMContentLoaded', function() {
         updateButtons();
     });
 
-    document.getElementById('send-message').addEventListener('click', sendMessage);
-    document.getElementById('chat-input').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
+    // 点击大纲编辑区时停止打字机效果
+    document.getElementById('outline-content').addEventListener('click', function() {
+        if (isTyping) {
+            stopTyping();
         }
     });
 
-    const chatInput = document.getElementById('chat-input');
-    chatInput.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = Math.min(this.scrollHeight, 160) + 'px';
-    });
+    document.getElementById('send-message').addEventListener('click', sendMessage);
+    initChatInput('#chat-input', { onSend: sendMessage, maxHeight: 160 });
 
     initBackToProjectButton('.back-btn');
 
@@ -152,17 +139,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-async function loadProjectInfo() {
-    try {
-        const data = await api.get(`/api/projects/${projectId}/`);
-        if (data.success) {
-            document.getElementById('project-title').textContent = data.project.title;
-        }
-    } catch (error) {
-        console.error('Failed to load project:', error);
-    }
-}
-
 async function loadOutlineVersions() {
     try {
         // console.log('Loading outline versions for project:', projectId);
@@ -233,7 +209,7 @@ async function loadOutlineVersion(versionId) {
     previewEl.classList.add('fade-out');
 
     try {
-        const data = await api.get(`/api/outline/version/${versionId}/`);
+        const data = await api.get(`/api/projects/${projectId}/outline/versions/${versionId}/`);
         // console.log('Loaded outline version data:', data);
 
         if (data.success) {
@@ -253,7 +229,7 @@ async function loadOutlineVersion(versionId) {
             const select = document.getElementById('version-select');
             const selectedOption = select.querySelector(`option[value="${versionId}"]`);
             if (selectedOption) {
-                selectedOption.text = `当前版本 v${data.version_number}${data.is_finalized ? ' (定稿)' : ''}`;
+                selectedOption.text = `当前版本 v${data.version_number}${data.is_finalized ? ' (锁定)' : ''}`;
             }
 
             // 更新锁定状态
@@ -339,98 +315,18 @@ function renderChatHistory() {
     updateDeleteButton();
 }
 
-function enterSelectionMode() {
-    isSelectionMode = true;
-
-    document.getElementById('toggle-selection-btn').style.display = 'none';
-    document.getElementById('selection-actions').style.display = 'flex';
-    document.getElementById('context-count-select').style.display = 'none';
-
-    const chatMessages = document.getElementById('chat-messages');
-    chatMessages.classList.add('selection-mode');
-
+// 供 common.js 回调：选择模式变化时重渲染聊天
+function onSelectionModeChanged() {
     renderChatHistory();
-}
-
-function cancelSelection() {
-    isSelectionMode = false;
-    selectedMessages.clear();
-
-    document.getElementById('toggle-selection-btn').style.display = 'flex';
-    document.getElementById('selection-actions').style.display = 'none';
-    document.getElementById('context-count-select').style.display = 'flex';
-
-    const chatMessages = document.getElementById('chat-messages');
-    chatMessages.classList.remove('selection-mode');
-
-    renderChatHistory();
-}
-
-function toggleMessageSelect(index) {
-    if (!isSelectionMode) return;
-
-    if (selectedMessages.has(index)) {
-        selectedMessages.delete(index);
-    } else {
-        selectedMessages.add(index);
-    }
-
-    const messageDiv = document.querySelector(`.chat-message[data-message-index="${index}"]`);
-    if (messageDiv) {
-        messageDiv.classList.toggle('selected');
-    }
-
-    updateDeleteButton();
-}
-
-function toggleSelectAll() {
-    if (!isSelectionMode) return;
-
-    const checkboxes = document.querySelectorAll('.chat-message-checkbox');
-    const allChecked = selectedMessages.size === messages.length;
-
-    if (allChecked) {
-        selectedMessages.clear();
-    } else {
-        messages.forEach((_, index) => selectedMessages.add(index));
-    }
-
-    checkboxes.forEach((checkbox, index) => {
-        checkbox.checked = !allChecked;
-        const messageDiv = document.querySelector(`.chat-message[data-message-index="${index}"]`);
-        if (messageDiv) {
-            messageDiv.classList.toggle('selected', !allChecked);
-        }
-    });
-
     updateDeleteButton();
 }
 
 function updateDeleteButton() {
     const deleteBtn = document.getElementById('delete-selected-btn');
-    deleteBtn.disabled = selectedMessages.size === 0;
-    deleteBtn.innerHTML = `<i class="fas fa-trash"></i> 删除选中`;
-}
-
-async function deleteSelectedMessages() {
-    if (selectedMessages.size === 0) return;
-
-    const count = selectedMessages.size;
-    showModal('删除聊天记录', `确定要删除选中的 ${count} 条聊天记录吗？此操作不可恢复。`, function() {
-        doDeleteSelectedMessages();
-    });
-}
-
-async function doDeleteSelectedMessages() {
-    // 从前端 messages 数组中移除选中的消息
-    const sortedIndices = Array.from(selectedMessages).sort((a, b) => b - a);
-    sortedIndices.forEach(index => {
-        messages.splice(index, 1);
-    });
-
-    cancelSelection();
-    closeModal();
-    showSuccess('聊天记录已删除');
+    if (deleteBtn) {
+        deleteBtn.disabled = selectedMessages.size === 0;
+        deleteBtn.innerHTML = `<i class="fas fa-trash"></i> 删除选中`;
+    }
 }
 
 function updateButtons() {
@@ -465,17 +361,6 @@ function showPreviewMode() {
     document.getElementById('outline-preview').classList.remove('d-none');
     document.getElementById('btn-preview').classList.add('active');
     document.getElementById('btn-edit').classList.remove('active');
-}
-
-function stripMarkdown(text) {
-    return text
-        .replace(/\*\*(.*?)\*\*/g, '$1')
-        .replace(/\*(.*?)\*/g, '$1')
-        .replace(/__(.*?)__/g, '$1')
-        .replace(/_(.*?)_/g, '$1')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/`([^`]+)`/g, '$1')
-        .replace(/~~(.*?)~~/g, '$1');
 }
 
 function diffHighlight(oldContent, newContent) {
@@ -514,9 +399,14 @@ function diffHighlight(oldContent, newContent) {
 }
 
 let isSending = false;
+let isTyping = false;
+let currentTypingTimeout = null;
 
 async function sendMessage() {
     if (isSending) return;
+    
+    // 停止正在进行的打字机效果
+    stopTyping();
     
     // 检查版本是否被锁定
     if (isVersionLocked) {
@@ -648,9 +538,16 @@ async function sendMessage() {
                         contentFinished = true;
                         parsedOutline = outlineContent.trim();
 
-                        // 大纲输出结束，切换到预览模式
-                        document.getElementById('outline-preview').innerHTML = safeMarkdownParse(parsedOutline);
-                        showPreviewMode();
+                        // 大纲输出结束，使用打字机效果展示
+                        const outlineTextarea = document.getElementById('outline-content');
+                        outlineTextarea.value = '';
+                        showEditMode();
+                        typeWriter(outlineTextarea, parsedOutline, () => {
+                            document.getElementById('outline-preview').innerHTML = diffHighlight(savedOutlineBaseline, parsedOutline);
+                            showPreviewMode();
+                            outlineTextarea.value = parsedOutline;
+                            updateButtons();
+                        });
                     }
                 }
             }
@@ -688,9 +585,9 @@ async function sendMessage() {
             }
         }
 
-        await api.streamRequestRaw('/api/chat/outline/', {
+        await api.streamRequestRaw(`/api/projects/${projectId}/outline/chat/`, {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `project_id=${projectId}&version_number=${currentVersionNumber || 0}&message=${encodeURIComponent(message)}&current_outline=${encodeURIComponent(document.getElementById('outline-content').value)}&messages=${encodeURIComponent(JSON.stringify(historyMessages))}`,
+            body: `version_number=${currentVersionNumber || 0}&message=${encodeURIComponent(message)}&current_outline=${encodeURIComponent(document.getElementById('outline-content').value)}&messages=${encodeURIComponent(JSON.stringify(historyMessages))}`,
             onError: (error) => {
                 hideLoadingOnce();
                 showError('网络错误，请重试');
@@ -774,6 +671,36 @@ async function sendMessage() {
     streamVersionId = null;
 }
 
+// 打字机效果：逐字显示大纲内容到 textarea
+function typeWriter(element, text, callback) {
+    stopTyping();
+    isTyping = true;
+    let index = 0;
+    element.value = '';
+
+    function type() {
+        if (!isTyping) return;
+        if (index < text.length) {
+            element.value += text.charAt(index);
+            index++;
+            currentTypingTimeout = setTimeout(type, 15);
+        } else {
+            isTyping = false;
+            currentTypingTimeout = null;
+            if (callback) callback();
+        }
+    }
+    type();
+}
+
+function stopTyping() {
+    isTyping = false;
+    if (currentTypingTimeout) {
+        clearTimeout(currentTypingTimeout);
+        currentTypingTimeout = null;
+    }
+}
+
 function saveVersion(isNewVersion) {
     const content = document.getElementById('outline-content').value;
     if (!content.trim()) {
@@ -800,7 +727,7 @@ async function doSaveVersion(isNewVersion) {
     }
 
     try {
-        const data = await api.post('/api/outline/version/save/', `project_id=${projectId}&content=${encodeURIComponent(content)}${currentVersionId ? `&version_id=${currentVersionId}` : ''}` + (isNewVersion ? '&new_version=true' : ''), { contentType: 'application/x-www-form-urlencoded' });
+        const data = await api.post(`/api/projects/${projectId}/outline/versions/save/`, `content=${encodeURIComponent(content)}${currentVersionId ? `&version_id=${currentVersionId}` : ''}` + (isNewVersion ? '&new_version=true' : ''), { contentType: 'application/x-www-form-urlencoded' });
         if (data.success) {
             closeModal();
             // 保存成功后更新基线，与数据库保持一致
@@ -825,7 +752,7 @@ function confirmLock() {
 
 async function lockOutline() {
     try {
-        const data = await api.post('/api/outline/lock/', `project_id=${projectId}&version_id=${currentVersionId}`, { contentType: 'application/x-www-form-urlencoded' });
+        const data = await api.post(`/api/projects/${projectId}/outline/lock/`, `version_id=${currentVersionId}`, { contentType: 'application/x-www-form-urlencoded' });
         if (data.success) {
             closeModal();
             showSuccess('版本已锁定！');
@@ -848,14 +775,14 @@ function confirmDeleteVersion() {
     const versionSelect = document.getElementById('version-select');
     const selectedOption = versionSelect.options[versionSelect.selectedIndex];
     const versionLabel = selectedOption ? selectedOption.textContent : '该版本';
-    showModal('删除版本', `确定要删除${versionLabel}吗？定稿版本不能删除。此操作不可恢复。`, function() {
+    showModal('删除版本', `确定要删除${versionLabel}吗？锁定版本不能删除。此操作不可恢复。`, function() {
         doDeleteVersion();
     });
 }
 
 async function doDeleteVersion() {
     try {
-        const data = await api.post('/api/outline/delete/', `version_id=${currentVersionId}`, { contentType: 'application/x-www-form-urlencoded' });
+        const data = await api.post(`/api/projects/${projectId}/outline/delete/`, `version_id=${currentVersionId}`, { contentType: 'application/x-www-form-urlencoded' });
         if (data.success) {
             closeModal();
             currentVersionId = null;

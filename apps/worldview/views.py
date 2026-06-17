@@ -5,16 +5,14 @@ from loguru import logger
 
 from django.http import JsonResponse, StreamingHttpResponse
 from django.db import close_old_connections
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
+from apps.project.base import BaseAPIView
+from apps.project.models import ProjectList as Project
+from agent.llm import get_llm
+from agent.memory import compress_history
 
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from novel_agent.authentication import JWTAuthentication
-from apps.project.models import ProjectList as Project
-from agent.llm import get_llm
-from agent.memory import compress_history
 from .models import WorldView
 from .prompts import (
     LAYER_NAMES,
@@ -56,9 +54,7 @@ from .prompts import (
 )
 
 
-class BaseWorldAPIView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+class BaseWorldAPIView(BaseAPIView):
 
     def get_worldview(self, user, pk=None, project_id=None, worldview_id=None):
         try:
@@ -201,22 +197,14 @@ class BaseWorldAPIView(APIView):
 
 class ApiWorldviewDataView(BaseWorldAPIView):
     """世界观数据API 通过项目ID或世界观ID获取"""
-    # pk 来自 URL <int:pk> 路由；project_id / worldview_id 来自查询参数
+    # pk 来自 URL <int:pk> 路由；project_id 来自 URL <int:project_id> 路由
 
-    def get(self, request, pk=None):
+    def get(self, request, project_id=None, pk=None):
         try:
             if pk:
                 worldview = self.get_worldview(request.user, pk=pk)
             else:
-                project_id = request.query_params.get('project_id')
-                worldview_id = request.query_params.get('worldview_id')
-
-                if project_id:
-                    worldview = self.get_worldview(request.user, project_id=project_id)
-                elif worldview_id:
-                    worldview = self.get_worldview(request.user, worldview_id=worldview_id)
-                else:
-                    return self.error_response('缺少project_id或worldview_id参数')
+                worldview = self.get_worldview(request.user, project_id=project_id)
             
             return self.success_response({
                 'worldview_id': worldview.id,
@@ -242,7 +230,7 @@ class ApiWorldviewDataView(BaseWorldAPIView):
             logger.error(f"获取世界观失败 {e}", exc_info=True)
             return self.error_response('服务器内部错误', status=500)
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         try:
             worldview = self.get_worldview(request.user, pk=pk)
         except Exception:
@@ -283,12 +271,8 @@ class ApiWorldviewDataView(BaseWorldAPIView):
             'special': worldview.special,
         })
 
-
-
-class ApiWorldviewDeleteView(BaseWorldAPIView):
-    """删除世界观"""
-
-    def delete(self, request, pk):
+    def delete(self, request, project_id, pk):
+        """删除世界观"""
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -297,10 +281,11 @@ class ApiWorldviewDeleteView(BaseWorldAPIView):
         return self.success_response(message='删除成功')
 
 
+
 class ApiWorldviewDeepeningQuestionsView(BaseWorldAPIView):
     """生成深化问题API"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -329,14 +314,21 @@ class ApiWorldviewDeepeningQuestionsView(BaseWorldAPIView):
             ])
             
             llm = get_llm(user=request.user, scene="worldview_deepen")
-            
-            # 使用 LCEL 链式调用
-            chain = prompt | llm | JsonOutputParser()
-            
-            result = chain.invoke({
+
+            # 使用 LCEL 链式调用（不包含 JsonOutputParser，以便获取 usage_metadata）
+            llm_chain = prompt | llm
+            llm_result = llm_chain.invoke({
                 "worldview": worldview_json,
             })
-            
+            self.log_token_usage('worldview_deepen', result=llm_result, user=request.user, project=worldview.project)
+
+            # 手动解析 JSON
+            try:
+                parser = JsonOutputParser()
+                result = parser.parse(llm_result.content)
+            except Exception:
+                result = llm_result.content
+
             # 验证结果格式
             if isinstance(result, list):
                 questions = result
@@ -354,7 +346,7 @@ class ApiWorldviewDeepeningQuestionsView(BaseWorldAPIView):
 class ApiWorldviewDeepeningSubmitView(BaseWorldAPIView):
     """提交深化问答答案API，并返回修改建议"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -424,8 +416,16 @@ class ApiWorldviewDeepeningSubmitView(BaseWorldAPIView):
             
             logger.info("正在调用 LLM...")
             llm = get_llm(user=user, scene="worldview_deepen_integrate")
-            chain = prompt | llm | JsonOutputParser()
-            result = chain.invoke(prompt_vars)
+            llm_chain = prompt | llm
+            llm_result = llm_chain.invoke(prompt_vars)
+            self.log_token_usage('worldview_deepen_integrate', result=llm_result, user=user, project=worldview.project)
+
+            # 手动解析 JSON
+            try:
+                parser = JsonOutputParser()
+                result = parser.parse(llm_result.content)
+            except Exception:
+                result = llm_result.content
             
             logger.info(f"LLM 返回结果类型: {type(result)}")
             logger.info(f"LLM 返回结果: {json.dumps(result, ensure_ascii=False) if result else 'None'}")
@@ -447,7 +447,7 @@ class ApiWorldviewDeepeningSubmitView(BaseWorldAPIView):
 class ApiWorldviewDeepeningApplyView(BaseWorldAPIView):
     """应用深化问答修改建议API"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -563,7 +563,7 @@ class ApiWorldviewDeepeningApplyView(BaseWorldAPIView):
 class ApiWorldviewConsistencyView(BaseWorldAPIView):
     """一致性检查API"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -588,12 +588,19 @@ class ApiWorldviewConsistencyView(BaseWorldAPIView):
             ])
             
             llm = get_llm(user=request.user, scene="worldview_consistency")
-            
-            chain = prompt | llm | JsonOutputParser()
-            
-            result = chain.invoke({
+
+            llm_chain = prompt | llm
+            llm_result = llm_chain.invoke({
                 "worldview": json.dumps(worldview_data, ensure_ascii=False),
             })
+            self.log_token_usage('worldview_consistency', result=llm_result, user=request.user, project=worldview.project)
+
+            # 手动解析 JSON
+            try:
+                parser = JsonOutputParser()
+                result = parser.parse(llm_result.content)
+            except Exception:
+                result = llm_result.content
             
             issues = result if isinstance(result, list) else []
             
@@ -613,7 +620,7 @@ class ApiWorldviewConsistencyView(BaseWorldAPIView):
 class ApiWorldviewConsistencyFixView(BaseWorldAPIView):
     """一致性修复API"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -660,13 +667,20 @@ class ApiWorldviewConsistencyFixView(BaseWorldAPIView):
             ])
             
             llm = get_llm(user=request.user, scene="worldview_consistency_fix")
-            
-            chain = prompt | llm | JsonOutputParser()
-            
-            result = chain.invoke({
+
+            llm_chain = prompt | llm
+            llm_result = llm_chain.invoke({
                 "worldview_data": json.dumps(worldview_data, ensure_ascii=False),
                 "consistency_issues": json.dumps(all_issues, ensure_ascii=False)
             })
+            self.log_token_usage('worldview_consistency_fix', result=llm_result, user=request.user, project=worldview.project)
+
+            # 手动解析 JSON
+            try:
+                parser = JsonOutputParser()
+                result = parser.parse(llm_result.content)
+            except Exception:
+                result = llm_result.content
             
             suggestions = result if isinstance(result, list) else []
             
@@ -680,7 +694,7 @@ class ApiWorldviewConsistencyFixView(BaseWorldAPIView):
 class ApiFactionGenerateView(BaseWorldAPIView):
     """AI生成阵营"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -700,15 +714,22 @@ class ApiFactionGenerateView(BaseWorldAPIView):
             ])
 
             llm = get_llm(user=request.user, scene="faction_design")
-            
-            chain = prompt | llm | JsonOutputParser()
-            
-            result = chain.invoke({
+
+            llm_chain = prompt | llm
+            llm_result = llm_chain.invoke({
                 "separator": '-' * 40,
                 "name": name if name else '（请根据以下信息生成合适的名称)',
                 "position": position if position else '（请根据以下理念确定合适的立场)',
                 "doctrine": doctrine if doctrine else '（请根据阵营性质生成合适的理念)',
             })
+            self.log_token_usage('faction_design', result=llm_result, user=request.user, project=worldview.project)
+
+            # 手动解析 JSON
+            try:
+                parser = JsonOutputParser()
+                result = parser.parse(llm_result.content)
+            except Exception:
+                result = llm_result.content
             
             if isinstance(result, dict):
                 generated_name = result.get('name', name)
@@ -735,7 +756,7 @@ class ApiFactionGenerateView(BaseWorldAPIView):
 class ApiLocationGenerateView(BaseWorldAPIView):
     """AI生成地点"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -755,15 +776,22 @@ class ApiLocationGenerateView(BaseWorldAPIView):
             ])
             
             llm = get_llm(user=request.user, scene="location_design")
-            
-            chain = prompt | llm | JsonOutputParser()
-            
-            result = chain.invoke({
+
+            llm_chain = prompt | llm
+            llm_result = llm_chain.invoke({
                 "separator": '-' * 40,
                 "name": name if name else '（请根据以下信息生成合适的名称)',
                 "terrain": terrain if terrain else '（请根据概述确定合适的地形)',
                 "summary": summary if summary else '（请生成一个合适的地点概述)',
             })
+            self.log_token_usage('location_design', result=llm_result, user=request.user, project=worldview.project)
+
+            # 手动解析 JSON
+            try:
+                parser = JsonOutputParser()
+                result = parser.parse(llm_result.content)
+            except Exception:
+                result = llm_result.content
             
             if isinstance(result, dict):
                 generated_name = result.get('name', name)
@@ -790,7 +818,7 @@ class ApiLocationGenerateView(BaseWorldAPIView):
 class ApiRelationGenerateView(BaseWorldAPIView):
     """AI生成关系"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -810,15 +838,16 @@ class ApiRelationGenerateView(BaseWorldAPIView):
             ])
             
             llm = get_llm(user=request.user, scene="default")
-            
-            chain = prompt | llm
-            
-            response = chain.invoke({
+
+            llm_chain = prompt | llm
+
+            response = llm_chain.invoke({
                 "source": source,
                 "target": target,
                 "relation_type": relation_type,
             })
-            
+            self.log_token_usage('relation_generate', result=response, user=request.user, project=worldview.project)
+
             generated_description = response.content if hasattr(response, 'content') else str(response)
                 
         except Exception as e:
@@ -839,7 +868,7 @@ class ApiRelationGenerateView(BaseWorldAPIView):
 class ApiWorldviewFoundationView(BaseWorldAPIView):
     """世界基础API"""
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         """保存世界基础"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -890,7 +919,7 @@ class ApiWorldviewFoundationView(BaseWorldAPIView):
             'foundation': self.get_worldview_foundation(worldview),
         })
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         """AI一键优化世界基础所有字段 - 流式返回"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -926,6 +955,8 @@ class ApiWorldviewFoundationView(BaseWorldAPIView):
                 chain = prompt | llm
 
                 full_content = ''
+                last_chunk = None
+                usage_chunk = None
                 stream_response = chain.stream({
                     "genre": genre,
                     "continent": continent,
@@ -941,14 +972,16 @@ class ApiWorldviewFoundationView(BaseWorldAPIView):
                 })
 
                 for chunk in stream_response:
-                    # chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                    # full_content += chunk_content
-
-                    # yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
 
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_foundation', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 # 查找JSON
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_content, re.DOTALL)
@@ -974,7 +1007,7 @@ class ApiWorldviewFoundationView(BaseWorldAPIView):
 class ApiWorldviewPowerView(BaseWorldAPIView):
     """力量体系API"""
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         """保存力量体系"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1020,7 +1053,7 @@ class ApiWorldviewPowerView(BaseWorldAPIView):
             'power': self.get_worldview_power(worldview),
         })
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         """AI一键优化力量体系所有字段- 流式返回"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1055,9 +1088,11 @@ class ApiWorldviewPowerView(BaseWorldAPIView):
                 chain = prompt | llm
 
                 full_content = ''
-                
+
                 logger.info(f"Power AI expand params - genre: {genre[:50]}, energy_types: {energy_types[:50]}, level: {level[:50]}")
-                
+
+                last_chunk = None
+                usage_chunk = None
                 stream_response = chain.stream({
                     "genre": genre,
                     "energy_types": energy_types,
@@ -1074,11 +1109,17 @@ class ApiWorldviewPowerView(BaseWorldAPIView):
 
                 chunk_count = 0
                 for chunk in stream_response:
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
                     chunk_count += 1
 
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_power', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 yield f"data: {json.dumps({'type': 'complete', 'length': len(full_content)}, ensure_ascii=False)}\n\n"
 
@@ -1095,7 +1136,7 @@ class ApiWorldviewPowerView(BaseWorldAPIView):
 class ApiWorldviewRacesView(BaseWorldAPIView):
     """种族族群API - 单项修改"""
 
-    def get(self, request, pk):
+    def get(self, request, project_id, pk):
         """获取种族族群"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1106,7 +1147,7 @@ class ApiWorldviewRacesView(BaseWorldAPIView):
             'races': self.get_worldview_races(worldview)
         })
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         """保存种族族群 - 单项修改"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1141,7 +1182,7 @@ class ApiWorldviewRacesView(BaseWorldAPIView):
             'races': self.get_worldview_races(worldview),
         })
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         """AI一键优化种族族群所有字段 - 流式返回"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1172,6 +1213,8 @@ class ApiWorldviewRacesView(BaseWorldAPIView):
                 chain = prompt | llm
 
                 full_content = ''
+                last_chunk = None
+                usage_chunk = None
                 stream_response = chain.stream({
                     "genre": genre,
                     "category": category,
@@ -1183,10 +1226,16 @@ class ApiWorldviewRacesView(BaseWorldAPIView):
                 })
 
                 for chunk in stream_response:
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
 
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_races', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_content, re.DOTALL)
                 if json_match:
@@ -1211,7 +1260,7 @@ class ApiWorldviewRacesView(BaseWorldAPIView):
 class ApiWorldviewSocietyView(BaseWorldAPIView):
     """组织势力API - 单项修改"""
 
-    def get(self, request, pk):
+    def get(self, request, project_id, pk):
         """获取组织势力"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1222,7 +1271,7 @@ class ApiWorldviewSocietyView(BaseWorldAPIView):
             'society': self.get_worldview_society(worldview)
         })
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         """保存组织势力 - 单项修改"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1273,7 +1322,7 @@ class ApiWorldviewSocietyView(BaseWorldAPIView):
             'society': self.get_worldview_society(worldview),
         })
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         """AI一键优化组织势力所有字段 - 流式返回"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1310,6 +1359,8 @@ class ApiWorldviewSocietyView(BaseWorldAPIView):
                 chain = prompt | llm
 
                 full_content = ''
+                last_chunk = None
+                usage_chunk = None
                 stream_response = chain.stream({
                     "genre": genre,
                     "government": government,
@@ -1327,10 +1378,16 @@ class ApiWorldviewSocietyView(BaseWorldAPIView):
                 })
 
                 for chunk in stream_response:
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
-                    
+
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_society', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_content, re.DOTALL)
                 if json_match:
@@ -1355,7 +1412,7 @@ class ApiWorldviewSocietyView(BaseWorldAPIView):
 class ApiWorldviewCultureView(BaseWorldAPIView):
     """文化习俗API - 单项修改"""
 
-    def get(self, request, pk):
+    def get(self, request, project_id, pk):
         """获取文化习俗"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1366,7 +1423,7 @@ class ApiWorldviewCultureView(BaseWorldAPIView):
             'culture': self.get_worldview_culture(worldview)
         })
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         """保存文化习俗 - 单项修改"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1414,7 +1471,7 @@ class ApiWorldviewCultureView(BaseWorldAPIView):
             'culture': self.get_worldview_culture(worldview),
         })
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         """AI一键优化文化习俗所有字段 - 流式返回"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1450,6 +1507,8 @@ class ApiWorldviewCultureView(BaseWorldAPIView):
                 chain = prompt | llm
 
                 full_content = ''
+                last_chunk = None
+                usage_chunk = None
                 stream_response = chain.stream({
                     "genre": genre,
                     "festival": festival,
@@ -1466,10 +1525,16 @@ class ApiWorldviewCultureView(BaseWorldAPIView):
                 })
 
                 for chunk in stream_response:
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
 
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_culture', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_content, re.DOTALL)
                 if json_match:
@@ -1516,7 +1581,7 @@ class ApiWorldviewCultureView(BaseWorldAPIView):
 class ApiWorldviewHistoryView(BaseWorldAPIView):
     """重要事件API - 单项修改"""
 
-    def get(self, request, pk):
+    def get(self, request, project_id, pk):
         """获取重要事件"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1527,7 +1592,7 @@ class ApiWorldviewHistoryView(BaseWorldAPIView):
             'history': self.get_worldview_history(worldview)
         })
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         """保存重要事件 - 单项修改"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1559,7 +1624,7 @@ class ApiWorldviewHistoryView(BaseWorldAPIView):
             'history': self.get_worldview_history(worldview),
         })
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         """AI一键优化重要事件所有字段 - 流式返回"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1589,6 +1654,8 @@ class ApiWorldviewHistoryView(BaseWorldAPIView):
                 chain = prompt | llm
 
                 full_content = ''
+                last_chunk = None
+                usage_chunk = None
                 stream_response = chain.stream({
                     "genre": genre,
                     "ancient": ancient,
@@ -1599,10 +1666,16 @@ class ApiWorldviewHistoryView(BaseWorldAPIView):
                 })
 
                 for chunk in stream_response:
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
 
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_history', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_content, re.DOTALL)
                 if json_match:
@@ -1627,7 +1700,7 @@ class ApiWorldviewHistoryView(BaseWorldAPIView):
 class ApiWorldviewSpecialView(BaseWorldAPIView):
     """特色地标API - 单项修改"""
 
-    def get(self, request, pk):
+    def get(self, request, project_id, pk):
         """获取特色地标"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1638,7 +1711,7 @@ class ApiWorldviewSpecialView(BaseWorldAPIView):
             'special': self.get_worldview_special(worldview)
         })
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         """保存特色地标 - 单项修改"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1680,7 +1753,7 @@ class ApiWorldviewSpecialView(BaseWorldAPIView):
             'special': self.get_worldview_special(worldview),
         })
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         """AI一键优化特色地标所有字段 - 流式返回"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1714,6 +1787,8 @@ class ApiWorldviewSpecialView(BaseWorldAPIView):
                 chain = prompt | llm
 
                 full_content = ''
+                last_chunk = None
+                usage_chunk = None
                 stream_response = chain.stream({
                     "genre": genre,
                     "taboo": taboo,
@@ -1728,10 +1803,16 @@ class ApiWorldviewSpecialView(BaseWorldAPIView):
                 })
 
                 for chunk in stream_response:
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
 
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_special', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_content, re.DOTALL)
                 if json_match:
@@ -1772,7 +1853,7 @@ class ApiWorldviewSpecialView(BaseWorldAPIView):
 class ApiWorldviewSettingView(BaseWorldAPIView):
     """基础设定API - 使用 WorldView.setting JSONField 存储"""
 
-    def put(self, request, pk):
+    def put(self, request, project_id, pk):
         """保存基础设定 - WorldView.setting"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1807,7 +1888,7 @@ class ApiWorldviewSettingView(BaseWorldAPIView):
             'setting': self.get_worldview_setting(worldview),
         })
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         """AI一键优化基础设定 - 流式返回"""
         try:
             worldview = self.get_worldview(request.user, pk=pk)
@@ -1837,6 +1918,8 @@ class ApiWorldviewSettingView(BaseWorldAPIView):
                 chain = prompt | llm
 
                 full_content = ''
+                last_chunk = None
+                usage_chunk = None
                 stream_response = chain.stream({
                     "genre": genre,
                     "world_name": world_name,
@@ -1847,10 +1930,16 @@ class ApiWorldviewSettingView(BaseWorldAPIView):
                 })
 
                 for chunk in stream_response:
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
 
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk_content}, ensure_ascii=False)}\n\n"
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_setting', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 # 尝试从返回内容中解析JSON
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', full_content, re.DOTALL)
@@ -1875,7 +1964,7 @@ class ApiWorldviewSettingView(BaseWorldAPIView):
 class ApiWorldviewExportMarkdownView(BaseWorldAPIView):
     """将世界观导出为Markdown格式"""
     
-    def get(self, request, pk):
+    def get(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -1965,7 +2054,7 @@ class ApiWorldviewExportMarkdownView(BaseWorldAPIView):
 class ApiWorldviewChatOpenView(BaseWorldAPIView):
     """聊天页初始数据 — 返回 Markdown + 空缺分析引导问题"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         worldview = self.get_worldview(request.user, pk=pk)
         if not worldview:
             return self.error_response('世界观不存在')
@@ -2007,9 +2096,16 @@ class ApiWorldviewChatOpenView(BaseWorldAPIView):
                 ])
 
                 llm = get_llm(user=request.user, scene="default")
-                chain = prompt | llm | JsonOutputParser()
+                llm_chain = prompt | llm
+                llm_result = llm_chain.invoke({"current_worldview": current_worldview})
+                self.log_token_usage('worldview_init_question', result=llm_result, user=request.user, project=worldview.project)
 
-                result = chain.invoke({"current_worldview": current_worldview})
+                # 手动解析 JSON
+                try:
+                    parser = JsonOutputParser()
+                    result = parser.parse(llm_result.content)
+                except Exception:
+                    result = llm_result.content
                 question = result.get('question', '') if isinstance(result, dict) else ''
                 options = result.get('options', []) if isinstance(result, dict) else []
             except Exception as e:
@@ -2026,7 +2122,7 @@ class ApiWorldviewChatOpenView(BaseWorldAPIView):
 class ApiWorldviewChatStreamView(BaseWorldAPIView):
     """世界观聊天流式生成API — LLM 返回结构化 JSON，增量更新模型后生成 Markdown 流式返回"""
 
-    def post(self, request, pk):
+    def post(self, request, project_id, pk):
         data = request.data
         user_input = data.get('message', '')
         history_messages = data.get('messages', [])
@@ -2066,13 +2162,21 @@ class ApiWorldviewChatStreamView(BaseWorldAPIView):
                 # 先流式接收 LLM 原始输出（避免非流式 invoke 导致的请求超时）
                 chain = prompt | llm
                 full_content = ''
+                last_chunk = None
+                usage_chunk = None
                 for chunk in chain.stream({
                     "current_worldview": current_worldview,
                     "user_input": user_input,
                     "history_messages": history_text,
                 }):
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     full_content += chunk_content
+
+                # 记录 token 使用量
+                self.log_token_usage('worldview_chat', result=last_chunk, usage_result=usage_chunk, user=request.user, project=worldview.project)
 
                 # 解析 JSON 结果
                 parser = JsonOutputParser()

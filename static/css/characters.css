@@ -1,157 +1,16 @@
-/* 页面布局 */
-.page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 24px;
-    background: var(--surface);
-    border-bottom: 1px solid #374151;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    gap: 16px;
-}
-
-.header-left {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex: 1;
-    min-width: 0;
-}
-
-.page-title {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-
-.header-filter {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-left: 20px;
-    flex: 1;
-    min-width: 0;
-}
-
-.header-filter .search-box {
-    position: relative;
-    flex: 1;
-    min-width: 0;
-    max-width: 220px;
-}
-
-.header-filter .search-box i {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #6b7280;
-    font-size: 13px;
-}
-
-.header-filter .search-box input {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 8px 12px 8px 34px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    font-size: 13px;
-    background: var(--surface-dark);
-    color: var(--text-primary);
-    transition: all 0.2s;
-}
-
-.header-filter .search-box input:focus {
-    outline: none;
-    border-color: var(--primary);
-    background: var(--surface-dark);
-}
-
-.header-filter select {
-    flex-shrink: 0;
-    min-width: 120px;
-    box-sizing: border-box;
-    padding: 8px 28px 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    font-size: 13px;
-    background: var(--surface-dark) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center;
-    appearance: none;
-    cursor: pointer;
-    color: var(--text-secondary);
-    transition: all 0.2s;
-}
-
-.header-filter select:focus {
-    outline: none;
-    border-color: var(--primary);
-    background-color: var(--surface-dark);
-}
-
-.header-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.btn-back {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.btn-back:hover {
-    background: #374151;
-    border-color: var(--border);
-}
-
-.page-content {
-    padding: 24px;
-    max-width: 1400px;
-    margin: 0 auto;
-}
-
 /* 基础角色库页面样式 */
 /* 颜色变量继承自 common.css */
 
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background: linear-gradient(135deg, var(--bg-page) 0%, #1e293b 50%, var(--bg-page) 100%);
-    background-attachment: fixed;
-    color: var(--text-primary);
-    line-height: 1.6;
+/* page-full-height 布局已在 common.css 中定义，此处仅覆盖 padding */
+.page-full-height .page-content {
+    padding: 1.5rem;
 }
 
-/* 按钮悬停效果 */
-.btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.3);
-}
-
-/* 创建角色按钮悬停 */
-.btn-create:hover {
-    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%) !important;
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.5) !important;
-}
-
-/* 角色列表 - 卡片形式 */
+/* 角色列表 - 九宫格布局 */
 .char-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
+    gap: 16px;
 }
 
 /* 已删除角色分组 */
@@ -184,8 +43,8 @@ body {
 
 .deleted-section-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
 }
 
 .char-item {
@@ -234,16 +93,27 @@ body {
     font-size: 18px;
     font-weight: 600;
     color: var(--text-primary);
-    margin-bottom: 4px;
+    margin: 0 0 4px 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.3;
 }
 
 .char-item-tags {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow: hidden;
     gap: 8px;
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+}
+
+.char-item-tags:hover {
+    flex-wrap: wrap;
+    overflow: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
 }
 
 .role-tag {
@@ -254,6 +124,11 @@ body {
     border-radius: 8px;
     display: inline-block;
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+    flex-shrink: 0;
 }
 
 .faction-tag {
@@ -264,6 +139,11 @@ body {
     border-radius: 8px;
     display: inline-block;
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+    flex-shrink: 0;
 }
 
 .deleted-tag {
@@ -309,158 +189,60 @@ body {
 }
 
 .btn-restore:hover {
-    background: rgba(129, 140, 248, 0.25);
+    background: rgba(96, 109, 227, 0.25);
     border-color: var(--primary);
 }
 
-/* 模态框 */
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 20px;
-    overflow-y: auto;
+/* 页面特有：弹窗覆盖（尺寸 / 视觉风格） */
+.dialog-header {
+    padding: 0.625rem 1.25rem;
 }
 
-.modal-overlay.active {
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
+.dialog-footer {
+    padding: 0.5rem 1.25rem;
 }
 
-.modal-overlay .modal {
+.dialog-overlay .dialog {
     position: relative;
     background: var(--surface);
-    border-radius: 16px;
     border: 1px solid #374151;
-    width: 100%;
-    max-width: 800px;
-    max-height: 90vh;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
+    width: 50%;
+    max-width: 1100px;
+    min-height: 480px;
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-    align-self: center;
 }
 
-/* 确认弹窗 - 黄金比例，宽 > 高，无滚动 */
-.modal-overlay .modal.confirm-modal {
-    width: 420px !important;
-    height: 260px !important;
-    max-width: 90vw !important;
-    max-height: none !important;
-    align-self: center !important;
-    overflow: hidden;
-}
-
-.modal-overlay .modal.confirm-modal .modal-body {
-    padding: 18px 24px !important;
-    flex: 1;
+/* 创建/编辑弹窗 body 弹性占满剩余高度，内部 tab 切换+滚动 */
+#createDialog .dialog-body,
+#editDialog .dialog-body {
+    padding: 0;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-    overflow: hidden;
 }
 
-.modal-overlay .modal.confirm-modal .confirm-icon {
-    font-size: 34px;
-    color: #f87171;
-    margin-bottom: 10px;
+/* 标签栏在 body 内部，固定不缩放 */
+#createDialog .dialog-body .create-tabs,
+#editDialog .dialog-body .edit-tabs {
+    flex-shrink: 0;
+    padding: 0 1.5rem;
 }
 
-.modal-overlay .modal.confirm-modal .confirm-main-text {
-    font-size: 15px;
-    color: var(--text-secondary);
-    margin-bottom: 6px;
-}
-
-.modal-overlay .modal.confirm-modal .confirm-hint-text {
-    font-size: 12px;
-    color: var(--text-muted);
-}
-
-.modal-overlay .modal.confirm-modal .confirm-footer {
-    justify-content: center;
-    padding: 10px 16px !important;
-    gap: 12px;
-}
-
-.modal-header {
-    padding: 4px 6px;
-    max-height: 40px;
-    border-bottom: none;
-    display: flex;
-    align-items: center;
-    position: relative;
-    background: linear-gradient(135deg, var(--primary-dark) 0%, #4f46e5 100%);
-}
-
-.modal-header h3 {
-    flex: 1;
-    text-align: center;
-    font-size: 16px;
-    font-weight: 600;
-    color: white;
-}
-
-.modal-close {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    border: none;
-    background: rgba(255, 255, 255, 0.2);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-    color: white;
-}
-
-.modal-close:hover {
-    background: rgba(255, 255, 255, 0.3);
-}
-
-.modal-close i {
-    color: white;
-}
-
-.modal-body {
-    padding: 24px;
-    overflow-y: auto;
+/* 标签页内容占满 body 剩余空间，内部滚动 */
+#createDialog .tab-content.active,
+#editDialog .tab-content.active {
     flex: 1;
     min-height: 0;
-    max-height: none;
-    color: var(--text-secondary);
-}
-
-.modal-footer {
-    padding: 12px 24px;
-    border-top: 1px solid #374151;
+    overflow-y: auto;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    flex-shrink: 0;
-    background: var(--surface);
+    flex-direction: column;
+    padding: 1rem 1.5rem;
 }
 
-.modal-footer .footer-right {
-    display: flex;
-    gap: 12px;
-}
+/* 确认弹窗 - 复用 common.js 的通用确认弹窗 */
 
-/* 表单 */
+/* 表单基础样式已在 common.css 中定义 */
+
+/* 页面特有：表单组 flex 布局 */
 .form-group {
     display: flex;
     flex-direction: column;
@@ -506,71 +288,31 @@ body {
     resize: vertical;
 }
 
-.btn-danger {
-    background: linear-gradient(135deg, #f87171 0%, var(--danger) 100%);
-    color: white;
-    border: none;
-}
-
-.btn-danger:hover {
-    background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
-    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
-}
-
-.btn-sm {
-    padding: 6px 12px;
-    font-size: 13px;
-}
-
-/* 空状态 */
-.empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    padding: 48px 24px;
-    color: var(--text-muted);
-}
-
-.empty-state-icon {
-    width: 64px;
-    height: 64px;
-    margin: 0 auto 16px;
-    background: #374151;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #6b7280;
-}
-
-.empty-state-icon i {
-    font-size: 28px;
-    color: #6b7280;
-}
-
-.empty-state h3 {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 8px;
-}
-
-.empty-state p {
-    font-size: 14px;
-    margin-bottom: 20px;
-    color: var(--text-muted);
-}
+/* 空状态已在 common.css 中定义 */
 
 /* 加载状态 - 使用 common.css 的全局 loading 组件 */
 
 /* 对话框区块 */
 .dialog-section {
-    margin-bottom: 20px;
+    /* margin-bottom: 20px; */
     padding: 16px 20px;
     background: #374151;
     border-radius: 12px;
     border: 1px solid var(--border);
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.dialog-section .form-group {
+    flex: 1;
+    min-height: 0;
+}
+
+.dialog-section .form-group textarea {
+    flex: 1;
+    min-height: 80px;
 }
 
 .dialog-section-title {
@@ -593,8 +335,9 @@ body {
     margin-top: 8px;
 }
 
-/* 创建标签页 */
-.create-tabs {
+/* 创建/编辑标签页 - 公共样式 */
+.create-tabs,
+.edit-tabs {
     display: flex;
     gap: 0;
     padding: 0 24px;
@@ -602,11 +345,10 @@ body {
     border-bottom: 1px solid #374151;
 }
 
-.create-tab {
-    padding: 14px 28px;
+.create-tab,
+.edit-tab {
     border: none;
     background: transparent;
-    font-size: 14px;
     font-weight: 500;
     color: var(--text-muted);
     cursor: pointer;
@@ -615,35 +357,54 @@ body {
     transition: all 0.2s;
     display: flex;
     align-items: center;
-    gap: 8px;
 }
 
-.create-tab:hover {
+.create-tab:hover,
+.edit-tab:hover {
     color: var(--primary);
     background: rgba(99, 102, 241, 0.1);
 }
 
-.create-tab.active {
+.create-tab.active,
+.edit-tab.active {
     color: var(--primary);
     border-bottom-color: var(--primary);
     background: var(--surface);
     font-weight: 600;
 }
 
-.tab-content {
-    display: none;
+.create-tab {
+    padding: 14px 28px;
+    font-size: 14px;
+    gap: 8px;
 }
 
-.tab-content.active {
-    display: block;
+.edit-tab {
+    padding: 14px 20px;
+    font-size: 13px;
+    gap: 6px;
+    flex: 1;
+    justify-content: center;
+    text-align: center;
 }
 
-/* 表单行 */
+.edit-tab i {
+    font-size: 12px;
+}
+
+/* .tab-content 和 .tab-content.active 已在 common.css 中定义 */
+
+/* 表单行 - 页面特有：使用 grid 两列布局（common.css 使用 flex 布局） */
 .form-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     margin-bottom: 16px;
+}
+
+/* 表单组全宽 - 在 form-row grid 中跨两列 */
+.form-group.full-width {
+    grid-column: 1 / -1;
 }
 
 /* AI生成内容 */
@@ -665,53 +426,6 @@ body {
     gap: 8px;
 }
 
-/* 按钮样式 */
-.btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-secondary);
-    line-height: 1.2;
-}
-
-.btn[hidden] {
-    display: none !important;
-}
-
-.btn-outline {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-}
-
-.btn-outline:hover {
-    background: rgba(99, 102, 241, 0.1);
-    border-color: var(--primary);
-    color: var(--primary);
-}
-
-.btn-primary {
-    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-    color: white;
-    border: none;
-    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
-}
-
-.btn-primary:hover {
-    background: linear-gradient(135deg, var(--primary-dark) 0%, #4f46e5 100%);
-    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
-    transform: translateY(-2px);
-}
-
 /* 响应式 */
 @media (max-width: 768px) {
     .form-row {
@@ -719,10 +433,10 @@ body {
     }
 
     .char-list {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     }
 
-    .modal {
+    .dialog {
         margin: 10px;
     }
 
@@ -752,47 +466,6 @@ body {
         border-left-color: var(--primary);
         border-bottom: none;
     }
-}
-
-/* 编辑标签页 */
-.edit-tabs {
-    display: flex;
-    gap: 0;
-    padding: 0 24px;
-    background: var(--surface);
-    border-bottom: 1px solid #374151;
-}
-
-.edit-tab {
-    padding: 14px 20px;
-    border: none;
-    background: transparent;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-bottom: 3px solid transparent;
-    margin-bottom: -1px;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.edit-tab:hover {
-    color: var(--primary);
-    background: rgba(99, 102, 241, 0.1);
-}
-
-.edit-tab.active {
-    color: var(--primary);
-    border-bottom-color: var(--primary);
-    background: var(--surface);
-    font-weight: 600;
-}
-
-.edit-tab i {
-    font-size: 12px;
 }
 
 /* 人际关系表格 & 经历表格 - 共用样式 */
@@ -943,29 +616,21 @@ body {
     white-space: nowrap;
 }
 
-.check-result-type.contradiction {
-    background: rgba(239, 68, 68, 0.2);
-    color: #f87171;
-}
-
-.check-result-type.duplicate {
-    background: rgba(245, 158, 11, 0.2);
-    color: #fbbf24;
-}
-
+.check-result-type.contradiction,
 .check-result-type.conflict {
     background: rgba(239, 68, 68, 0.2);
     color: #f87171;
 }
 
-.check-result-type.missing {
-    background: rgba(99, 102, 241, 0.2);
-    color: var(--primary-light);
-}
-
+.check-result-type.duplicate,
 .check-result-type.unreasonable {
     background: rgba(245, 158, 11, 0.2);
     color: #fbbf24;
+}
+
+.check-result-type.missing {
+    background: rgba(99, 102, 241, 0.2);
+    color: var(--primary-light);
 }
 
 .check-result-severity {
@@ -1057,6 +722,11 @@ body {
 .check-modal {
     max-width: 60% !important;
     min-width: 700px;
+}
+
+#checkDialog .dialog-body {
+    max-height: 55vh;
+    overflow-y: auto;
 }
 
 /* ===== AI优化结果样式 ===== */
@@ -1285,4 +955,103 @@ body {
 .batch-character-description strong {
     color: var(--text-primary);
     font-weight: 500;
+}
+
+/* ===== 提取的内联样式 ===== */
+
+/* 弹窗内加载状态 */
+.dialog-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 16px;
+    padding: 40px 0;
+}
+
+.dialog-loading .loading-spinner {
+    position: relative;
+    width: 40px;
+    height: 40px;
+}
+
+.dialog-loading .loading-spinner-outer {
+    position: absolute;
+    inset: 0;
+    border: 3px solid rgba(129, 140, 248, 0.12);
+    border-top: 3px solid var(--primary);
+    border-radius: 50%;
+    animation: spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.dialog-loading .loading-spinner-inner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    transform: translate(-50%, -50%);
+    border: 2px solid rgba(129, 140, 248, 0.1);
+    border-bottom: 2px solid var(--primary-light);
+    border-radius: 50%;
+    animation: spin-reverse 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.dialog-loading p {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin: 0;
+}
+
+/* 弹窗 footer 按钮左对齐（删除按钮、AI按钮） */
+.dialog-footer .btn-align-left {
+    margin-right: auto;
+}
+
+/* 通用 textarea 高度 */
+.textarea-md {
+    min-height: 80px;
+}
+
+.textarea-lg {
+    min-height: 100px;
+}
+
+.textarea-xl {
+    min-height: 120px;
+}
+
+/* 确认弹窗 - 不采用固定高度，保持内容自适应 */
+#confirm-modal .dialog {
+    height: auto;
+    min-height: auto;
+    /* max-width: 420px; */
+}
+
+#confirm-modal .dialog-body {
+    text-align: center;
+}
+
+#confirm-modal .dialog-body .warning-icon {
+    font-size: 34px;
+    color: #f87171;
+    margin-bottom: 10px;
+    display: block;
+}
+
+#confirm-modal .dialog-body .confirm-message {
+    color: var(--text-secondary);
+    font-size: 15px;
+}
+
+#confirm-modal .dialog-body .confirm-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+#confirm-modal .dialog-footer {
+    justify-content: center;
+    gap: 12px;
 }

@@ -39,7 +39,7 @@ def suggest_title_from_outline(outline: str, user=None, project=None) -> list:
         HumanMessage(content=prompt)
     ]
 
-    response = call_llm_with_retry(messages, user=user, scene="default")
+    response = call_llm_with_retry(messages, user=user, scene="default", project=project, task_type='project_title_suggest_json')
 
     try:
         result = json.loads(response)
@@ -67,7 +67,7 @@ def suggest_description_from_outline(outline: str, user=None, project=None) -> s
         HumanMessage(content=prompt)
     ]
 
-    return call_llm_with_retry(messages, user=user, scene="default")
+    return call_llm_with_retry(messages, user=user, scene="default", project=project, task_type='project_description_suggest')
 
 
 def generate_project_title():
@@ -103,12 +103,12 @@ class ApiAutoSaveChatView(BaseAPIView):
 
     def post(self, request):
         try:
-            project_id = request.POST.get('project_id')
-            outline = request.POST.get('outline', '')
-            messages = request.POST.get('messages', '[]')
-            create_version = request.POST.get('create_version', 'false').lower() == 'true'
-            title = request.POST.get('title', '')
-            description = request.POST.get('description', '')
+            project_id = request.data.get('project_id')
+            outline = request.data.get('outline', '')
+            messages = request.data.get('messages', '[]')
+            create_version = request.data.get('create_version', 'false').lower() == 'true'
+            title = request.data.get('title', '')
+            description = request.data.get('description', '')
 
             messages_list = json.loads(messages) if messages else []
 
@@ -279,7 +279,7 @@ class ApiProjectListView(BaseAPIView):
 
 
 class ApiProjectDetailView(BaseAPIView):
-    '''项目详情API视图'''
+    '''项目详情API视图（GET/PUT/DELETE）'''
 
     def get(self, request, pk):
         try:
@@ -390,6 +390,35 @@ class ApiProjectDetailView(BaseAPIView):
             traceback.print_exc()
             return JsonResponse({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    def put(self, request, pk):
+        """更新项目"""
+        try:
+            project = get_object_or_404(ProjectList, pk=pk, user=request.user)
+            title = request.data.get('title', '').strip()
+            description = request.data.get('description', '')
+
+            if title and title != project.title:
+                if ProjectList.objects.filter(user=request.user, title=title, is_deleted=False).exclude(pk=pk).exists():
+                    return JsonResponse({'success': False, 'error': '该项目名称已存在'}, status=400)
+                project.title = title
+            if description is not None:
+                project.description = description
+
+            project.save()
+            return JsonResponse({'success': True})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+
+    def delete(self, request, pk):
+        """软删除项目"""
+        try:
+            project = get_object_or_404(ProjectList, pk=pk, user=request.user)
+            project.is_deleted = True
+            project.save()
+            return Response({'success': True})
+        except Exception as e:
+            return Response({'success': False, 'message': 'internal server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class ApiProjectCreateView(BaseAPIView):
     '''创建项目API'''
@@ -416,44 +445,6 @@ class ApiProjectCreateView(BaseAPIView):
                     'created_at': project.created_at.strftime('%Y-%m-%d %H:%M')
                 }
             })
-        except Exception as e:
-            return JsonResponse({'success': False, 'error': str(e)})
-
-
-class ApiProjectDeleteView(BaseAPIView):
-    '''删除项目API（软删除）'''
-
-    def post(self, request, pk):
-        try:
-            project = get_object_or_404(ProjectList, pk=pk, user=request.user)
-            project.is_deleted = True
-            project.save()
-            return Response({'success': True})
-        except Exception as e:
-            return Response({'success': False, 'message': 'internal server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class ApiProjectUpdateView(BaseAPIView):
-    '''更新项目API'''
-
-    def post(self, request, pk):
-        try:
-            project = get_object_or_404(ProjectList, pk=pk, user=request.user)
-
-            title = request.data.get('title', '').strip()
-            description = request.data.get('description', '')
-
-            if title and title != project.title:
-                # 检查同名项目是否存在（排除自己）
-                if ProjectList.objects.filter(user=request.user, title=title, is_deleted=False).exclude(pk=pk).exists():
-                    return JsonResponse({'success': False, 'error': '该项目名称已存在'}, status=400)
-                project.title = title
-            if description is not None:
-                project.description = description
-
-            project.save()
-
-            return JsonResponse({'success': True})
         except Exception as e:
             return JsonResponse({'success': False, 'error': str(e)})
 
@@ -520,10 +511,10 @@ class ApiProjectStatsView(BaseAPIView):
 class ApiTitleSuggestView(BaseAPIView):
     """AI生成书名建议API"""
 
-    def post(self, request):
+    def post(self, request, pk):
         try:
             outline = request.data.get('outline', '')
-            project_id = request.data.get('project_id')
+            project_id = pk
             
             # 如果提供了project_id，从项目获取大纲内容
             if project_id:
@@ -539,7 +530,7 @@ class ApiTitleSuggestView(BaseAPIView):
             if not outline:
                 return JsonResponse({'success': False, 'message': '请提供大纲内容'})
 
-            titles = suggest_title_from_outline(outline, user=request.user)
+            titles = suggest_title_from_outline(outline, user=request.user, project=project if project_id else None)
             
             return JsonResponse({'success': True, 'titles': titles})
         except Exception as e:
@@ -550,10 +541,10 @@ class ApiTitleSuggestView(BaseAPIView):
 class ApiDescriptionSuggestView(BaseAPIView):
     """AI生成简介建议API"""
 
-    def post(self, request):
+    def post(self, request, pk):
         try:
-            outline = request.data.get('outline', '') or request.POST.get('outline', '')
-            project_id = request.data.get('project_id') or request.POST.get('project_id')
+            outline = request.data.get('outline', '')
+            project_id = pk
             
             # 如果提供了project_id，从项目获取大纲内容
             if project_id:
@@ -570,7 +561,7 @@ class ApiDescriptionSuggestView(BaseAPIView):
             if not outline:
                 return JsonResponse({'success': False, 'message': '请提供大纲内容'})
 
-            description = suggest_description_from_outline(outline, user=request.user)
+            description = suggest_description_from_outline(outline, user=request.user, project=project if project_id else None)
             
             return JsonResponse({'success': True, 'description': description})
         except Exception as e:
@@ -583,11 +574,11 @@ class ApiSaveProjectView(BaseAPIView):
 
     def post(self, request):
         try:
-            project_id = request.data.get('project_id') or request.POST.get('project_id')
-            title = request.data.get('title') or request.POST.get('title', '')
-            description = request.data.get('description') or request.POST.get('description', '')
-            outline = request.data.get('outline') or request.POST.get('outline', '')
-            messages = request.data.get('messages') or request.POST.get('messages', '[]')
+            project_id = request.data.get('project_id')
+            title = request.data.get('title', '')
+            description = request.data.get('description', '')
+            outline = request.data.get('outline', '')
+            messages = request.data.get('messages', '[]')
             
             messages_list = json.loads(messages) if messages else []
 
@@ -652,11 +643,11 @@ class ApiSaveProjectView(BaseAPIView):
 class ApiEnhanceDescriptionView(BaseAPIView):
     """AI完善描述API - 流式响应"""
 
-    def post(self, request):
+    def post(self, request, pk=None):
         try:
             title = request.data.get('title', '').strip()
             description = request.data.get('description', '').strip()
-            project_id = request.data.get('project_id')
+            project_id = pk
 
             if not description:
                 return JsonResponse({'success': False, 'error': '请提供描述内容'})
@@ -703,6 +694,7 @@ class ApiEnhanceDescriptionView(BaseAPIView):
                     "worldview": worldview,
                     "outline": outline
                 })
+                self.log_token_usage('project_enhance_description', result=result, user=request.user, project=project if project_id else None)
 
                 full_content = result.content if hasattr(result, 'content') else str(result)
 
@@ -749,7 +741,7 @@ def generate_project_info(outline: str, user=None, project=None) -> Optional[dic
         HumanMessage(content=prompt)
     ]
 
-    response = call_llm_with_retry(messages, user=user, scene="default")
+    response = call_llm_with_retry(messages, user=user, scene="default", project=project, task_type='project_info_generate')
 
     try:
         return json.loads(response)
@@ -766,7 +758,7 @@ def suggest_title(outline: str, user=None, project=None) -> str:
         HumanMessage(content=prompt)
     ]
 
-    return call_llm_with_retry(messages, user=user, scene="default")
+    return call_llm_with_retry(messages, user=user, scene="default", project=project, task_type='project_title_suggest')
 
 
 def rewrite_title(original_title: str, user=None, project=None) -> list:
@@ -777,7 +769,7 @@ def rewrite_title(original_title: str, user=None, project=None) -> list:
         HumanMessage(content=prompt)
     ]
 
-    response = call_llm_with_retry(messages, user=user, scene="default")
+    response = call_llm_with_retry(messages, user=user, scene="default", project=project, task_type='project_title_rewrite')
 
     try:
         result = json.loads(response)
@@ -802,7 +794,7 @@ def optimize_description(description: str, user=None, project=None) -> str:
         HumanMessage(content=prompt)
     ]
 
-    return call_llm_with_retry(messages, user=user, scene="default")
+    return call_llm_with_retry(messages, user=user, scene="default", project=project, task_type='project_description_optimize')
 
 
 # ============ 项目信息生成视图（从 apps/ai 迁移） ============

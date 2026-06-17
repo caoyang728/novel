@@ -10,11 +10,9 @@ window.addEventListener('pageshow', function(event) {
 });
 
 function getProjectIdFromUrl() {
-    const pathParts = window.location.pathname.split('/').filter(p => p);
-    if (pathParts.length > 0 && !isNaN(parseInt(pathParts[0]))) {
-        return parseInt(pathParts[0]);
-    }
-    return null;
+    const urlParams = new URLSearchParams(window.location.search);
+    const projectId = urlParams.get('project_id');
+    return projectId || null;
 }
 
 /**
@@ -243,13 +241,7 @@ async function _handleLoginSubmit(e) {
     errorDiv.style.display = 'none';
 
     try {
-        const response = await fetch('/login/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-
-        const data = await response.json();
+        const data = await api.post('/login/', { username, password });
 
         if (data.success) {
             localStorage.setItem('access_token', data.access);
@@ -322,12 +314,46 @@ function _createToastContainer() {
     return container;
 }
 
+// 滚动锁定/解锁（模态框等场景）
+function lockScroll() {
+    document.body.style.overflow = 'hidden';
+}
+
+function unlockScroll() {
+    document.body.style.overflow = '';
+}
+
 // HTML转义
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+/**
+ * 从 LLM 返回的流式文本中提取 JSON 对象/数组
+ * 兼容 SSE 包裹和纯 JSON 字符串
+ */
+function extractJsonFromString(str) {
+    if (!str) return null;
+    const trimmed = str.trim();
+    // 尝试直接解析
+    try {
+        return JSON.parse(trimmed);
+    } catch (e) {
+        // 尝试提取 JSON 对象
+        const objMatch = trimmed.match(/\{[\s\S]*\}/);
+        if (objMatch) {
+            try { return JSON.parse(objMatch[0]); } catch (e2) {}
+        }
+        // 尝试提取 JSON 数组
+        const arrMatch = trimmed.match(/\[[\s\S]*\]/);
+        if (arrMatch) {
+            try { return JSON.parse(arrMatch[0]); } catch (e3) {}
+        }
+    }
+    return null;
 }
 
 // 安全的 Markdown 解析：DOMPurify 消毒 + 错误兜底
@@ -503,10 +529,13 @@ const api = {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
+        // 提取 options 中可能覆盖 headers 的属性，避免 ...options spread 覆盖手动构造的 headers
+        const { headers: _omittedHeaders, contentType: _omittedContentType, ...safeOptions } = options;
+
         const config = {
             method: options.method || 'GET',
             headers,
-            ...options
+            ...safeOptions
         };
 
         if (options.body) {
@@ -575,6 +604,9 @@ const api = {
     },
 
     // 流式请求（聚合返回）
+    // 支持的 SSE 协议格式（优先级从高到低）：
+    //   1. {"type":"chunk","data":"..."} + {"type":"complete","data":"..."} + {"type":"error","message":"..."}
+    //   2. data: [DONE] + {"content":"..."} 或 {"data":"..."}（旧格式兼容）
     async streamRequest(url, options = {}) {
         const token = getToken();
         if (!token) {
@@ -626,20 +658,32 @@ const api = {
                 buffer = lines.pop() || '';
 
                 for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        if (data === '[DONE]') {
-                            return result;
-                        }
-                        try {
-                            const parsed = JSON.parse(data);
-                            const chunkContent = parsed.content || parsed.data || '';
-                            if (chunkContent) {
-                                result += chunkContent;
-                            }
-                        } catch (e) {
-                        }
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6);
+                    if (data === '[DONE]') return result;
+
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(data);
+                    } catch (e) {
+                        continue;  // 非 JSON 数据跳过
                     }
+
+                    // 格式1: type: chunk|complete|error
+                    if (parsed.type === 'complete') {
+                        return parsed.data !== undefined ? parsed.data : result;
+                    }
+                    if (parsed.type === 'error') {
+                        throw new Error(parsed.message || '操作失败');
+                    }
+                    if (parsed.type === 'chunk' && parsed.data) {
+                        result += parsed.data;
+                        continue;
+                    }
+
+                    // 格式2: 旧格式兼容 {content: "..."} 或 {data: "..."}
+                    const chunkContent = parsed.content || parsed.data || '';
+                    if (chunkContent) result += chunkContent;
                 }
             }
 
@@ -744,3 +788,439 @@ const api = {
         showLoginModal(onSuccess);
     }
 };
+
+// ==================== 通用聊天多选删除 ====================
+// 使用方式：页面需定义全局变量 let isSelectionMode = false; let selectedMessages = new Set();
+// 聊天头部 HTML 需包含 #toggle-selection-btn, #selection-actions, #cancel-selection-btn,
+//   #delete-selected-btn, #select-all-btn 等元素
+
+function enterSelectionMode() {
+    isSelectionMode = true;
+    selectedMessages.clear();
+    const toggleBtn = document.getElementById('toggle-selection-btn');
+    const selActions = document.getElementById('selection-actions');
+    const ctxSelect = document.getElementById('context-count-select');
+    const chatMessages = document.getElementById('chat-messages');
+    if (toggleBtn) toggleBtn.style.display = 'none';
+    if (selActions) selActions.style.display = 'flex';
+    if (ctxSelect) ctxSelect.style.display = 'none';
+    if (chatMessages) chatMessages.classList.add('selection-mode');
+    if (typeof onSelectionModeChanged === 'function') onSelectionModeChanged();
+}
+
+function cancelSelection() {
+    isSelectionMode = false;
+    selectedMessages.clear();
+    const toggleBtn = document.getElementById('toggle-selection-btn');
+    const selActions = document.getElementById('selection-actions');
+    const ctxSelect = document.getElementById('context-count-select');
+    const chatMessages = document.getElementById('chat-messages');
+    if (toggleBtn) toggleBtn.style.display = 'flex';
+    if (selActions) selActions.style.display = 'none';
+    if (ctxSelect) ctxSelect.style.display = 'flex';
+    if (chatMessages) chatMessages.classList.remove('selection-mode');
+    if (typeof onSelectionModeChanged === 'function') onSelectionModeChanged();
+}
+
+function toggleMessageSelect(index) {
+    if (!isSelectionMode) return;
+    if (selectedMessages.has(index)) {
+        selectedMessages.delete(index);
+    } else {
+        selectedMessages.add(index);
+    }
+    const div = document.querySelector(`.chat-message[data-message-index="${index}"]`);
+    if (div) div.classList.toggle('selected');
+    const delBtn = document.getElementById('delete-selected-btn');
+    if (delBtn) delBtn.disabled = selectedMessages.size === 0;
+}
+
+function toggleSelectAll() {
+    if (!isSelectionMode) return;
+    const checkboxes = document.querySelectorAll('.chat-message-checkbox');
+    const allChecked = selectedMessages.size === messages.length;
+    if (allChecked) {
+        selectedMessages.clear();
+    } else {
+        messages.forEach((_, i) => selectedMessages.add(i));
+    }
+    checkboxes.forEach((cb, i) => {
+        cb.checked = !allChecked;
+        const div = document.querySelector(`.chat-message[data-message-index="${i}"]`);
+        if (div) div.classList.toggle('selected', !allChecked);
+    });
+    const delBtn = document.getElementById('delete-selected-btn');
+    if (delBtn) delBtn.disabled = selectedMessages.size === 0;
+}
+
+function deleteSelectedMessages() {
+    if (selectedMessages.size === 0) return;
+    showModal('删除对话', `确定要删除选中的 ${selectedMessages.size} 条对话吗？`, function() {
+        const sorted = Array.from(selectedMessages).sort((a, b) => b - a);
+        sorted.forEach(i => messages.splice(i, 1));
+        selectedMessages.clear();
+        cancelSelection();
+        closeModal();
+        showSuccess('删除成功！');
+    });
+}
+
+// ==================== 项目信息加载 ====================
+
+/**
+ * 加载项目信息并更新 #project-title
+ * @param {string|number} projectId - 项目ID
+ * @param {Function} onSuccess - 可选回调，接收 data 参数用于额外处理
+ */
+async function loadProjectInfo(projectId, onSuccess) {
+    try {
+        const data = await api.get(`/api/projects/${projectId}/`);
+        if (data && data.success) {
+            const titleEl = document.getElementById('project-title');
+            if (titleEl) titleEl.textContent = data.project.title || '';
+            if (onSuccess) onSuccess(data);
+        }
+    } catch (error) {
+        console.error('加载项目信息失败:', error);
+    }
+}
+
+// ==================== 用户信息加载 ====================
+
+/**
+ * 加载用户信息和今日Token用量
+ * @param {Object} options - 配置项
+ * @param {string} options.usernameEl - 用户名元素ID，默认 'username'
+ * @param {string} options.tokenUsageEl - Token用量元素ID，默认 'token-usage'
+ */
+async function loadUserInfo(options = {}) {
+    const usernameElId = options.usernameEl || 'username';
+    const tokenUsageElId = options.tokenUsageEl || 'token-usage';
+
+    try {
+        const data = await api.get('/api/auth/user/');
+        if (data && data.success) {
+            const el = document.getElementById(usernameElId);
+            if (el) el.textContent = data.user.username;
+        }
+    } catch (error) {
+        console.error('Failed to load user info:', error);
+    }
+
+    try {
+        const data = await api.get('/api/token-usage/today/');
+        if (data && data.success) {
+            const total = data.usage.total_tokens || 0;
+            const formatted = formatTokenCount(total);
+            const el = document.getElementById(tokenUsageElId);
+            if (el) el.textContent = '今日 Token: ' + formatted;
+        }
+    } catch (error) {
+        console.error('Failed to load token usage:', error);
+    }
+}
+
+/**
+ * 格式化 Token 数量
+ * @param {number} num - 数字
+ * @returns {string} 格式化后的字符串
+ */
+function formatTokenCount(num) {
+    if (num >= 1000000) {
+        return (num / 1000000).toFixed(1) + 'M';
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(1) + 'k';
+    }
+    return num || 0;
+}
+
+// ==================== 按钮状态工具 ====================
+
+/**
+ * 设置按钮为 loading 状态
+ * @param {HTMLElement} btn - 按钮元素
+ * @param {string} loadingText - loading 时显示的文字
+ * @returns {string} 按钮原始 innerHTML，用于恢复
+ */
+function setButtonLoading(btn, loadingText) {
+    if (!btn) return '';
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="loading-spinner"></span> ${loadingText || '处理中...'}`;
+    return originalHTML;
+}
+
+/**
+ * 恢复按钮状态
+ * @param {HTMLElement} btn - 按钮元素
+ * @param {string} originalHTML - 原始 innerHTML
+ */
+function resetButton(btn, originalHTML) {
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+}
+
+// ==================== 聊天输入框初始化 ====================
+
+/**
+ * 初始化聊天输入框：Enter发送 + 自动高度调整
+ * @param {string|HTMLElement} inputEl - 输入框元素或选择器
+ * @param {Object} options - 配置项
+ * @param {Function} options.onSend - Enter发送回调
+ * @param {number} options.maxHeight - 最大高度(px)，默认160
+ * @param {boolean} options.shiftEnterNewline - Shift+Enter换行，默认true
+ */
+function initChatInput(inputEl, options = {}) {
+    const input = typeof inputEl === 'string' ? document.querySelector(inputEl) : inputEl;
+    if (!input) return;
+
+    const { onSend, maxHeight = 160, shiftEnterNewline = true } = options;
+
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            if (shiftEnterNewline && e.shiftKey) return; // Shift+Enter 换行
+            e.preventDefault();
+            if (onSend) onSend();
+        }
+    });
+
+    input.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, maxHeight) + 'px';
+    });
+}
+
+// ==================== 模态框 ID 操作（多页面共用） ====================
+
+/**
+ * 通过 ID 打开模态框（添加 show 类）
+ * @param {string} id - 模态框元素 ID
+ */
+function openModalById(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('show');
+}
+
+/**
+ * 通过 ID 关闭模态框（移除 show 类）
+ * @param {string} id - 模态框元素 ID
+ */
+function closeModalById(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('show');
+}
+
+// ==================== ESC 键关闭模态框（全局行为） ====================
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        // 关闭所有打开的模态框
+        const openModals = document.querySelectorAll('.dialog-overlay.show, .modal-overlay.show, .custom-modal-overlay.show');
+        openModals.forEach(modal => modal.classList.remove('show'));
+        // 恢复滚动
+        document.body.style.overflow = '';
+    }
+});
+
+// ==================== 通用工具函数（多页面共用） ====================
+
+/**
+ * 显示元素（移除 dc-hidden 类或 d-none 类）
+ * @param {HTMLElement|string} el - 元素或元素 ID
+ */
+function showElement(el) {
+    if (typeof el === 'string') el = document.getElementById(el);
+    if (el) {
+        el.classList.remove('dc-hidden');
+        el.classList.remove('d-none');
+    }
+}
+
+/**
+ * 隐藏元素（添加 dc-hidden 类或 d-none 类）
+ * @param {HTMLElement|string} el - 元素或元素 ID
+ * @param {string} [hideClass='dc-hidden'] - 隐藏类名，默认 dc-hidden
+ */
+function hideElement(el, hideClass) {
+    if (typeof el === 'string') el = document.getElementById(el);
+    if (el) {
+        el.classList.add(hideClass || 'dc-hidden');
+    }
+}
+
+/**
+ * 设置表单字段值（支持字符串、数组、对象）
+ * @param {string} id - 元素 ID
+ * @param {*} value - 值
+ */
+function setField(id, value) {
+    const el = document.getElementById(id);
+    if (el && value != null && value !== '') {
+        if (typeof value === 'string') {
+            el.value = value;
+        } else if (Array.isArray(value)) {
+            el.value = value.join('\n');
+        } else if (typeof value === 'object') {
+            el.value = JSON.stringify(value, null, 2);
+        } else {
+            el.value = String(value);
+        }
+    }
+}
+
+/**
+ * 格式化日期字符串
+ * @param {string} dateStr - 日期字符串
+ * @param {boolean} [includeTime=true] - 是否包含时间
+ * @returns {string} 格式化后的日期
+ */
+function formatDate(dateStr, includeTime = true) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    if (includeTime) {
+        return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString('zh-CN');
+}
+
+// ==================== 增强版 JSON 解析（多页面共用） ====================
+
+/**
+ * 安全的 JSON 解析（增强版）
+ * 处理 LLM 输出中的常见问题：ITEM 标记、中文引号、未转义字符、控制字符、外层包裹等
+ * @param {string} str - 待解析的字符串
+ * @returns {Object|Array|null} 解析结果
+ */
+function safeJsonParse(str) {
+    if (!str) return null;
+    try {
+        // 第0步：剥离 ITEM 标记
+        let rawStr = str.trim();
+        const ITEM_START = '════ITEM_START════';
+        const ITEM_END = '════ITEM_END════';
+        if (rawStr.includes(ITEM_START)) {
+            const startIdx = rawStr.indexOf(ITEM_START);
+            const endIdx = rawStr.indexOf(ITEM_END, startIdx);
+            if (endIdx !== -1) {
+                rawStr = rawStr.substring(startIdx + ITEM_START.length, endIdx).trim();
+            } else {
+                rawStr = rawStr.substring(startIdx + ITEM_START.length).trim();
+            }
+        }
+
+        // 清理 era_unit 中的"元年"/"年"后缀
+        function cleanParsed(parsed) {
+            if (!parsed) return parsed;
+            if (parsed.era_unit && typeof parsed.era_unit === 'string') {
+                parsed.era_unit = parsed.era_unit.replace(/元年$|年$/, '');
+            }
+            return parsed;
+        }
+
+        // 第1步：直接解析
+        try { return cleanParsed(JSON.parse(rawStr)); } catch(e) {}
+
+        // 第2步：替换中文引号 + 修复未转义双引号 + 修复未转义换行 + 修复无效转义 + 清理控制字符
+        let cleaned = rawStr;
+        // 替换中文引号为单引号（避免与JSON结构引号冲突）
+        cleaned = cleaned.replace(/[\u201c\u201d]/g, "'");
+        cleaned = cleaned.replace(/[\u2018\u2019]/g, "'");
+
+        // 逐字符扫描：修复字符串值内的未转义双引号、换行符、无效转义序列和控制字符
+        let result = '';
+        let inString = false;
+        let escape = false;
+        for (let i = 0; i < cleaned.length; i++) {
+            const ch = cleaned[i];
+            if (escape) {
+                // 检查是否是合法的JSON转义字符
+                if (!'"\\\/bfnrtu'.includes(ch)) {
+                    // 无效转义序列：将反斜杠转义，保留原字符
+                    result = result.slice(0, -1) + '\\\\' + ch;
+                } else {
+                    result += ch;
+                }
+                escape = false;
+                continue;
+            }
+            if (ch === '\\' && inString) {
+                result += ch;
+                escape = true;
+                continue;
+            }
+            if (ch === '"') {
+                if (!inString) {
+                    // 开始字符串
+                    inString = true;
+                    result += ch;
+                } else {
+                    // 可能是字符串结束——检查后面是否是合法JSON结构字符
+                    let j = i + 1;
+                    while (j < cleaned.length && cleaned[j] === ' ') j++;
+                    if (j >= cleaned.length || ':,}]'.includes(cleaned[j])) {
+                        // 合法的字符串结束
+                        inString = false;
+                        result += ch;
+                    } else {
+                        // 字符串值内的未转义双引号，转义它
+                        result += '\\"';
+                    }
+                }
+                continue;
+            }
+            if (inString && (ch === '\n' || ch === '\r')) {
+                result += '\\n';
+                continue;
+            }
+            if (inString && ch === '\t') {
+                result += '\\t';
+                continue;
+            }
+            // 清理字符串内的其他控制字符（0x00-0x1F，除已处理的换行/制表符）
+            if (inString && ch.charCodeAt(0) < 0x20) {
+                result += ' ';
+                continue;
+            }
+            result += ch;
+        }
+        cleaned = result;
+
+        try { return cleanParsed(JSON.parse(cleaned)); } catch(e) {}
+
+        // 第3步：提取第一个 { 到最后一个 } 之间的内容
+        const firstBrace = cleaned.indexOf('{');
+        const lastBrace = cleaned.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+            try { return cleanParsed(JSON.parse(cleaned.substring(firstBrace, lastBrace + 1))); } catch(e) {}
+        }
+
+        // 第4步：逐层剥离外层，尝试解析内部 JSON
+        let inner = cleaned;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            inner = inner.trim();
+            if (inner[0] !== '{' && inner[0] !== '[') {
+                const idx = inner.indexOf('{');
+                if (idx === -1) break;
+                inner = inner.substring(idx);
+            }
+            if (inner[inner.length - 1] !== '}' && inner[inner.length - 1] !== ']') {
+                const idx = inner.lastIndexOf('}');
+                if (idx === -1) break;
+                inner = inner.substring(0, idx + 1);
+            }
+            try { return cleanParsed(JSON.parse(inner)); } catch(e) {}
+            if (inner.length > 2) {
+                inner = inner.substring(1, inner.length - 1);
+            } else {
+                break;
+            }
+        }
+
+        console.error('safeJsonParse: 所有尝试均失败', str);
+        return null;
+    } catch (e) {
+        console.error('safeJsonParse: 异常', str, e);
+        return null;
+    }
+}

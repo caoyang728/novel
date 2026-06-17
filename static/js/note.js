@@ -6,29 +6,17 @@ let isEditMode = false;
 
 document.addEventListener('DOMContentLoaded', function() {
     checkAuth();
-    const urlParams = new URLSearchParams(window.location.search);
-    currentProjectId = urlParams.get('project_id');
+    currentProjectId = getProjectIdFromUrl();
 
     if (currentProjectId) {
-        loadProjectInfo();
-        loadNotes();
+        showLoading('加载中...');
+        Promise.all([loadProjectInfo(currentProjectId), loadNotes()]).finally(() => hideLoading());
     } else {
         window.location.href = '/index.html';
     }
 
     initBackToProjectButton('.back-btn', 'project.html');
 });
-
-async function loadProjectInfo() {
-    try {
-        const data = await api.get(`/api/projects/${currentProjectId}/`);
-        if (data.success) {
-            document.getElementById('project-title').textContent = data.project.title || '未知项目';
-        }
-    } catch (error) {
-        console.error('加载项目信息失败:', error);
-    }
-}
 
 let allNotes = [];
 
@@ -49,7 +37,11 @@ async function loadNotes() {
 
 function filterAndRenderNotes() {
     const statusFilter = document.getElementById('status-filter').value;
-    const filtered = statusFilter ? allNotes.filter(n => n.status === statusFilter) : allNotes;
+    const searchQuery = document.getElementById('search-input').value.toLowerCase();
+    let filtered = statusFilter ? allNotes.filter(n => n.status === statusFilter) : allNotes;
+    if (searchQuery) {
+        filtered = filtered.filter(n => n.title.toLowerCase().includes(searchQuery) || n.content.toLowerCase().includes(searchQuery));
+    }
     renderNotes(filtered);
 }
 
@@ -105,7 +97,7 @@ function showNoteDetail(note) {
     document.getElementById('note-title').value = note.title;
     document.getElementById('note-content-textarea').value = note.content;
     document.getElementById('status-select').value = note.status;
-    
+
     const updateTimeEl = document.querySelector('.title-section .update-time');
     updateTimeEl.innerHTML = `<i class="far fa-clock"></i> ${note.updated_at}`;
 
@@ -127,11 +119,10 @@ function showNoteDetail(note) {
 
 function enterEditMode() {
     isEditMode = true;
-    
+
     document.getElementById('note-title').disabled = false;
     document.getElementById('note-content-textarea').disabled = false;
-    document.getElementById('btn-edit').disabled = true;
-    document.getElementById('btn-delete').disabled = true;
+    document.getElementById('actions-section').style.display = 'none';
     document.getElementById('btn-ai-footer').disabled = false;
     document.getElementById('btn-save').style.display = 'inline-flex';
     document.getElementById('btn-cancel').style.display = 'inline-flex';
@@ -141,18 +132,17 @@ function enterEditMode() {
 
 function cancelEdit() {
     isEditMode = false;
-    
+
     document.getElementById('note-title').value = originalTitle;
     document.getElementById('note-content-textarea').value = originalContent;
 
     document.getElementById('note-title').disabled = true;
     document.getElementById('note-content-textarea').disabled = true;
-    document.getElementById('btn-edit').disabled = false;
-    document.getElementById('btn-delete').disabled = false;
+    document.getElementById('actions-section').style.display = '';
     document.getElementById('btn-ai-footer').disabled = true;
     document.getElementById('btn-save').style.display = 'none';
     document.getElementById('btn-cancel').style.display = 'none';
-    
+
     updateWordCount();
 }
 
@@ -175,8 +165,7 @@ async function saveNote() {
 
             document.getElementById('note-title').disabled = true;
             document.getElementById('note-content-textarea').disabled = true;
-            document.getElementById('btn-edit').disabled = false;
-            document.getElementById('btn-delete').disabled = false;
+            document.getElementById('actions-section').style.display = '';
             document.getElementById('btn-ai-footer').disabled = true;
             document.getElementById('btn-save').style.display = 'none';
             document.getElementById('btn-cancel').style.display = 'none';
@@ -204,10 +193,14 @@ function updateStatus() {
         .then(data => {
             if (data.success) {
                 loadNotes();
+                showSuccess('状态已更新');
+            } else {
+                showError('更新状态失败');
             }
         })
         .catch(error => {
             console.error('更新状态失败:', error);
+            showError('更新状态失败');
         });
 }
 
@@ -411,6 +404,7 @@ async function confirmDelete() {
 
             document.getElementById('placeholder-content').style.display = 'flex';
             document.getElementById('note-editor').style.display = 'none';
+            document.getElementById('actions-section').style.display = '';
             document.getElementById('btn-edit').disabled = true;
             document.getElementById('btn-delete').disabled = true;
             document.getElementById('btn-ai-footer').disabled = true;
@@ -425,22 +419,6 @@ async function confirmDelete() {
         console.error('删除失败:', error);
         showError('删除失败');
     }
-}
-
-function searchNotes() {
-    const query = document.getElementById('search-input').value.toLowerCase();
-    const noteItems = document.querySelectorAll('.note-item');
-
-    noteItems.forEach(item => {
-        const title = item.querySelector('.note-item-title').textContent.toLowerCase();
-        const content = item.querySelector('.note-item-content').textContent.toLowerCase();
-
-        if (title.includes(query) || content.includes(query)) {
-            item.style.display = 'block';
-        } else {
-            item.style.display = 'none';
-        }
-    });
 }
 
 function updateWordCount() {

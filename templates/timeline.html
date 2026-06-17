@@ -9,13 +9,16 @@
     <link href="/static/css/common.css" rel="stylesheet">
     <link href="/static/css/timeline.css" rel="stylesheet">
 </head>
-<body>
+<body class="page-full-height">
     <div class="page-header">
-        <div class="header-left">
-            <button class="btn btn-back">
+        <div class="page-header-inner">
+            <button class="back-btn btn-back">
                 <i class="fas fa-arrow-left"></i>
             </button>
-            <h1 class="page-title">世界观时间线</h1>
+            <div class="header-title-area">
+                <h1 class="header-title">世界观时间线</h1>
+                <p class="header-subtitle" id="project-title">-</p>
+            </div>
             <div class="header-filter">
                 <div class="search-box">
                     <i class="fas fa-search"></i>
@@ -25,17 +28,14 @@
                     <option value="">全部时间</option>
                 </select>
             </div>
-        </div>
-        <div class="header-right">
-            <button class="btn btn-primary" onclick="checkTimeline()" id="btn-check-timeline">
-                <i class="fa-solid fa-magnifying-glass-chart"></i> AI全局检查
-            </button>
-            <!-- <button class="btn btn-primary" onclick="showGenerateModal()">
-                <i class="fa-solid fa-sparkles"></i> AI生成
-            </button> -->
-            <button class="btn btn-primary" onclick="openAddModal()">
-                <i class="fa-solid fa-plus"></i> 新增
-            </button>
+            <div class="header-actions">
+                <button class="btn-ai" onclick="checkTimeline()" id="btn-check-timeline">
+                    <i class="fa-solid fa-magnifying-glass-chart"></i> AI全局检查
+                </button>
+                <button class="btn-success" onclick="openAddModal()">
+                    <i class="fa-solid fa-plus"></i> 新增
+                </button>
+            </div>
         </div>
     </div>
 
@@ -45,20 +45,20 @@
             <div class="empty-state-icon"><i class="fas fa-clock"></i></div>
             <h3>暂无时间线事件</h3>
             <p>基于世界观 AI 生成，或手动添加事件</p>
-            <button class="btn btn-primary" onclick="showGenerateModal()">
+            <button class="btn-ai" onclick="showGenerateModal()">
                 <i class="fa-solid fa-sparkles"></i> AI生成时间线
             </button>
         </div>
     </div>
 
     <!-- 三列对比弹窗 -->
-    <div class="modal-overlay" id="preview-modal">
-        <div class="modal-content modal-fullscreen">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="preview-modal">
+        <div class="dialog modal-fullscreen">
+            <div class="dialog-header">
                 <h5><i class="fa-solid fa-eye me-2"></i>时间线预览</h5>
                 <button class="btn-close" onclick="closePreviewModal()"><i class="fa-solid fa-times"></i></button>
             </div>
-            <div class="modal-body modal-preview">
+            <div class="dialog-body modal-preview">
                 <div class="preview-left-column">
                     <div class="column-header">
                         <h6><i class="fa-solid fa-list me-2"></i>本次生成/修改</h6>
@@ -74,29 +74,29 @@
                 <div class="preview-right-column">
                     <div class="column-header">
                         <h6><i class="fa-solid fa-edit me-2"></i>修改后</h6>
-                        <button class="btn-edit-preview" id="btn-edit-preview" onclick="togglePreviewEdit()">
+                        <button class="btn-cancel btn-sm btn-edit-preview" id="btn-edit-preview" onclick="togglePreviewEdit()">
                             <i class="fa-solid fa-pencil"></i> 编辑
                         </button>
                     </div>
                     <div class="preview-content" id="preview-modified"></div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closePreviewModal()">取消</button>
-                <button class="btn btn-primary" onclick="saveAllTimelines()" id="btn-save-all">
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closePreviewModal()">取消</button>
+                <button class="btn-success" onclick="saveAllTimelines()" id="btn-save-all">
                     <i class="fa-solid fa-save me-2"></i>一键保存全部
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="edit-modal">
-        <div class="modal-content edit-modal">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="edit-modal">
+        <div class="dialog edit-modal">
+            <div class="dialog-header">
                 <h5 id="edit-modal-title"><i class="fa-solid fa-calendar-plus me-2"></i>新增事件</h5>
                 <button class="btn-close" onclick="closeEditModal()"><i class="fa-solid fa-times"></i></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <input type="hidden" id="edit-id">
                 <div class="form-row mb-3">
                     <div class="form-group" style="flex:2;">
@@ -111,21 +111,21 @@
                 <div class="form-row mb-3">
                     <div class="form-group">
                         <label class="form-label">开始年</label>
-                        <input type="number" class="form-control" id="edit-start-year" value="0" placeholder="0">
+                        <input type="number" class="form-control" id="edit-start-year" value="0" min="-9999" max="9999" placeholder="0">
                     </div>
                     <div class="form-group">
                         <label class="form-label">开始月</label>
-                        <input type="number" class="form-control" id="edit-start-month" value="0" min="0" placeholder="0+">
+                        <input type="number" class="form-control" id="edit-start-month" value="0" min="0" max="12" placeholder="0+">
                     </div>
                 </div>
                 <div class="form-row mb-3">
                     <div class="form-group">
                         <label class="form-label">结束年</label>
-                        <input type="number" class="form-control" id="edit-end-year" value="0" placeholder="0">
+                        <input type="number" class="form-control" id="edit-end-year" value="0" min="-9999" max="9999" placeholder="0">
                     </div>
                     <div class="form-group">
                         <label class="form-label">结束月</label>
-                        <input type="number" class="form-control" id="edit-end-month" value="0" min="0" placeholder="0+">
+                        <input type="number" class="form-control" id="edit-end-month" value="0" min="0" max="12" placeholder="0+">
                     </div>
                 </div>
                 <div class="form-group edit-description-group">
@@ -135,44 +135,44 @@
                     <textarea class="form-control" id="edit-description" placeholder="描述该时间段内发生的关键事件..."></textarea>
                 </div>
             </div>
-            <div class="modal-footer">
+            <div class="dialog-footer">
                 <div class="footer-left">
-                    <button class="btn btn-delete-light" onclick="confirmDeleteEvent()" id="btn-delete-event">
+                    <button class="btn-danger" onclick="confirmDeleteEvent()" id="btn-delete-event">
                         <i class="fa-solid fa-trash-can"></i> 删除
                     </button>
                 </div>
                 <div class="footer-center">
-                    <button class="btn btn-secondary" onclick="openMergeModal()" id="btn-merge-event">
+                    <button class="btn-cancel" onclick="openMergeModal()" id="btn-merge-event">
                         <i class="fa-solid fa-object-group"></i> 合并
                     </button>
-                    <button class="btn btn-secondary" onclick="openSplitModal()" id="btn-split-event">
+                    <button class="btn-cancel" onclick="openSplitModal()" id="btn-split-event">
                         <i class="fa-solid fa-scissors"></i> 拆分
                     </button>
                 </div>
                 <div class="footer-right">
-                    <button class="btn btn-secondary" onclick="closeEditModal()">取消</button>
-                    <button class="btn btn-ai-generate" onclick="aiGenerateFields()" id="btn-ai-generate">
+                    <button class="btn-ai" onclick="aiGenerateFields()" id="btn-ai-generate">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> AI生成
                     </button>
-                    <button class="btn btn-ai-optimize" onclick="optimizeEditEvent()" id="btn-optimize-description">
+                    <button class="btn-ai" onclick="optimizeEditEvent()" id="btn-optimize-description">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> AI优化
                     </button>
-                    <button class="btn btn-primary" onclick="saveEditEvent()">保存</button>
+                    <button class="btn-cancel" onclick="closeEditModal()">取消</button>
+                    <button class="btn-success" onclick="saveEditEvent()">保存</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="generate-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="generate-modal">
+        <div class="dialog">
+            <div class="dialog-header">
                 <h5><i class="fa-solid fa-sparkles me-2"></i>AI生成时间线</h5>
                 <button class="btn-close" onclick="closeGenerateModal()"><i class="fa-solid fa-times"></i></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <div class="form-group mb-3">
                     <label class="form-label">世界观数据</label>
-                    <div id="worldview-info" class="bg-light p-3 rounded">
+                    <div id="worldview-info" class="info-box p-3 rounded">
                         <p class="mb-1 text-muted">正在加载世界观数据...</p>
                     </div>
                 </div>
@@ -181,47 +181,47 @@
                     <textarea class="form-control" id="generate-prompt" rows="3" placeholder="例如：重点突出种族战争，包含多个纪元转折点..."></textarea>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeGenerateModal()">取消</button>
-                <button class="btn btn-primary" onclick="generateTimelineWithEstimate()">
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeGenerateModal()">取消</button>
+                <button class="btn-ai" onclick="generateTimelineWithEstimate()">
                     <i class="fa-solid fa-sparkles"></i> 基于世界观生成
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="merge-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="merge-modal">
+        <div class="dialog">
+            <div class="dialog-header">
                 <h5><i class="fa-solid fa-object-group me-2"></i>合并时间线</h5>
                 <button class="btn-close" onclick="closeMergeModal()"><i class="fa-solid fa-times"></i></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <div class="form-group mb-3">
                     <label class="form-label">选择要合并的时间线（可多选）</label>
                     <div id="merge-checkboxes"></div>
                 </div>
                 <small class="text-muted mt-1 d-block">AI 将自动生成合并后的标题和描述</small>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeMergeModal()">取消</button>
-                <button class="btn btn-primary" onclick="mergeTimelines()">
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeMergeModal()">取消</button>
+                <button class="btn-success" onclick="mergeTimelines()">
                     <i class="fa-solid fa-object-group"></i> 合并
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="split-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="split-modal">
+        <div class="dialog">
+            <div class="dialog-header">
                 <h5><i class="fa-solid fa-split-square-horizontal me-2"></i>拆分时间线</h5>
                 <button class="btn-close" onclick="closeSplitModal()"><i class="fa-solid fa-times"></i></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <div class="form-group mb-3">
                     <label class="form-label">当前时间线</label>
-                    <div id="current-timeline-info" class="bg-light p-3 rounded"></div>
+                    <div id="current-timeline-info" class="info-box p-3 rounded"></div>
                 </div>
                 <div class="form-group mb-3">
                     <label class="form-label">纪元单位</label>
@@ -233,38 +233,38 @@
                     <small class="text-muted mt-1 d-block">输入拆分位置的年月点，格式为"年:月"，如当前时间线是"洪武1年 - 洪武10年"，输入"5:6"将在洪武5年6月处拆分。也可只输入年份如"5"。</small>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeSplitModal()">取消</button>
-                <button class="btn btn-primary" onclick="splitTimeline()">
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeSplitModal()">取消</button>
+                <button class="btn-success" onclick="splitTimeline()">
                     <i class="fa-solid fa-split-square-horizontal"></i> 拆分
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="confirm-modal">
-        <div class="modal-content modal-sm">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="confirm-modal">
+        <div class="dialog modal-sm">
+            <div class="dialog-header">
                 <h5 id="modal-title">确认操作</h5>
                 <button class="btn-close" onclick="closeModal()"><i class="fa-solid fa-times"></i></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <p id="modal-message">确定要执行此操作吗？</p>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal()">取消</button>
-                <button class="btn btn-primary" id="modal-confirm-btn" onclick="executeModalAction()">确认</button>
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeModal()">取消</button>
+                <button class="btn-success" id="modal-confirm-btn" onclick="executeModalAction()">确认</button>
             </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="check-modal">
-        <div class="modal-content check-modal">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="check-modal">
+        <div class="dialog check-modal">
+            <div class="dialog-header">
                 <h5><i class="fa-solid fa-magnifying-glass-chart me-2"></i>时间线检查结果</h5>
                 <button class="btn-close" onclick="closeCheckModal()"><i class="fa-solid fa-times"></i></button>
             </div>
-            <div class="modal-body" id="check-result-body">
+            <div class="dialog-body" id="check-result-body">
                 <div class="check-intro">
                     <p>AI 已完成时间线检查，以下是发现的问题：</p>
                 </div>
@@ -275,9 +275,9 @@
                     <p>时间线检查完成，未发现问题</p>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeCheckModal()">取消</button>
-                <button class="btn btn-primary" id="btn-check-optimize" onclick="optimizeCheckIssues()" style="display: none;">
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeCheckModal()">取消</button>
+                <button class="btn-ai" id="btn-check-optimize" onclick="optimizeCheckIssues()" style="display: none;">
                     <i class="fa-solid fa-wand-magic-sparkles"></i> AI优化
                 </button>
             </div>

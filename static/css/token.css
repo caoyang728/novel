@@ -1,11 +1,4 @@
-.content-card {
-    background: #334155;
-    border-radius: 16px;
-    border: 1px solid #374151;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-}
+/* ==================== 统计卡片 ==================== */
 .stat-card {
     background: #334155;
     border-radius: 12px;
@@ -14,95 +7,135 @@
     text-align: center;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .stat-card:hover {
     border-color: rgba(99, 102, 241, 0.3);
     transform: translateY(-2px);
-    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
+
 .stat-card .stat-value {
     font-size: 1.75rem;
     font-weight: 700;
     color: #f9fafb;
 }
+
 .stat-card .stat-label {
     font-size: 0.875rem;
     color: #9ca3af;
     margin-top: 0.25rem;
 }
+
 .stat-card.total {
     border-color: #374151;
 }
-.stat-card.hit {
-    border-color: rgba(52, 211, 153, 0.3);
-    background: rgba(16, 185, 129, 0.05);
-}
-.stat-card.hit .stat-value {
-    color: #34d399;
-}
-.stat-card.miss {
-    border-color: rgba(248, 113, 113, 0.3);
-    background: rgba(239, 68, 68, 0.05);
-}
-.stat-card.miss .stat-value {
-    color: #f87171;
-}
+
+.stat-card.hit,
 .stat-card.output {
     border-color: rgba(129, 140, 248, 0.3);
     background: rgba(99, 102, 241, 0.05);
 }
+
+.stat-card.hit .stat-value,
 .stat-card.output .stat-value {
     color: #818cf8;
 }
-.btn-outline-primary {
-    background: transparent;
-    border: 1.5px solid #5b6a7a;
-    color: #d1d5db;
-    border-radius: 10px;
-    padding: 0.5rem 1.25rem;
-    font-weight: 500;
-    transition: all 0.2s;
-    cursor: pointer;
+
+.stat-card.miss {
+    border-color: rgba(248, 113, 113, 0.3);
+    background: rgba(239, 68, 68, 0.05);
 }
-.btn-outline-primary:hover {
-    border-color: #818cf8;
-    color: #818cf8;
-    background: rgba(99, 102, 241, 0.1);
+
+.stat-card.miss .stat-value {
+    color: #f87171;
 }
+
+.stat-card.cost {
+    border-color: rgba(251, 191, 36, 0.3);
+    background: rgba(245, 158, 11, 0.05);
+}
+
+.stat-card.cost .stat-value {
+    color: #fbbf24;
+}
+
+/* 5列等宽布局 */
+.col-md-2-4 {
+    flex: 0 0 20%;
+    max-width: 20%;
+}
+
+/* ==================== 时间范围按钮 ==================== */
+/* .btn-outline-primary 基础样式已在 common.css 中定义 */
 .btn-outline-primary.active {
     background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
     border-color: transparent;
     color: white;
 }
-.refreshing {
-    animation: refreshPulse 0.3s ease-in-out;
+
+/* ==================== Tab 标签页 ==================== */
+#tokenTabs .nav-link {
+    color: #9ca3af;
+    font-weight: 500;
+    border: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.75rem 1.25rem;
+    transition: all 0.2s ease;
+    background: transparent;
 }
-@keyframes refreshPulse {
-    0%, 100% {
-        opacity: 1;
-        transform: scale(1);
-    }
-    50% {
-        opacity: 0.7;
-        transform: scale(0.98);
-    }
+
+#tokenTabs .nav-link:hover {
+    color: #818cf8;
+    background: rgba(99, 102, 241, 0.08);
 }
+
+#tokenTabs .nav-link.active {
+    color: #818cf8;
+    background: rgba(99, 102, 241, 0.15);
+    font-weight: 600;
+}
+
+#tokenTabs .nav-link i {
+    margin-right: 0.5rem;
+}
+
+/* ==================== 表格 ==================== */
 .table {
     font-size: 0.875rem;
     color: #d1d5db;
 }
+
 .table th {
     font-weight: 600;
     color: #9ca3af;
     border-bottom: 2px solid #374151;
 }
+
 .table td {
     border-bottom: 1px solid #374151;
     padding: 0.75rem;
     color: #d1d5db;
 }
+
 .table tbody tr:hover {
     background: rgba(99, 102, 241, 0.05);
 }
+
+/* 详细记录容器 - 占满剩余空间，内部滚动 */
+#logs-container {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* 项目统计容器 - 占满剩余空间，内部滚动 */
+#project-stats-container {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* ==================== 项目统计 ==================== */
 .project-stat-row {
     display: flex;
     justify-content: space-between;
@@ -113,14 +146,29 @@
     background: #374151;
     transition: all 0.2s;
 }
+
 .project-stat-row:hover {
     background: rgba(99, 102, 241, 0.12);
 }
+
 .project-stat-row .project-title {
     font-weight: 600;
     color: #f9fafb;
 }
+
 .project-stat-row .project-tokens {
     font-weight: 700;
     color: #818cf8;
+}
+
+/* ==================== 预估标记 ==================== */
+.token-estimated {
+    display: inline-block;
+    font-size: 0.7rem;
+    color: #9ca3af;
+    background: rgba(156, 163, 175, 0.15);
+    border-radius: 3px;
+    padding: 0 4px;
+    margin-left: 4px;
+    vertical-align: middle;
 }

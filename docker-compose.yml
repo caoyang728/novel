@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: novel-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume:/app/staticfiles:ro
+    depends_on:
+      - django
+    restart: always
+
+  django:
+    build: .
+    container_name: novel-django
+    env_file:
+      - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - static_volume:/app/staticfiles
+    restart: always
+
+  mysql:
+    image: mysql:8.0
+    container_name: novel-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-novel_agent_2024}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-novel_agent}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # 本地 Embedding 服务
+  embedding:
+    build:
+      context: ./docker/embedding
+    container_name: novel-embedding
+    environment:
+      - MODEL_NAME=${LOCAL_EMBEDDING_MODEL:-BAAI/bge-large-zh-v1.5}
+      - DEVICE=${LOCAL_EMBEDDING_DEVICE:-cpu}
+    ports:
+      - "8080:8000"
+    volumes:
+      - embedding_cache:/root/.cache/huggingface
+    restart: always
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: novel-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+    volumes:
+      - etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379
+    restart: always
+
+  minio:
+    image: minio/minio:latest
+    container_name: novel-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    restart: always
+
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    container_name: novel-milvus
+    depends_on:
+      - etcd
+      - minio
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    command: milvus run standalone
+    restart: always
+
+volumes:
+  mysql_data:
+  static_volume:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  embedding_cache:

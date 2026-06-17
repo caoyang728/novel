@@ -20,7 +20,6 @@ function setSelectedGenre(value) {
     document.querySelectorAll('.genre-dropdown .dropdown-item').forEach(item => {
         item.classList.toggle('active', item.dataset.value === value);
     });
-    updateExpandBtn();
 }
 
 const genreData = [
@@ -64,37 +63,24 @@ function initGenreDropdown() {
     });
 }
 
-function updateExpandBtn() {
-    const name = document.getElementById('worldName').value.trim();
-    const genre = getSelectedGenre();
-    const identity = document.getElementById('worldIdentity').value.trim();
-    const tone = document.getElementById('worldTone').value.trim();
-    const overview = document.getElementById('worldOverview').value.trim();
-    const conflict = document.getElementById('worldCoreConflict').value.trim();
-}
-
 
 
 document.addEventListener('DOMContentLoaded', async function() {
+    showLoading('加载中...');
     const urlParams = new URLSearchParams(window.location.search);
     const projectId = urlParams.get('project_id');
     currentProjectId = projectId;
-    const projectName = urlParams.get('project_name');
 
-    if (projectName) {
-        const projectNameDisplay = document.getElementById('projectNameDisplay');
-        if (projectNameDisplay) {
-            projectNameDisplay.textContent = `> ${projectName}`;
-        }
+    if (projectId) {
+        loadProjectInfo(projectId);
     }
 
     initGenreDropdown();
     initAutoResizeTextareas();
-    initDeepeningState();
 
     if (projectId) {
         try {
-            const data = await api.get(`/api/worldview/?project_id=${projectId}`);
+            const data = await api.get(`/api/projects/${currentProjectId}/worldviews/`);
             if (data.success && data.data) {
                 worldviewId = data.data.worldview_id;
                 currentWorldview = data.data;
@@ -111,6 +97,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     } else {
         showError('无法加载世界观数据');
     }
+    hideLoading();
 });
 
 function updateWorldviewUI(worldviewData) {
@@ -123,12 +110,6 @@ function updateWorldviewUI(worldviewData) {
     const worldNameDisplay = document.getElementById('worldNameDisplay');
     if (worldNameDisplay) {
         worldNameDisplay.textContent = identity.world_name || '世界观';
-    }
-    
-    // 更新版本号
-    const worldVersionDisplay = document.getElementById('worldVersionDisplay');
-    if (worldVersionDisplay) {
-        worldVersionDisplay.textContent = `v${worldviewData.version || 1}`;
     }
     
     // 填充基础设定表单
@@ -186,7 +167,7 @@ function updateWorldviewUI(worldviewData) {
 
 async function loadWorldData(wvId) {
     try {
-        const data = await api.get(`/api/worldview/?worldview_id=${wvId}`);
+        const data = await api.get(`/api/projects/${currentProjectId}/worldviews/${wvId}/`);
         currentWorldview = data.data || data;
         
         // 更新UI
@@ -258,67 +239,13 @@ function showTab(tabName) {
 
 
 
-function setField(id, value) {
-    // 设置字段
-    const el = document.getElementById(id);
-    if (el && value != null && value !== '') {
-        if (typeof value === 'string') {
-            el.value = value;
-        } else if (Array.isArray(value)) {
-            el.value = value.join('\n');
-        } else if (typeof value === 'object') {
-            el.value = JSON.stringify(value, null, 2);
-        } else {
-            el.value = String(value);
-        }
-    }
-}
+/* setField 已迁移到 common.js */
 
 
 
-function showElement(el) {
-    if (el) el.classList.remove('dc-hidden');
-}
+/* showElement 已迁移到 common.js（增强版支持 d-none 类和元素 ID） */
 
-function hideElement(el) {
-    if (el) el.classList.add('dc-hidden');
-}
-
-function initDeepeningState() {
-    // 初始化问答深化按钮状态 - 只显示主要按钮
-    const deepeningPrimaryButtons = document.getElementById('deepeningPrimaryButtons');
-    const deepeningAnswerButtons = document.getElementById('deepeningAnswerButtons');
-    const deepeningActionButtons = document.getElementById('deepeningActionButtons');
-    
-    showElement(deepeningPrimaryButtons);
-    hideElement(deepeningAnswerButtons);
-    hideElement(deepeningActionButtons);
-    
-    // 初始化一致性检查按钮状态 - 只显示主要按钮
-    const consistencyPrimaryButtons = document.getElementById('consistencyPrimaryButtons');
-    const consistencyFixButtons = document.getElementById('consistencyFixButtons');
-    const consistencyActionButtons = document.getElementById('consistencyActionButtons');
-    
-    showElement(consistencyPrimaryButtons);
-    hideElement(consistencyFixButtons);
-    hideElement(consistencyActionButtons);
-    
-    // 初始化一致性报告状态
-    const emptyState = document.getElementById('consistencyEmptyState');
-    const noIssuesState = document.getElementById('consistencyNoIssues');
-    const issuesList = document.getElementById('consistencyIssuesList');
-    if (emptyState) showElement(emptyState);
-    if (noIssuesState) hideElement(noIssuesState);
-    if (issuesList) hideElement(issuesList);
-    
-    // 隐藏所有预定义的问题条目（保留HTML结构）
-    for (let i = 0; i < 5; i++) {
-        const issueEl = document.getElementById(`consistency-issue-${i}`);
-        if (issueEl) {
-            hideElement(issueEl);
-        }
-    }
-}
+/* hideElement 已迁移到 common.js（增强版支持自定义隐藏类名和元素 ID） */
 
 function initAutoResizeTextareas() {
     document.querySelectorAll('textarea.auto-resize').forEach(textarea => {
@@ -347,698 +274,205 @@ function initAutoResizeTextareas() {
     });
 }
 
+const worldviewSuggestionMixin = {
+    toggleSuggestion(index) {
+        if (this.suggestions[index]) {
+            this.suggestions[index].selected = !this.suggestions[index].selected;
+        }
+    },
 
+    selectAllSuggestions(selected) {
+        this.suggestions.forEach(s => s.selected = selected);
+    },
 
-async function generateQuestions() {
-    if (!worldviewId) return;
-    showLoading('正在生成深化问题...');
+    getLayerName(layer) {
+        const names = {
+            'setting': '基础设定',
+            'foundation': '世界基础',
+            'power': '力量体系',
+            'races': '种族族群',
+            'society': '社会结构',
+            'culture': '文化人文',
+            'history': '历史进程',
+            'special': '特殊规则'
+        };
+        return names[layer] || layer;
+    },
 
-    try {
-        const data = await api.request(`/api/worldview/${worldviewId}/deepening/questions/`, {
-            method: 'POST'
-        });
+    getImpactText(impact) {
+        const impacts = {
+            'low': '影响较小',
+            'medium': '中等影响',
+            'high': '影响较大',
+            'critical': '关键影响'
+        };
+        return impacts[impact] || impact;
+    },
 
-        // console.log('generateQuestions response:', data);
-        
-        if (data.success) {
-            // 确保显示问题列表和答案按钮，隐藏操作按钮
-            const questionsList = document.getElementById('questionsList');
-            const suggestionsContainer = document.getElementById('suggestionsContainer');
-            const primaryButtons = document.getElementById('deepeningPrimaryButtons');
-            const answerButtons = document.getElementById('deepeningAnswerButtons');
-            const actionButtons = document.getElementById('deepeningActionButtons');
-            const questions = data.data || [];
+    translateFieldPath(path) {
+        if (!path) return '';
 
-            showElement(questionsList);
-            if (suggestionsContainer) {
-                hideElement(suggestionsContainer);
-                suggestionsContainer.innerHTML = '';
+        const commonTerms = {
+            'overview': '概述',
+            'identity': '身份',
+            'transmigration': '穿越设定',
+            'conflict': '冲突',
+            'natural': '自然',
+            'laws': '法则',
+            'cultivation': '修炼',
+            'destiny': '命运',
+            'energy': '能量',
+            'types': '类型',
+            'future': '未来',
+            'race': '种族',
+            'economy': '经济',
+            'politics': '政治',
+            'religion': '宗教',
+            'art': '艺术',
+            'customs': '习俗',
+            'war': '战争',
+            'crisis': '危机',
+            'relics': '遗迹'
+        };
+
+        return path.split('.').map(part => {
+            if (commonTerms[part]) {
+                return commonTerms[part];
             }
-            hideElement(actionButtons);
-
-            if (questions.length === 0) {
-                showElement(primaryButtons);
-                hideElement(answerButtons);
-                displayQuestions([]);
-                showSuccess('世界观已较为完善');
-            } else {
-                hideElement(primaryButtons);
-                showElement(answerButtons);
-                displayQuestions(questions);
-                showSuccess('问题生成成功');
+            if (this.getLayerName(part) !== part) {
+                return this.getLayerName(part);
             }
-        } else {
-            showError(data.message || '生成失败');
+            return part;
+        }).join(' / ');
+    },
+
+    formatValue(value) {
+        if (value === null || value === undefined) {
+            return '<span class="text-muted">空</span>';
         }
-    } catch (error) {
-        console.error('Failed to generate questions:', error);
-        showError('生成失败');
-    } finally {
-        hideLoading();
-    }
-}
-
-function displayQuestions(questions) {
-    // console.log('displayQuestions called with:', questions);
-    
-    const container = document.getElementById('questionsList');
-    if (!container) {
-        console.error('questionsList container not found');
-        return;
-    }
-    
-    if (!questions || questions.length === 0) {
-        container.innerHTML = `
-            <div class="text-center py-4">
-                <i class="fas fa-check-circle mb-2" style="font-size: 2rem; color: #22c55e;"></i>
-                <p class="text-muted mb-0" style="color: #e8b840 !important; font-size: 1.05rem;">
-                    世界观设定已经比较完善了，AI 都找不到需要深化的问题
-                </p>
-            </div>
-        `;
-        return;
-    }
-
-    // console.log(`Displaying ${questions.length} questions`);
-    
-    container.innerHTML = questions.map((q, i) => `
-        <div class="question-item border rounded p-3 mb-2">
-            <p class="question-text mb-2"><strong>${i + 1}.</strong> ${escapeHtml(q.question || '')}</p>
-            <textarea class="form-control auto-resize" rows="2" placeholder="输入答案..." id="answer-${q.id || i}" oninput="updateSubmitButtonState()">${escapeHtml(q.answer || '')}</textarea>
-        </div>
-    `).join('');
-
-    updateSubmitButtonState();
-}
-
-function updateSubmitButtonState() {
-    const submitBtn = document.getElementById('submitAnswersBtn');
-    const textareas = document.querySelectorAll('[id^="answer-"]');
-    let hasAnswer = false;
-    textareas.forEach(textarea => {
-        if (textarea.value.trim().length > 0) hasAnswer = true;
-    });
-    if (submitBtn) {
-        submitBtn.disabled = !hasAnswer;
-    }
-}
-
-async function submitAnswers() {
-    if (!worldviewId) return;
-    showLoading('正在提交并分析...');
-
-    const qaList = [];
-    document.querySelectorAll('[id^="answer-"]').forEach(textarea => {
-        const questionId = textarea.id.replace('answer-', '');
-        const questionText = textarea.closest('.question-item')?.querySelector('.question-text')?.textContent || '';
-        const answerText = textarea.value.trim();
-        
-        if (answerText && questionText) {
-            qaList.push({
-                id: questionId,
-                question: questionText,
-                answer: answerText
-            });
+        if (typeof value === 'object') {
+            return `<pre class="text-sm" style="white-space: pre-wrap;">${JSON.stringify(value, null, 2)}</pre>`;
         }
-    });
-
-    try {
-        const data = await api.request(`/api/worldview/${worldviewId}/deepening/submit/`, {
-            method: 'POST',
-            body: JSON.stringify({ qaList })
-        });
-
-        if (data.success) {
-            showSuccess('提交成功');
-            
-            const questionsList = document.getElementById('questionsList');
-            const suggestionsContainer = document.getElementById('suggestionsContainer');
-            const answerButtons = document.getElementById('deepeningAnswerButtons');
-            const actionButtons = document.getElementById('deepeningActionButtons');
-            
-            hideElement(questionsList);
-            showElement(suggestionsContainer);
-            hideElement(answerButtons);
-            showElement(actionButtons);
-            
-            displaySuggestions(data.data || []);
-        }
-    } catch (error) {
-        console.error('Failed to submit answers:', error);
-        showError('提交失败');
-    } finally {
-        hideLoading();
+        return `<span>${value}</span>`;
     }
-}
+};
 
+// Alpine.js 深化问答状态对象 - 工厂函数形式
+function deepeningState() {
+    return {
+        state: 'empty',  // empty | hasQuestions | noQuestions | hasSuggestions
+        questions: [],
+        suggestions: [],
 
+        get hasAnswer() {
+            return this.questions.some(q => (q.answer || '').trim().length > 0);
+        },
 
-function displaySuggestions(suggestions) {
-    const container = document.getElementById('suggestionsContainer');
-    if (!container) return;
+        async generateQuestions() {
+            if (!worldviewId) return;
+            showLoading('正在生成深化问题...');
 
-    if (suggestions.length === 0) {
-        container.innerHTML = '<div class="border rounded p-4 mt-3"><p class="text-muted">没有生成修改建议</p></div>';
-        return;
-    }
-
-    window.currentSuggestions = suggestions;
-
-    container.innerHTML = `
-        <div class="border rounded p-4 mt-3">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h4>修改建议</h4>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllSuggestions(true)">
-                        <i class="fas fa-check-square me-1"></i>全选
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllSuggestions(false)">
-                        <i class="fas fa-square me-1"></i>取消全选
-                    </button>
-                </div>
-            </div>
-            <div id="suggestionsList">
-                ${suggestions.map((s, i) => `
-                    <div class="suggestion-item" data-index="${i}">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <div class="d-flex align-items-center gap-2">
-                                <input type="checkbox" class="suggestion-checkbox" checked data-index="${i}">
-                                <span class="font-medium">修改 ${i + 1}</span>
-                            </div>
-                            <span class="suggestion-impact">${getImpactText(s.impact)}</span>
-                        </div>
-                        <div class="suggestion-content">
-                            <p class="text-sm text-muted mb-1"><strong>目标:</strong> <span class="text-primary">${getLayerName(s.targetLayer)}</span> / <code class="text-sm">${s.targetField}</code></p>
-                            <div class="suggestion-section">
-                                <p class="text-sm mb-1"><strong>原值:</strong></p>
-                                <div class="suggestion-old-value">${formatValue(s.oldValue)}</div>
-                            </div>
-                            <div class="suggestion-section">
-                                <p class="text-sm mb-1"><strong>新值:</strong></p>
-                                <textarea class="suggestion-edit" data-index="${i}" data-field="newValue">${escapeHtml(typeof s.newValue === 'object' ? JSON.stringify(s.newValue, null, 2) : (s.newValue || ''))}</textarea>
-                            </div>
-                            <div class="suggestion-section">
-                                <p class="text-sm mb-1"><strong>原因:</strong></p>
-                                <div class="suggestion-reason">${escapeHtml(s.reason || '')}</div>
-                            </div>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `;
-}
-
-function toggleAllSuggestions(checked) {
-    document.querySelectorAll('.suggestion-checkbox').forEach(checkbox => {
-        checkbox.checked = checked;
-    });
-}
-
-function formatValue(value) {
-    if (value === null || value === undefined) {
-        return '<span style="color: #9ca3af;">空</span>';
-    }
-    if (typeof value === 'object') {
-        try {
-            const str = JSON.stringify(value, null, 2);
-            if (str.length > 200) {
-                return `<pre class="text-sm" style="max-height: 100px; overflow-y: auto; background: #fff; padding: 8px; border-radius: 4px;">${escapeHtml(str.substring(0, 200))}...</pre>`;
-            }
-            return `<pre class="text-sm" style="background: #fff; padding: 8px; border-radius: 4px;">${escapeHtml(str)}</pre>`;
-        } catch {
-            return escapeHtml(String(value));
-        }
-    }
-    if (typeof value === 'string') {
-        if (value.length > 200) {
-            return escapeHtml(value.substring(0, 200)) + '...';
-        }
-        return escapeHtml(value);
-    }
-    return escapeHtml(String(value));
-}
-
-function getImpactColor(impact) {
-    const colors = {
-        'low': 'success',
-        'medium': 'warning',
-        'high': 'danger'
-    };
-    return colors[impact] || 'secondary';
-}
-
-function getImpactText(impact) {
-    const texts = {
-        'low': '低影响',
-        'medium': '中影响',
-        'high': '高影响'
-    };
-    return texts[impact] || '未知';
-}
-
-function getLayerName(layer) {
-    const names = {
-        'setting': '基础设定',
-        'foundation': '世界基础',
-        'power': '力量体系',
-        'races': '种族族群',
-        'society': '社会结构',
-        'culture': '文化人文',
-        'history': '历史进程',
-        'special': '特殊规则'
-    };
-    return names[layer] || layer;
-}
-
-function translateFieldPath(path) {
-    if (!path) return '';
-    
-    const commonTerms = {
-        'overview': '概述',
-        'identity': '身份',
-        'transmigration': '穿越设定',
-        'conflict': '冲突',
-        'natural': '自然',
-        'laws': '法则',
-        'cultivation': '修炼',
-        'destiny': '命运',
-        'energy': '能量',
-        'types': '类型',
-        'future': '未来',
-        'race': '种族',
-        'economy': '经济',
-        'politics': '政治',
-        'religion': '宗教',
-        'art': '艺术',
-        'customs': '习俗',
-        'war': '战争',
-        'crisis': '危机',
-        'relics': '遗迹'
-    };
-    
-    // 处理类似 "setting.conflict" 格式的路径
-    return path.split('.').map(part => {
-        // 先尝试作为完整部分查找
-        if (commonTerms[part]) {
-            return commonTerms[part];
-        }
-        // 尝试作为层级名称查找
-        if (getLayerName(part) !== part) {
-            return getLayerName(part);
-        }
-        return part;
-    }).join(' / ');
-}
-
-function clearSuggestions() {
-    const container = document.getElementById('suggestionsContainer');
-    if (container) {
-        container.innerHTML = '';
-        hideElement(container);
-    }
-    
-    const questionsList = document.getElementById('questionsList');
-    questionsList.innerHTML = '<p class="text-muted mb-0">点击上方按钮生成深化问题</p>';
-    
-    hideElement(document.getElementById('deepeningAnswerButtons'));
-    hideElement(document.getElementById('deepeningActionButtons'));
-    showElement(document.getElementById('deepeningPrimaryButtons'));
-    
-    const applyBtn = document.getElementById('applyChangesBtn');
-    if (applyBtn) {
-        applyBtn.disabled = true;
-    }
-    
-    window.currentSuggestions = null;
-}
-
-async function applyChanges() {
-    if (!worldviewId) return;
-    
-    // 更新当前建议数据（从编辑框获取，仅处理 newValue）
-    document.querySelectorAll('.suggestion-edit').forEach(textarea => {
-        const index = parseInt(textarea.dataset.index);
-        const field = textarea.dataset.field;
-        
-        if (!isNaN(index) && field === 'newValue' && window.currentSuggestions[index]) {
-            // 尝试解析 JSON
-            let value = textarea.value;
             try {
-                value = JSON.parse(value);
-            } catch (e) {
-                // 如果不是 JSON，保持原字符串值
+                const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/deepening/questions/`, {
+                    method: 'POST'
+                });
+
+                if (data.success) {
+                    const questions = (data.data || []).map(q => ({ ...q, answer: q.answer || '' }));
+                    this.questions = questions;
+
+                    if (questions.length === 0) {
+                        this.state = 'noQuestions';
+                        showToast('世界观已较为完善');
+                    } else {
+                        this.state = 'hasQuestions';
+                        showToast('问题生成成功');
+                    }
+                } else {
+                    showToast(data.message || '生成失败', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to generate questions:', error);
+                showToast('生成失败', 'error');
+            } finally {
+                hideLoading();
             }
-            window.currentSuggestions[index][field] = value;
-        }
-    });
+        },
 
-    const checkboxes = document.querySelectorAll('.suggestion-checkbox:checked');
-    const selectedChanges = [];
+        async submitAnswers() {
+            if (!worldviewId) return;
+            showLoading('正在提交并分析...');
 
-    checkboxes.forEach(checkbox => {
-        const index = parseInt(checkbox.dataset.index);
-        if (!isNaN(index)) {
-            const suggestionsData = window.currentSuggestions || [];
-            if (suggestionsData[index]) {
-                selectedChanges.push(suggestionsData[index]);
+            const qaList = [];
+            this.questions.forEach(q => {
+                const answerText = (q.answer || '').trim();
+                if (answerText) {
+                    qaList.push({
+                        id: q.id,
+                        question: q.question,
+                        answer: answerText
+                    });
+                }
+            });
+
+            try {
+                const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/deepening/submit/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ qaList })
+                });
+
+                if (data.success) {
+                    this.suggestions = (data.data || []).map(s => ({ ...s, selected: true }));
+                    this.state = 'hasSuggestions';
+                    window.currentSuggestions = this.suggestions;
+                    showToast('提交成功');
+                }
+            } catch (error) {
+                console.error('Failed to submit answers:', error);
+                showToast('提交失败', 'error');
+            } finally {
+                hideLoading();
             }
-        }
-    });
+        },
 
-    if (selectedChanges.length === 0) {
-        showError('请至少选择一个修改建议');
-        return;
-    }
+        async applyChanges() {
+            if (!worldviewId) return;
 
-    // console.log('发送修改:', JSON.stringify({ changes: selectedChanges }, null, 2));
-
-    showLoading('正在应用修改...');
-
-    try {
-        const data = await api.request(`/api/worldview/${worldviewId}/deepening/apply/`, {
-            method: 'POST',
-
-            body: JSON.stringify({ changes: selectedChanges })
-        });
-
-        // console.log('响应:', data);
-
-        if (data.success) {
-            showSuccess('修改已应用');
-            // 不刷新页面，而是重新加载数据
-            await loadWorldData(worldviewId);
-            resetDeepeningPage();
-        }
-    } catch (error) {
-        console.error('Failed to apply changes:', error);
-        showError('应用修改失败');
-    } finally {
-        hideLoading();
-    }
-}
-
-// 重置深化问答页面到初始状态
-function resetDeepeningPage() {
-    const questionsList = document.getElementById('questionsList');
-    const suggestionsContainer = document.getElementById('suggestionsContainer');
-    
-    if (questionsList) {
-        questionsList.innerHTML = '<p class="text-muted mb-0">点击上方按钮生成深化问题</p>';
-        showElement(questionsList);
-    }
-    if (suggestionsContainer) {
-        suggestionsContainer.innerHTML = '';
-        hideElement(suggestionsContainer);
-    }
-    
-    hideElement(document.getElementById('deepeningAnswerButtons'));
-    hideElement(document.getElementById('deepeningActionButtons'));
-    showElement(document.getElementById('deepeningPrimaryButtons'));
-    
-    window.currentSuggestions = null;
-    
-    const applyBtn = document.getElementById('applyChangesBtn');
-    if (applyBtn) {
-        applyBtn.disabled = true;
-    }
-}
-
-async function checkConsistency() {
-    if (!worldviewId) return;
-    showLoading('正在检查一致性...');
-
-    try {
-        const data = await api.request(`/api/worldview/${worldviewId}/consistency/check/`, {
-            method: 'POST'
-        });
-
-        if (data.success) {
-            const issues = data.data?.issues || [];
-            const hasIssues = data.data?.hasIssues;
-        
-            const primaryButtons = document.getElementById('consistencyPrimaryButtons');
-            const fixButtons = document.getElementById('consistencyFixButtons');
-            const actionButtons = document.getElementById('consistencyActionButtons');
-            
-            hideElement(actionButtons);
-            
-            displayConsistencyIssues(issues);
-            
-            if (hasIssues) {
-                hideElement(primaryButtons);
-                showElement(fixButtons);
-            } else {
-                showElement(primaryButtons);
-                hideElement(fixButtons);
+            const selectedChanges = this.suggestions.filter(s => s.selected);
+            if (selectedChanges.length === 0) {
+                showToast('请至少选择一个修改建议');
+                return;
             }
-            
-            showSuccess('检查完成');
-        } else {
-            showError(data.message || '检查失败');
-        }
-    } catch (error) {
-        console.error('Failed to check consistency:', error);
-        showError('检查失败');
-    } finally {
-        hideLoading();
-    }
-}
 
-function displayConsistencyIssues(issues) {
-    const emptyState = document.getElementById('consistencyEmptyState');
-    const noIssuesState = document.getElementById('consistencyNoIssues');
-    const issuesList = document.getElementById('consistencyIssuesList');
-    const template = document.getElementById('consistencyIssueTemplate');
-    
-    if (!emptyState || !noIssuesState || !issuesList || !template) return;
-    
-    // 先隐藏所有状态
-    hideElement(emptyState);
-    hideElement(noIssuesState);
-    hideElement(issuesList);
-    
-    if (!issues || issues.length === 0) {
-        showElement(noIssuesState);
-        return;
-    }
-    
-    issuesList.innerHTML = '';
-    
-    issues.forEach((issue, i) => {
-        const isError = issue.severity === 'error';
-        const severityLabel = isError ? '严重' : '警告';
-        const targetLayer = getLayerName(issue.targetLayer || '');
-        
-        const clone = document.importNode(template.content, true);
-        
-        const titleEl = clone.querySelector('strong');
-        const severityEl = clone.querySelector('.consistency-severity');
-        const detailEl = clone.querySelector('.consistency-detail');
-        const metaEl = clone.querySelector('.consistency-meta');
-        const textarea = clone.querySelector('.consistency-note');
-        
-        if (titleEl) {
-            titleEl.innerHTML = `${i + 1}. ${escapeHtml(issue.message || '')}`;
-        }
-        
-        if (severityEl) {
-            severityEl.textContent = severityLabel;
-            severityEl.style.background = isError ? 'rgba(239, 68, 68, 0.2)' : 'rgba(234, 179, 8, 0.2)';
-            severityEl.style.color = isError ? '#f87171' : '#fbbf24';
-        }
-        
-        if (detailEl) {
-            detailEl.textContent = issue.detail || '';
-        }
-        
-        if (metaEl) {
-            let metaText = `目标层级: <span style="color: #d1d5db;">${targetLayer}</span>`;
-            if (issue.targetField) {
-                metaText += ` / <code style="font-family: monospace; color: #a78bfa; font-size: 13px;">${escapeHtml(translateFieldPath(issue.targetField))}</code>`;
+            showLoading('正在应用修改...');
+
+            try {
+                const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/deepening/apply/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ changes: selectedChanges })
+                });
+
+                if (data.success) {
+                    showToast('修改已应用');
+                    await loadWorldData(worldviewId);
+                    this.resetState();
+                }
+            } catch (error) {
+                console.error('Failed to apply changes:', error);
+                showToast('应用修改失败', 'error');
+            } finally {
+                hideLoading();
             }
-            metaEl.innerHTML = metaText;
-        }
-        
-        if (textarea) {
-            textarea.id = `consistency-fix-note-${i}`;
-        }
-        
-        issuesList.appendChild(clone);
-    });
-    
-    showElement(issuesList);
-}
+        },
 
-// AI 修复一致性问题
-async function fixConsistency() {
-    if (!worldviewId) return;
-    showLoading('正在生成修复建议...');
+        resetState() {
+            this.state = 'empty';
+            this.questions = [];
+            this.suggestions = [];
+        },
 
-    try {
-        const manualTextarea = document.getElementById('consistencyManualTextarea');
-        let manualIssues = manualTextarea ? manualTextarea.value.trim() : '';
-
-        // 收集每条问题用户填写的修复方向
-        const fixNotes = [];
-        document.querySelectorAll('[id^="consistency-fix-note-"]').forEach(textarea => {
-            const note = textarea.value.trim();
-            if (note) {
-                fixNotes.push(note);
-            }
-        });
-        if (fixNotes.length > 0) {
-            manualIssues += (manualIssues ? '\n' : '') + fixNotes.join('\n');
-        }
-
-        const data = await api.request(`/api/worldview/${worldviewId}/consistency/fix/`, {
-            method: 'POST',
-            body: JSON.stringify({ manual_issues: manualIssues })
-        });
-
-        if (data.success) {
-            window.isConsistencyFixMode = true;
-            
-            const report = document.getElementById('consistencyReport');
-            const fixButtons = document.getElementById('consistencyFixButtons');
-            const actionButtons = document.getElementById('consistencyActionButtons');
-            const suggestionsContainer = document.getElementById('consistencySuggestionsContainer');
-            
-            hideElement(report);
-            hideElement(fixButtons);
-            showElement(actionButtons);
-            
-            // 隐藏并清空手动输入区域
-            const manualInput = document.getElementById('consistencyManualInput');
-            if (manualInput) {
-                hideElement(manualInput);
-                if (manualTextarea) manualTextarea.value = '';
-            }
-            
-            if (suggestionsContainer) {
-                showElement(suggestionsContainer);
-                displayConsistencySuggestions(data.data || [], suggestionsContainer);
-                showToast('修复建议已生成');
-            }
-        }
-    } catch (error) {
-        console.error('Failed to fix consistency:', error);
-        showToast('生成修复建议失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-// 显示一致性修复建议
-function displayConsistencySuggestions(suggestions, container) {
-    if (!container) return;
-
-    if (suggestions.length === 0) {
-        container.innerHTML = `
-            <div class="border rounded p-4">
-                <div class="text-center py-4">
-                    <i class="fas fa-check-circle mb-2" style="font-size: 2rem; color: #22c55e;"></i>
-                    <p class="text-muted mb-0" style="color: #e8b840 !important; font-size: 1.05rem;">
-                        无需修复，设定一致性已经很好！
-                    </p>
-                </div>
-            </div>
-        `;
-        return;
-    }
-
-    window.currentSuggestions = suggestions;
-
-    container.innerHTML = `
-        <div class="border rounded p-4">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h4>修改建议</h4>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllConsistencySuggestions(true)">
-                        <i class="fas fa-check-square me-1"></i>全选
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllConsistencySuggestions(false)">
-                        <i class="fas fa-square me-1"></i>取消全选
-                    </button>
-                </div>
-            </div>
-            <div id="consistencySuggestionsList">
-                ${suggestions.map((s, i) => `
-                    <div class="suggestion-item" data-index="${i}">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <div class="d-flex align-items-center gap-2">
-                                <input type="checkbox" class="suggestion-checkbox" checked data-index="${i}">
-                                <span class="font-medium">修改 ${i + 1}</span>
-                            </div>
-                            <span class="suggestion-impact">${getImpactText(s.impact)}</span>
-                        </div>
-                        <div class="suggestion-content">
-                            <p class="text-sm text-muted mb-1"><strong>目标:</strong> <span class="text-primary">${getLayerName(s.targetLayer)}</span> / <code class="text-sm">${s.targetField}</code></p>
-                            <div class="suggestion-section">
-                                <p class="text-sm mb-1"><strong>原值:</strong></p>
-                                <div class="suggestion-old-value">${formatValue(s.oldValue)}</div>
-                            </div>
-                            <div class="suggestion-section">
-                                <p class="text-sm mb-1"><strong>新值:</strong></p>
-                                <textarea class="suggestion-edit" data-index="${i}" data-field="newValue">${escapeHtml(typeof s.newValue === 'object' ? JSON.stringify(s.newValue, null, 2) : (s.newValue || ''))}</textarea>
-                            </div>
-                            <div class="suggestion-section">
-                                <p class="text-sm mb-1"><strong>原因:</strong></p>
-                                <div class="suggestion-reason">${escapeHtml(s.reason || '')}</div>
-                            </div>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `;
-}
-
-// 全选/取消全选一致性修复建议
-function toggleAllConsistencySuggestions(checked) {
-    const checkboxes = document.querySelectorAll('#consistencySuggestionsList .suggestion-checkbox');
-    checkboxes.forEach(checkbox => {
-        checkbox.checked = checked;
-    });
-}
-
-// 清除一致性修复建议
-function clearConsistencySuggestions() {
-    const container = document.getElementById('consistencySuggestionsContainer');
-    if (container) {
-        container.innerHTML = '';
-        hideElement(container);
-    }
-    
-    // 重置一致性报告状态
-    const emptyState = document.getElementById('consistencyEmptyState');
-    const noIssuesState = document.getElementById('consistencyNoIssues');
-    const issuesList = document.getElementById('consistencyIssuesList');
-    if (emptyState) showElement(emptyState);
-    if (noIssuesState) hideElement(noIssuesState);
-    if (issuesList) hideElement(issuesList);
-    
-    // 隐藏所有预定义的问题条目（保留HTML结构）
-    for (let i = 0; i < 5; i++) {
-        const issueEl = document.getElementById(`consistency-issue-${i}`);
-        if (issueEl) {
-            hideElement(issueEl);
-        }
-    }
-    
-    hideElement(document.getElementById('consistencyFixButtons'));
-    hideElement(document.getElementById('consistencyActionButtons'));
-    showElement(document.getElementById('consistencyPrimaryButtons'));
-
-    const manualInput = document.getElementById('consistencyManualInput');
-    if (manualInput) {
-        hideElement(manualInput);
-        const textarea = document.getElementById('consistencyManualTextarea');
-        if (textarea) textarea.value = '';
-    }
-
-    window.currentSuggestions = null;
-    window.isConsistencyFixMode = false;
+        ...worldviewSuggestionMixin
+    };
 }
 
 // Alpine.js 一致性检查状态对象 - 工厂函数形式
@@ -1047,16 +481,16 @@ function consistencyState() {
         state: 'empty',
         issues: [],
         suggestions: [],
-        
+
         async checkConsistency() {
             if (!worldviewId) return;
             showLoading('正在检查一致性...');
-            
+
             try {
-                const data = await api.request(`/api/worldview/${worldviewId}/consistency/check/`, {
+                const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/consistency/check/`, {
                     method: 'POST'
                 });
-                
+
                 if (data.success) {
                     this.issues = data.data?.issues || [];
                     if (this.issues.length > 0) {
@@ -1075,11 +509,11 @@ function consistencyState() {
                 hideLoading();
             }
         },
-        
+
         async fixConsistency() {
             if (!worldviewId) return;
             showLoading('正在生成修复建议...');
-            
+
             try {
                 let manualIssues = '';
                 this.issues.forEach((issue, i) => {
@@ -1088,12 +522,12 @@ function consistencyState() {
                         manualIssues += (manualIssues ? '\n' : '') + noteEl.value.trim();
                     }
                 });
-                
-                const data = await api.request(`/api/worldview/${worldviewId}/consistency/fix/`, {
+
+                const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/consistency/fix/`, {
                     method: 'POST',
                     body: JSON.stringify({ manual_issues: manualIssues })
                 });
-                
+
                 if (data.success) {
                     this.suggestions = (data.data || []).map(s => ({ ...s, selected: true }));
                     this.state = 'hasSuggestions';
@@ -1109,35 +543,31 @@ function consistencyState() {
                 hideLoading();
             }
         },
-        
+
         resetState() {
             this.state = 'empty';
             this.issues = [];
             this.suggestions = [];
-            window.currentSuggestions = null;
         },
-        
+
         async applyConsistencyChanges() {
             if (!worldviewId) return;
-            
+
             const selectedChanges = this.suggestions.filter(s => s.selected);
             if (selectedChanges.length === 0) {
                 showToast('请至少选择一个修改建议');
                 return;
             }
-            
-            console.log('准备发送的修改数据:', JSON.stringify({ changes: selectedChanges }, null, 2));
-            
+
             showLoading('正在应用修改...');
-            
+
             try {
-                const data = await api.request(`/api/worldview/${worldviewId}/deepening/apply/`, {
+                const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/deepening/apply/`, {
                     method: 'POST',
                     body: JSON.stringify({ changes: selectedChanges })
                 });
-                
+
                 if (data.success) {
-                    console.log('应用修改成功，返回数据:', data);
                     showToast('修改已应用');
                     await loadWorldData(worldviewId);
                     this.resetState();
@@ -1151,163 +581,9 @@ function consistencyState() {
                 hideLoading();
             }
         },
-        
-        toggleSuggestion(index) {
-            if (this.suggestions[index]) {
-                this.suggestions[index].selected = !this.suggestions[index].selected;
-            }
-        },
-        
-        selectAllSuggestions(selected) {
-            this.suggestions.forEach(s => s.selected = selected);
-        },
-        
-        getLayerName(layer) {
-            const names = {
-                'setting': '基础设定',
-                'foundation': '世界基础',
-                'power': '力量体系',
-                'races': '种族族群',
-                'society': '社会结构',
-                'culture': '文化人文',
-                'history': '历史进程',
-                'special': '特殊规则'
-            };
-            return names[layer] || layer;
-        },
-        
-        translateFieldPath(path) {
-            if (!path) return '';
-            
-            const commonTerms = {
-                'overview': '概述',
-                'identity': '身份',
-                'transmigration': '穿越设定',
-                'conflict': '冲突',
-                'natural': '自然',
-                'laws': '法则',
-                'cultivation': '修炼',
-                'destiny': '命运',
-                'energy': '能量',
-                'types': '类型',
-                'future': '未来',
-                'race': '种族',
-                'economy': '经济',
-                'politics': '政治',
-                'religion': '宗教',
-                'art': '艺术',
-                'customs': '习俗',
-                'war': '战争',
-                'crisis': '危机',
-                'relics': '遗迹'
-            };
-            
-            return path.split('.').map(part => {
-                if (commonTerms[part]) {
-                    return commonTerms[part];
-                }
-                if (this.getLayerName(part) !== part) {
-                    return this.getLayerName(part);
-                }
-                return part;
-            }).join(' / ');
-        },
-        
-        getImpactText(impact) {
-            const impacts = {
-                'low': '影响较小',
-                'medium': '中等影响',
-                'high': '影响较大',
-                'critical': '关键影响'
-            };
-            return impacts[impact] || impact;
-        },
-        
-        formatValue(value) {
-            if (value === null || value === undefined) {
-                return '<span class="text-muted">空</span>';
-            }
-            if (typeof value === 'object') {
-                return `<pre class="text-sm" style="white-space: pre-wrap;">${JSON.stringify(value, null, 2)}</pre>`;
-            }
-            return `<span>${value}</span>`;
-        }
+
+        ...worldviewSuggestionMixin
     };
-}
-
-// 重置一致性检查UI到初始状态（保留用于兼容旧代码）
-function resetConsistencyUI() {
-    // 由于 Alpine.js 使用工厂函数，这里通过全局状态对象重置
-    if (window.consistencyStateInstance) {
-        window.consistencyStateInstance.resetState();
-    }
-}
-
-// 应用一致性修复建议
-async function applyConsistencyChanges() {
-    if (!worldviewId) return;
-    
-    // 更新当前建议数据（从编辑框获取，仅处理 newValue）
-    document.querySelectorAll('#consistencySuggestionsList .suggestion-edit').forEach(textarea => {
-        const index = parseInt(textarea.dataset.index);
-        const field = textarea.dataset.field;
-        
-        if (!isNaN(index) && field === 'newValue' && window.currentSuggestions[index]) {
-            // 尝试解析 JSON
-            let value = textarea.value;
-            try {
-                value = JSON.parse(value);
-            } catch (e) {
-                // 如果不是 JSON，保持原字符串值
-            }
-            window.currentSuggestions[index][field] = value;
-        }
-    });
-
-    const checkboxes = document.querySelectorAll('#consistencySuggestionsList .suggestion-checkbox:checked');
-    const selectedChanges = [];
-
-    checkboxes.forEach(checkbox => {
-        const index = parseInt(checkbox.dataset.index);
-        if (!isNaN(index)) {
-            const suggestionsData = window.currentSuggestions || [];
-            if (suggestionsData[index]) {
-                selectedChanges.push(suggestionsData[index]);
-            }
-        }
-    });
-
-    if (selectedChanges.length === 0) {
-        showToast('请至少选择一个修改建议');
-        return;
-    }
-
-    console.log('发送修改:', JSON.stringify({ changes: selectedChanges }, null, 2));
-
-    showLoading('正在应用修改...');
-
-    try {
-        const data = await api.request(`/api/worldview/${worldviewId}/deepening/apply/`, {
-            method: 'POST',
-
-            body: JSON.stringify({ changes: selectedChanges })
-        });
-
-        console.log('响应:', data);
-
-        if (data.success) {
-            showToast('修改已应用');
-            // 不刷新页面，而是重新加载数据
-            await loadWorldData(worldviewId);
-            // 重置一致性检查UI到初始状态
-            resetConsistencyUI();
-        }
-    } catch (error) {
-        console.error('Failed to apply changes:', error);
-        showToast('应用修改失败', 'error');
-    } finally {
-        hideLoading();
-    }
 }
 
 function createSnapshot() {
@@ -1669,7 +945,7 @@ async function saveSetting() {
     showLoading('正在保存故事设定...');
 
     try {
-        const data = await api.request(`/api/worldview/${worldviewId}/setting/`, {
+        const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/setting/`, {
             method: 'PUT',
             body: JSON.stringify({
                 world_name: worldName,
@@ -1721,7 +997,7 @@ async function saveFoundation() {
     showLoading('正在保存世界基础...');
     
     try {
-        const response = await api.request(`/api/worldview/${worldviewId}/foundation/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/foundation/`, {
             method: 'PUT',
             body: JSON.stringify({
                 continent: document.getElementById('foundationContinent')?.value || '',
@@ -1770,7 +1046,7 @@ async function savePower() {
     showLoading('正在保存力量体系...');
     
     try {
-        const response = await api.request(`/api/worldview/${worldviewId}/power/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/power/`, {
             method: 'PUT',
             body: JSON.stringify({
                 energy_types: document.getElementById('powerEnergyType')?.value || '',
@@ -1817,7 +1093,7 @@ async function saveRaces() {
     showLoading('正在保存种族族群...');
     
     try {
-        const response = await api.request(`/api/worldview/${worldviewId}/races/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/races/`, {
             method: 'PUT',
 
             body: JSON.stringify({
@@ -1860,7 +1136,7 @@ async function saveSociety() {
     showLoading('正在保存社会结构...');
     
     try {
-        const response = await api.request(`/api/worldview/${worldviewId}/society/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/society/`, {
             method: 'PUT',
             body: JSON.stringify({
                 government: document.getElementById('societyGovernment')?.value || '',
@@ -1908,7 +1184,7 @@ async function saveCulture() {
     showLoading('正在保存文化人文...');
     
     try {
-        const response = await api.request(`/api/worldview/${worldviewId}/culture/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/culture/`, {
             method: 'PUT',
 
             body: JSON.stringify({
@@ -1956,7 +1232,7 @@ async function saveHistory() {
     showLoading('正在保存历史进程...');
     
     try {
-        const response = await api.request(`/api/worldview/${worldviewId}/history/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/history/`, {
             method: 'PUT',
 
             body: JSON.stringify({
@@ -1998,7 +1274,7 @@ async function saveSpecial() {
     showLoading('正在保存特殊设定...');
     
     try {
-        const response = await api.request(`/api/worldview/${worldviewId}/special/`, {
+        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/special/`, {
             method: 'PUT',
 
             body: JSON.stringify({
@@ -2078,7 +1354,7 @@ async function aiFillSetting() {
     showLoading('AI正在优化基础设定...');
 
     try {
-        const fullContent = await api.streamRequest(`/api/worldview/${worldviewId}/setting/`, {
+        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/setting/`, {
             method: 'POST',
             body: JSON.stringify({
                 world_name: document.getElementById('worldName').value.trim(),
@@ -2134,7 +1410,6 @@ async function aiFillSetting() {
         showToast('完善失败', 'error');
     } finally {
         hideLoading();
-        updateExpandBtn();
     }
 }
 
@@ -2170,7 +1445,7 @@ async function aiFillFoundation() {
     showLoading('AI正在优化世界基础...');
 
     try {
-        const fullContent = await api.streamRequest(`/api/worldview/${worldviewId}/foundation/`, {
+        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/foundation/`, {
             method: 'POST',
             body: JSON.stringify({
                 genre: getSelectedGenre(),
@@ -2298,7 +1573,7 @@ async function aiFillPower() {
     showLoading('AI正在优化力量体系...');
 
     try {
-        const fullContent = await api.streamRequest(`/api/worldview/${worldviewId}/power/`, {
+        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/power/`, {
             method: 'POST',
             body: JSON.stringify({
                 genre: getSelectedGenre(),
@@ -2385,7 +1660,7 @@ async function aiFillRaces() {
     showLoading('AI正在优化种族族群...');
 
     try {
-        const fullContent = await api.streamRequest(`/api/worldview/${worldviewId}/races/`, {
+        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/races/`, {
             method: 'POST',
             body: JSON.stringify({
                 genre: getSelectedGenre(),
@@ -2480,7 +1755,7 @@ async function aiFillSociety() {
     showLoading('AI正在优化社会结构...');
 
     try {
-        const fullContent = await api.streamRequest(`/api/worldview/${worldviewId}/society/`, {
+        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/society/`, {
             method: 'POST',
             body: JSON.stringify({
                 genre: getSelectedGenre(),
@@ -2605,7 +1880,7 @@ async function aiFillCulture() {
     showLoading('AI正在优化文化人文...');
 
     try {
-        const fullContent = await api.streamRequest(`/api/worldview/${worldviewId}/culture/`, {
+        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/culture/`, {
             method: 'POST',
 
             body: JSON.stringify({
@@ -2718,7 +1993,7 @@ async function aiFillHistory() {
     showLoading('AI正在优化历史进程...');
 
     try {
-        const fullContent = await api.streamRequest(`/api/worldview/${worldviewId}/history/`, {
+        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/history/`, {
             method: 'POST',
             body: JSON.stringify({
                 genre: getSelectedGenre(),
@@ -2806,7 +2081,7 @@ async function aiFillSpecial() {
     showLoading('AI正在优化特殊规则...');
 
     try {
-        const fullContent = await api.streamRequest(`/api/worldview/${worldviewId}/special/`, {
+        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/special/`, {
             method: 'POST',
             body: JSON.stringify({
                 genre: getSelectedGenre(),
@@ -3019,7 +2294,7 @@ async function aiFillSpecial() {
 //     showLoading('AI正在生成阵营设定...');
 //
 //     try {
-//         const data = await api.request(`/api/worldview/${worldviewId}/factions/generate/`, {
+//         const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/factions/generate/`, {
 //             method: 'POST',
 //
 //             body: JSON.stringify({ doctrine: doctrine, name: name, position: position })
@@ -3094,7 +2369,7 @@ async function aiFillSpecial() {
 //     showLoading('AI正在生成地点设定...');
 //
 //     try {
-//         const data = await api.request(`/api/worldview/${worldviewId}/locations/generate/`, {
+//         const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/locations/generate/`, {
 //             method: 'POST',
 //
 //             body: JSON.stringify({ summary: summary, name: name, terrain: terrain })
@@ -3214,7 +2489,7 @@ async function aiFillSpecial() {
 //     showLoading('AI正在生成关系描述...');
 //
 //     try {
-//         const data = await api.request(`/api/worldview/${worldviewId}/relations/generate/`, {
+//         const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/relations/generate/`, {
 //             method: 'POST',
 //
 //             body: JSON.stringify({ source: source, target: target, type: relationType })

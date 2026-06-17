@@ -10,40 +10,31 @@
     <link href="/static/css/note.css" rel="stylesheet">
 </head>
 <body>
-    <div id="loadingOverlay" class="loading-overlay">
-        <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <span id="loadingText">加载中...</span>
-        </div>
-    </div>
-
-    <div class="page-header-wrapper">
-        <div class="container">
-            <div class="page-header-content">
-                <button class="back-btn">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
-                <div class="header-main">
-                    <h1 class="project-title" id="project-title">-</h1>
-                    <p class="project-meta">
-                        <i class="fas fa-feather"></i>
-                        随手记 · 记录灵感碎片
-                    </p>
-                </div>
-                <button class="btn btn-add-header" onclick="showAddModal()">
+    <div class="page-header">
+        <div class="page-header-inner">
+            <button class="back-btn">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <div class="header-title-area">
+                <h1 class="header-title">随手记</h1>
+                <p class="header-subtitle" id="project-title">-</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn-save" onclick="showAddModal()">
                     <i class="fas fa-plus"></i> 新增随手记
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="container-fluid note-container">
+    <div class="page-content">
+        <div class="note-container">
         <div class="flex-container">
             <div class="note-sidebar-wrapper">
                 <div class="note-sidebar">
                     <div class="sidebar-header">
                         <div class="search-box">
-                            <input type="text" id="search-input" placeholder="搜索随手记..." onkeyup="searchNotes()">
+                            <input type="text" id="search-input" placeholder="搜索随手记..." oninput="filterAndRenderNotes()">
                             <i class="fas fa-search"></i>
                         </div>
                         <select id="status-filter" class="status-filter" onchange="filterAndRenderNotes()">
@@ -73,16 +64,16 @@
                                 <i class="far fa-clock"></i>
                             </div>
                         </div>
-                        <div class="actions-section">
+                        <div class="actions-section" id="actions-section">
                             <select id="status-select" class="status-select" disabled onchange="updateStatus()">
                                 <option value="unused">📝 未使用</option>
                                 <option value="used">✅ 已使用</option>
                                 <option value="published">🚀 已发布</option>
                             </select>
-                            <button class="btn btn-sm btn-outline-secondary" id="btn-edit" onclick="enterEditMode()" disabled>
+                            <button class="btn-outline-secondary" id="btn-edit" onclick="enterEditMode()" disabled>
                                 <i class="fas fa-edit"></i> 编辑
                             </button>
-                            <button class="btn btn-sm btn-outline-danger" id="btn-delete" onclick="deleteNote()" disabled>
+                            <button class="btn-outline-danger" id="btn-delete" onclick="deleteNote()" disabled>
                                 <i class="fas fa-trash"></i> 删除
                             </button>
                         </div>
@@ -101,13 +92,13 @@
                             <div class="content-footer">
                                 <span class="word-count" id="word-count">0 字</span>
                                 <div class="footer-actions">
-                                    <button class="btn btn-secondary btn-magic" id="btn-ai-footer" onclick="aiPolish('edit')" disabled>
+                                    <button class="btn-ai" id="btn-ai-footer" onclick="aiPolish('edit')" disabled>
                                         <i class="fas fa-magic"></i> AI优化
                                     </button>
-                                    <button class="btn btn-secondary" id="btn-cancel" onclick="cancelEdit()" style="display: none;">
+                                    <button class="btn-cancel" id="btn-cancel" onclick="cancelEdit()" style="display: none;">
                                         <i class="fas fa-times"></i> 取消
                                     </button>
-                                    <button class="btn btn-primary" id="btn-save" onclick="saveNote()" style="display: none;">
+                                    <button class="btn-success" id="btn-save" onclick="saveNote()" style="display: none;">
                                         <i class="fas fa-check"></i> 保存
                                     </button>
                                 </div>
@@ -117,31 +108,29 @@
                 </div>
             </div>
         </div>
+        </div>
     </div>
 
     <div class="modal-overlay" id="add-modal">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="dialog-header">
                 <h5><i class="fas fa-plus-circle"></i>新增随手记</h5>
                 <button class="btn-close" onclick="closeAddModal()">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <label class="modal-label">标题</label>
                 <input type="text" id="new-title" class="modal-input" placeholder="给灵感起个名字（可选）...">
-                <label class="modal-label">灵感内容</label>
+                <label class="modal-label">灵感内容 <span class="modal-word-count" id="modal-word-count">0 字</span></label>
                 <textarea id="new-content" class="modal-textarea" placeholder="记录你突然想到的小说片段、对话、情节..." oninput="updateNewWordCount()"></textarea>
-                <div class="modal-footer-row">
-                    <span class="modal-word-count" id="modal-word-count">0 字</span>
-                    <button class="btn btn-magic btn-sm" id="btn-new-ai" onclick="aiPolish('new')">
-                        <i class="fas fa-magic"></i> AI润色
-                    </button>
-                </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeAddModal()">取消</button>
-                <button class="btn btn-primary" onclick="addNote()">
+            <div class="dialog-footer">
+                <button class="btn-ai btn-sm" id="btn-new-ai" onclick="aiPolish('new')">
+                    <i class="fas fa-magic"></i> AI润色
+                </button>
+                <button class="btn-cancel" onclick="closeAddModal()">取消</button>
+                <button class="btn-save" onclick="addNote()">
                     <i class="fas fa-plus"></i> 添加
                 </button>
             </div>
@@ -150,19 +139,19 @@
 
     <div class="modal-overlay" id="confirm-modal">
         <div class="modal-content small">
-            <div class="modal-header">
+            <div class="dialog-header">
                 <h5><i class="fas fa-exclamation-triangle text-warning"></i>确认删除</h5>
                 <button class="btn-close" onclick="closeConfirmModal()">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <div class="modal-body text-center">
+            <div class="dialog-body text-center">
                 <p class="mb-3">确定要删除这条随手记吗？</p>
                 <p class="text-muted small mb-0">删除后无法恢复</p>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeConfirmModal()">取消</button>
-                <button class="btn btn-danger" onclick="confirmDelete()">
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeConfirmModal()">取消</button>
+                <button class="btn-danger" onclick="confirmDelete()">
                     <i class="fas fa-trash"></i> 删除
                 </button>
             </div>

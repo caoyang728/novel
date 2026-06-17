@@ -2,9 +2,7 @@ from django.shortcuts import get_object_or_404
 from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from novel_agent.authentication import JWTAuthentication
+from apps.project.base import BaseAPIView
 from apps.project.models import ProjectList
 from apps.worldview.utils import get_worldview_context
 from agent.llm import get_llm
@@ -34,9 +32,7 @@ import re
 
 
 
-class BaseTimelineAPIView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+class BaseTimelineAPIView(BaseAPIView):
 
     def get_project(self, project_id):
         """获取项目并校验归属当前用户"""
@@ -48,7 +44,7 @@ class BaseTimelineAPIView(APIView):
             return None
         return worldview_summary
 
-    def build_sse_response(self, chain, chain_params, user=None, scene="timeline_generate"):
+    def build_sse_response(self, chain, chain_params, user=None, scene="timeline_generate", project=None, task_type=None):
         if user is None:
             user = self.request.user
 
@@ -57,10 +53,20 @@ class BaseTimelineAPIView(APIView):
 
         def generate():
             try:
+                last_chunk = None
+                usage_chunk = None
+                full_content = ''
                 for chunk in full_chain.stream(chain_params):
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
                     content_chunk = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     if content_chunk:
+                        full_content += content_chunk
                         yield f"data: {json.dumps({'type': 'chunk', 'data': content_chunk}, ensure_ascii=False)}\n\n"
+                # 记录 token 使用量
+                log_task = task_type or scene
+                self.log_token_usage(log_task, result=last_chunk, usage_result=usage_chunk, user=user, project=project)
                 yield f"data: {json.dumps({'type': 'stream_complete'}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
@@ -101,7 +107,7 @@ class BaseTimelineAPIView(APIView):
         return f"{label}：\n标题：{title}\n时间范围：{time_range}\n描述：{desc}"
 
 
-class TimelineEventList(BaseTimelineAPIView):
+class ApiTimelineEventListView(BaseTimelineAPIView):
 
     def get(self, request, project_id):
         project = self.get_project(project_id)
@@ -208,7 +214,7 @@ class TimelineEventList(BaseTimelineAPIView):
             })
 
 
-class TimelineEventDetail(BaseTimelineAPIView):
+class ApiTimelineEventDetailView(BaseTimelineAPIView):
 
     def get_event(self, request, project_id, pk):
         """获取事件并校验归属"""
@@ -258,7 +264,7 @@ class TimelineEventDetail(BaseTimelineAPIView):
         return Response({'success': True, 'message': '删除成功'})
 
 
-class TimelineGenerateView(BaseTimelineAPIView):
+class ApiTimelineGenerateView(BaseTimelineAPIView):
 
     def post(self, request, project_id):
         project = self.get_project(project_id)
@@ -285,11 +291,13 @@ class TimelineGenerateView(BaseTimelineAPIView):
                 "worldview_foundation": foundation_text,
                 "project_title": project.title,
                 "extra_prompt": extra_prompt
-            }
+            },
+            project=project,
+            task_type='timeline_generate',
         )
 
 
-class TimelineChatGenerateView(BaseTimelineAPIView):
+class ApiTimelineChatGenerateView(BaseTimelineAPIView):
 
     def post(self, request, project_id):
         project = self.get_project(project_id)
@@ -329,11 +337,13 @@ class TimelineChatGenerateView(BaseTimelineAPIView):
 
         return self.build_sse_response(
             chain=prompt,
-            chain_params=chain_params
+            chain_params=chain_params,
+            project=project,
+            task_type='timeline_chat',
         )
 
 
-class TimelineSingleOptimizeView(BaseTimelineAPIView):
+class ApiTimelineSingleOptimizeView(BaseTimelineAPIView):
 
     def post(self, request, project_id):
         serializer = TimelineSingleOptimizeSerializer(data=request.data)
@@ -394,11 +404,13 @@ class TimelineSingleOptimizeView(BaseTimelineAPIView):
                 "time_range": current_time_range,
                 "content": content,
                 "context_section": context_section
-            }
+            },
+            project=project,
+            task_type='timeline_single_optimize',
         )
 
 
-class TimelineGenerateFieldsView(BaseTimelineAPIView):
+class ApiTimelineGenerateFieldsView(BaseTimelineAPIView):
     """根据描述生成事件字段"""
 
     def post(self, request, project_id):
@@ -445,11 +457,13 @@ class TimelineGenerateFieldsView(BaseTimelineAPIView):
                 "description": description,
                 "context_section": context_section
             },
-            scene="timeline_generate"
+            scene="timeline_generate",
+            project=project,
+            task_type='timeline_generate_fields',
         )
 
 
-class TimelineMergeView(BaseTimelineAPIView):
+class ApiTimelineMergeView(BaseTimelineAPIView):
 
     def post(self, request, project_id):
         serializer = TimelineMergeSerializer(data=request.data)
@@ -492,6 +506,7 @@ class TimelineMergeView(BaseTimelineAPIView):
                 "outline": worldview_summary,
                 "events_to_merge": events_text
             })
+            self.log_token_usage('timeline_merge', result=result, user=request.user, project=project)
             ai_content = result.content if hasattr(result, 'content') else str(result)
 
             # 改进 JSON 解析：使用非贪婪匹配，支持嵌套花括号
@@ -557,7 +572,7 @@ class TimelineMergeView(BaseTimelineAPIView):
         })
 
 
-class TimelineSplitView(BaseTimelineAPIView):
+class ApiTimelineSplitView(BaseTimelineAPIView):
 
     def post(self, request, project_id):
         serializer = TimelineSplitSerializer(data=request.data)
@@ -618,7 +633,7 @@ class TimelineSplitView(BaseTimelineAPIView):
         })
 
 
-class TimelineCheckView(BaseTimelineAPIView):
+class ApiTimelineCheckView(BaseTimelineAPIView):
 
     def post(self, request, project_id):
         project = self.get_project(project_id)
@@ -658,11 +673,13 @@ class TimelineCheckView(BaseTimelineAPIView):
                 "outline": worldview_summary,
                 "current_timeline": current_timeline
             },
-            scene="timeline_check"
+            scene="timeline_check",
+            project=project,
+            task_type='timeline_check',
         )
 
 
-class TimelineCheckOptimizeView(BaseTimelineAPIView):
+class ApiTimelineCheckOptimizeView(BaseTimelineAPIView):
 
     def post(self, request, project_id):
         serializer = TimelineCheckOptimizeSerializer(data=request.data)
@@ -740,5 +757,7 @@ class TimelineCheckOptimizeView(BaseTimelineAPIView):
                 "events_section": events_section,
                 "user_solution": user_solution
             },
-            scene="timeline_check_optimize"
+            scene="timeline_check_optimize",
+            project=project,
+            task_type='timeline_check_optimize',
         )

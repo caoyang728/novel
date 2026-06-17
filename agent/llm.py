@@ -352,9 +352,13 @@ def get_llm(user=None, scene=None, **kwargs) -> ChatOpenAI:
     config.update(kwargs)
     
     # 构建参数（移除 None 值）
+    # stream_usage=True: 流式响应时在最后一个 chunk 中返回 usage_metadata，用于 token 计量
     final_params = {k: v for k, v in config.items() if v is not None}
-    
-    return ChatOpenAI(**final_params)
+    final_params['stream_usage'] = True
+
+    llm_instance = ChatOpenAI(**final_params)
+    logger.info(f"get_llm: stream_usage={llm_instance.stream_usage}, model={llm_instance.model_name}, base_url={llm_instance.openai_api_base}")
+    return llm_instance
 
 
 def create_llm(config: LLMConfig = None) -> LLM:
@@ -364,34 +368,104 @@ def create_llm(config: LLMConfig = None) -> LLM:
 
 # ========== Token 日志 ==========
 
-def log_token_usage(task_type: str, result=None, prompt_tokens: int = 0, completion_tokens: int = 0, user=None, project=None):
+def _estimate_tokens(text):
+    """估算文本的 token 数量（中英文混合场景的近似值）"""
+    if not text:
+        return 0
+    try:
+        import tiktoken
+        enc = tiktoken.encoding_for_model("gpt-4o")
+        return len(enc.encode(text))
+    except Exception:
+        # fallback: 中文约1.5字/token，英文约4字符/token，取中间值
+        return max(1, len(text) // 2)
+
+
+def log_token_usage(task_type: str, result=None, input_tokens: int = 0, output_tokens: int = 0, user=None, project=None, usage_result=None, llm_config=None):
     """记录Token使用量
 
-    支持两种调用方式：
-    1. 传入 result 对象，自动从 usage_metadata 提取 token 数：
-       log_token_usage('content', result=result, user=user, project=project)
-    2. 手动传入 token 数（流式等无法获取 usage_metadata 的场景）：
-       log_token_usage('content', prompt_tokens=100, completion_tokens=200, user=user, project=project)
-    """
-    # 优先从 result 对象提取
-    if result is not None and hasattr(result, 'usage_metadata') and result.usage_metadata:
-        prompt_tokens = result.usage_metadata.get('input_tokens', 0)
-        completion_tokens = result.usage_metadata.get('output_tokens', 0)
+    3种调用模式：
+    1. 流式模式：传入 usage_result（含 usage_metadata 的 chunk）和 result（last_chunk）
+       log_token_usage('worldview_foundation', result=last_chunk, usage_result=usage_chunk, user=user, project=project)
+       → 从 usage_metadata 精确提取 input_tokens/output_tokens/cache
 
-    if prompt_tokens == 0 and completion_tokens == 0:
+    2. 非流式模式：传入 result（含 usage_metadata 的 AIMessage）
+       log_token_usage('worldview_deepen', result=result, user=user, project=project)
+       → 从 usage_metadata 精确提取 input_tokens/output_tokens/cache
+
+    3. 手动模式：仅传入 input_tokens/output_tokens（无缓存数据，cache 字段为 null）
+       log_token_usage('worldview_generate', input_tokens=100, output_tokens=200, user=user, project=project)
+       → 直接使用传入的 token 数，cache 字段为 null（前端标记为"预估"）
+    """
+    logger.info(f"log_token_usage called: task_type={task_type}, has_result={result is not None}, input_tokens={input_tokens}, output_tokens={output_tokens}, user={user}, project={project}")
+
+    # 优先从 usage_result 提取（流式场景中 usage_metadata 可能在倒数第二个 chunk）
+    usage_source = None
+    if usage_result is not None and hasattr(usage_result, 'usage_metadata') and usage_result.usage_metadata:
+        usage_source = usage_result
+    elif result is not None and hasattr(result, 'usage_metadata') and result.usage_metadata:
+        usage_source = result
+
+    input_cache_hit_tokens = 0
+    input_cache_miss_tokens = 0
+    if usage_source is not None:
+        # 模式1/2：从 usage_metadata 精确提取
+        logger.info(f"log_token_usage: usage_metadata={usage_source.usage_metadata}")
+        input_tokens = usage_source.usage_metadata.get('input_tokens', 0)
+        output_tokens = usage_source.usage_metadata.get('output_tokens', 0)
+        # 检查缓存命中：input_token_details.cache_read > 0 表示有缓存命中
+        input_details = usage_source.usage_metadata.get('input_token_details', {})
+        if isinstance(input_details, dict):
+            # langchain-openai 将 prompt_tokens_details.cached_tokens 映射为 cache_read
+            input_cache_hit_tokens = input_details.get('cached_tokens', 0) or input_details.get('cache_read', 0)
+        else:
+            input_cache_hit_tokens = 0
+        input_cache_miss_tokens = max(0, input_tokens - input_cache_hit_tokens)
+    elif result is not None:
+        logger.info(f"log_token_usage: result has no usage_metadata, type={type(result).__name__}, usage_metadata={getattr(result, 'usage_metadata', 'NO_ATTR')}")
+    # 模式3：手动模式，cache 字段保持 None
+
+    if input_tokens == 0 and output_tokens == 0:
+        logger.warning(f"log_token_usage: skipping, no tokens to record, task_type={task_type}")
         return
+
+    # 计算费用：优先使用传入的 llm_config，否则查找用户默认配置
+    cost = 0
+    config_for_cost = llm_config
+    if config_for_cost is None and user:
+        try:
+            config_for_cost = UserLLMBaseConfig.objects.filter(
+                user=user, is_default=True, is_active=True
+            ).first()
+        except Exception:
+            pass
+    if config_for_cost:
+        input_price = getattr(config_for_cost, 'input_price', 0) or 0
+        output_price = getattr(config_for_cost, 'output_price', 0) or 0
+        cache_hit_price = getattr(config_for_cost, 'cache_hit_price', 0) or 0
+        # 价格单位：元/百万Token
+        if input_price > 0 or output_price > 0 or cache_hit_price > 0:
+            cache_miss_tokens = input_tokens - input_cache_hit_tokens
+            cost = (cache_miss_tokens * input_price + input_cache_hit_tokens * cache_hit_price + output_tokens * output_price) / 1_000_000
+            cost = round(cost, 4)
 
     try:
         TokenUsageLog.objects.create(
             user=user,
             project=project,
-            model_name='',
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens,
+            llm_config=config_for_cost,
+            task_type=task_type,
+            model_name=config_for_cost.model_name if config_for_cost else '',
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+            input_cache_hit_tokens=input_cache_hit_tokens,
+            input_cache_miss_tokens=input_cache_miss_tokens,
+            cost=cost,
         )
+        logger.info(f"log_token_usage: saved successfully, task_type={task_type}, input={input_tokens}, output={output_tokens}, cache_hit={input_cache_hit_tokens}, cache_miss={input_cache_miss_tokens}")
     except Exception as e:
-        logger.error(f"记录Token使用失败: {e}")
+        logger.error(f"记录Token使用失败: {e}", exc_info=True)
 
 
 # ========== LLM 调用 + 重试 ==========
@@ -426,11 +500,19 @@ def call_llm_with_retry(chain_or_messages, input_vars=None, stream=False, timeou
             try:
                 if stream:
                     def gen():
+                        last_chunk = None
+                        usage_chunk = None
+                        full_content = ''
                         for chunk in llm.stream(messages):
-                            if hasattr(chunk, 'content'):
-                                yield chunk.content
-                            else:
-                                yield str(chunk)
+                            last_chunk = chunk
+                            if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                                usage_chunk = chunk
+                            chunk_text = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                            full_content += chunk_text
+                            yield chunk_text
+                        # 流结束后记录 token 使用量
+                        log_task = task_type or scene
+                        log_token_usage(log_task, result=last_chunk, usage_result=usage_chunk, user=user, project=project)
                     return gen()
                 else:
                     result = llm.invoke(messages)
@@ -477,11 +559,19 @@ def call_llm_with_retry(chain_or_messages, input_vars=None, stream=False, timeou
         try:
             if stream:
                 def gen():
+                    last_chunk = None
+                    usage_chunk = None
+                    full_content = ''
                     for chunk in chain.stream(input_vars):
-                        if hasattr(chunk, 'content'):
-                            yield chunk.content
-                        else:
-                            yield str(chunk)
+                        last_chunk = chunk
+                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                            usage_chunk = chunk
+                        chunk_text = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                        full_content += chunk_text
+                        yield chunk_text
+                    # 流结束后记录 token 使用量
+                    log_task = task_type or scene
+                    log_token_usage(log_task, result=last_chunk, usage_result=usage_chunk, user=user, project=project)
                 return gen()
             else:
                 result = chain.invoke(input_vars)
@@ -502,7 +592,7 @@ def call_llm_with_retry(chain_or_messages, input_vars=None, stream=False, timeou
     raise Exception(f"LLM调用失败，已重试 {max_retries} 次")
 
 
-def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, timeout=None, error_msg='操作失败，请重试', post_process=None):
+def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, timeout=None, error_msg='操作失败，请重试', post_process=None, project=None, task_type=None):
     """通用 LLM 流式调用，返回 StreamingHttpResponse
 
     使用 LCEL (LangChain Expression Language) 构建 chain，system/user 分开定义提示词，
@@ -517,6 +607,8 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
         timeout: 超时时间（秒）
         error_msg: 错误提示信息
         post_process: 可选后处理函数，接收 full_content，返回最终 data 值
+        project: 项目对象，用于 token 日志记录
+        task_type: 任务类型标识，用于 token 日志记录（默认使用 scene）
 
     Returns:
         StreamingHttpResponse: SSE 流式响应
@@ -536,9 +628,14 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
             chain = prompt | llm
 
             full_content = ""
+            last_chunk = None
+            usage_chunk = None
             for retry_count in range(max_retries):
                 try:
                     for chunk in chain.stream(prompt_vars):
+                        last_chunk = chunk
+                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                            usage_chunk = chunk
                         chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                         full_content += chunk_content
                         yield f"data: {json.dumps({'type': 'chunk', 'data': chunk_content}, ensure_ascii=False)}\n\n"
@@ -554,6 +651,10 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
                         time.sleep(retry_interval_current)
                     else:
                         raise Exception(f"LLM调用失败，已重试 {max_retries} 次")
+
+            # 记录 token 使用量
+            log_task = task_type or scene
+            log_token_usage(log_task, result=last_chunk, usage_result=usage_chunk, user=user, project=project)
 
             if post_process:
                 data_value = post_process(full_content)

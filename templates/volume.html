@@ -9,48 +9,50 @@
     <link href="/static/css/common.css" rel="stylesheet">
     <link href="/static/css/volume.css" rel="stylesheet">
 </head>
-<body>
-    <div class="main-content-full">
-        <div class="content-header">
-            <div class="header-left">
-                <button class="btn btn-outline-secondary btn-back">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
-                <div>
-                    <h5>卷管理</h5>
-                    <span class="badge badge-info" id="project-title">-</span>
-                </div>
+<body class="page-full-height">
+    <div class="page-header">
+        <div class="page-header-inner">
+            <button class="back-btn">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <div class="header-title-area">
+                <h1 class="header-title">卷管理</h1>
+                <p class="header-subtitle" id="project-title">-</p>
             </div>
-            <div class="btn-group-custom">
-                <div class="version-select-group">
-                    <label>大纲版本</label>
-                    <select class="form-select form-select-sm" id="outline-select">
-                        <option value="">请选择大纲版本</option>
-                    </select>
-                </div>
-                <div class="version-select-group">
-                    <label>卷版本</label>
-                    <select class="form-select form-select-sm" id="volume-version-select">
-                        <option value="">请选择卷版本</option>
-                    </select>
-                </div>
+            <div class="header-actions">
+                <div class="btn-group-custom">
+                    <div class="version-select-group">
+                        <label>大纲版本</label>
+                        <select class="form-select form-select-sm" id="outline-select">
+                            <option value="">请选择大纲版本</option>
+                        </select>
+                    </div>
+                    <div class="version-select-group">
+                        <label>卷版本</label>
+                        <select class="form-select form-select-sm" id="volume-version-select">
+                            <option value="">请选择卷版本</option>
+                        </select>
+                    </div>
 
-                <button class="btn btn-primary" onclick="saveVersion()" id="save-as-btn" disabled data-msg="将所有卷保存为一个新版本，当前版本内容不受影响。">
-                    <i class="fas fa-copy"></i> 另存新版
-                </button>
-                <button class="btn btn-outline-gradient btn-finalize" onclick="finalizeVersion()" id="finalize-btn" disabled>
-                    <i class="fas fa-lock"></i> 版本锁定
-                </button>
+                    <button class="btn-success" onclick="saveVersion()" id="save-as-btn" disabled data-msg="将所有卷保存为一个新版本，当前版本内容不受影响。">
+                        <i class="fas fa-copy"></i> 另存新版
+                    </button>
+                    <button class="btn-outline-gradient btn-finalize" onclick="finalizeVersion()" id="finalize-btn" disabled>
+                        <i class="fas fa-lock"></i> 版本锁定
+                    </button>
+                </div>
             </div>
         </div>
+    </div>
 
+    <div class="page-content">
         <div class="three-column-view">
             <div class="left-column">
                 <div class="volume-list-card">
                     <div class="card-header">
                         <div class="d-flex align-items-center gap-2">
                             <h5><i class="fas fa-book me-2"></i>卷列表</h5>
-                            <span class="badge bg-primary text-white" id="volume-count">0 卷</span>
+                            <span class="badge badge-info" id="volume-count">0 卷</span>
                         </div>
                         <button class="btn-add-volume" id="add-volume-btn" onclick="addNewVolume()" style="display: none;">
                             <i class="fas fa-plus"></i> 新增卷
@@ -58,7 +60,7 @@
                     </div>
                     <div class="card-body" id="volume-list">
                         <div class="volume-empty">
-                            <button class="btn btn-gradient-success generate-btn-center" onclick="generateVolumes()" id="generate-btn" disabled style="display:none;">
+                            <button class="btn-gradient-success generate-btn-center" onclick="generateVolumes()" id="generate-btn" disabled style="display:none;">
                                 <i class="fas fa-magic"></i> AI生成卷
                             </button>
                             <p>暂无卷, 选择大纲版本并生成卷</p>
@@ -98,13 +100,13 @@
                         <h5><i class="fas fa-robot me-2"></i>AI卷助手</h5>
                         <div class="chat-card-header-actions" id="chat-actions">
                             <div class="selection-actions" id="selection-actions" style="display: none;">
-                                <button class="btn btn-cancel-selection" id="cancel-selection-btn" onclick="cancelSelection()">
+                                <button class="btn-cancel btn-sm" id="cancel-selection-btn" onclick="cancelSelection()">
                                     <i class="fas fa-times"></i> 取消
                                 </button>
-                                <button class="btn btn-delete-selected" id="delete-selected-btn" onclick="deleteSelectedMessages()" disabled>
+                                <button class="btn-danger btn-sm" id="delete-selected-btn" onclick="deleteSelectedMessages()" disabled>
                                     <i class="fas fa-trash"></i> 删除选中
                                 </button>
-                                <button class="btn btn-select-all" id="select-all-btn" onclick="toggleSelectAll()">
+                                <button class="btn-primary btn-sm" id="select-all-btn" onclick="toggleSelectAll()">
                                     <i class="fas fa-check-square"></i> 全选
                                 </button>
                             </div>
@@ -145,29 +147,29 @@
         </div>
     </div>
 
-    <div class="modal-overlay" id="confirm-modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="confirm-modal">
+        <div class="dialog">
+            <div class="dialog-header">
                 <h5 id="modal-title">确认操作</h5>
-                <button class="btn btn-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+                <button class="btn-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <p id="modal-message">确定要执行此操作吗？</p>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal()">取消</button>
-                <button class="btn btn-primary" id="modal-confirm-btn" onclick="executeModalAction()">确认</button>
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeModal()">取消</button>
+                <button class="btn-success" id="modal-confirm-btn" onclick="executeModalAction()">确认</button>
             </div>
         </div>
     </div>
 
-    <div class="modal-overlay" id="edit-modal">
-        <div class="modal-content edit-modal-content">
-            <div class="modal-header">
+    <div class="dialog-overlay" id="edit-modal">
+        <div class="dialog edit-modal-content">
+            <div class="dialog-header">
                 <h5 id="edit-modal-title"><i class="fas fa-pencil me-2"></i>编辑卷</h5>
-                <button class="btn btn-close" onclick="closeEditModal()"><i class="fas fa-times"></i></button>
+                <button class="btn-close" onclick="closeEditModal()"><i class="fas fa-times"></i></button>
             </div>
-            <div class="modal-body">
+            <div class="dialog-body">
                 <input type="hidden" id="edit-volume-index">
                 <div class="edit-form-row">
                     <div class="edit-form-group edit-form-group-sm">
@@ -192,12 +194,12 @@
                     <div id="edit-outline-editor"></div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeEditModal()">取消</button>
-                <button class="btn btn-primary btn-ai-optimize" onclick="aiOptimizeVolume()" id="ai-optimize-btn">
+            <div class="dialog-footer">
+                <button class="btn-ai btn-ai-optimize" onclick="aiOptimizeVolume()" id="ai-optimize-btn">
                     <i class="fas fa-magic"></i> AI优化
                 </button>
-                <button class="btn btn-primary" onclick="saveEditVolume()">保存</button>
+                <button class="btn-cancel" onclick="closeEditModal()">取消</button>
+                <button class="btn-success" onclick="saveEditVolume()">保存</button>
             </div>
         </div>
     </div>

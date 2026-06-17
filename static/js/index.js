@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', function() {
-    loadUserInfo();
-    loadProjects();
+    showLoading('加载中...');
+    Promise.all([loadUserInfo(), loadProjects()]).finally(() => hideLoading());
 });
 
 async function loadUserInfo() {
@@ -20,15 +20,13 @@ async function loadUserInfo() {
         }
     } catch (error) {
         console.error('Failed to load user info:', error);
-        // 重定向交给 common.js 中的 request 函数处理
     }
 
     try {
         const data = await api.get('/api/token-usage/today/');
         if (data && data.success) {
             const total = data.usage.total_tokens || 0;
-            const formatted = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : total;
-            document.getElementById('token-usage').textContent = '今日 Token: ' + formatted;
+            document.getElementById('token-usage').textContent = '今日 Token: ' + formatTokenCount(total);
         }
     } catch (error) {
         console.error('Failed to load token usage:', error);
@@ -74,8 +72,10 @@ function renderProjects(projects) {
         return;
     }
 
+    // 按更新时间倒排序
+    projects.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+
     container.innerHTML = projects.map(project => `
-        <div class="col-md-4">
             <div class="project-card" onclick="openProjectByVersion(${project.id}, ${project.version_count || 0}, ${project.latest_version_number || 0})" data-project='${JSON.stringify(project)}'>
                 <div class="project-card-header">
                     <div class="d-flex justify-content-between align-items-center">
@@ -89,16 +89,15 @@ function renderProjects(projects) {
                 <div class="project-card-footer">
                     <span class="status">更新于 ${formatDate(project.updated_at)}</span>
                     <div class="actions">
-                        <button class="btn btn-outline-primary btn-sm" onclick="event.stopPropagation(); editProject(${project.id})">
+                        <button class="btn-outline-primary btn-sm" onclick="event.stopPropagation(); editProject(${project.id})">
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-outline-danger btn-sm" onclick="event.stopPropagation(); deleteProject(${project.id})">
+                        <button class="btn-outline-danger btn-sm" onclick="event.stopPropagation(); deleteProject(${project.id})">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
                 </div>
             </div>
-        </div>
     `).join('');
 }
 
@@ -122,35 +121,28 @@ function getStatusText(status) {
     return texts[status] || status;
 }
 
-function formatDate(dateStr) {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('zh-CN');
-}
-
-
 // 根据版本数量决定跳转页面
 function openProjectByVersion(projectId, versionCount, latestVersionNumber) {
-    // 如果最新版本号为0（尚未构建大纲），进入project.html显示"大纲构建"
-    // 其他情况进入project.html显示"大纲优化"
     window.location.href = `project.html?project_id=${projectId}`;
 }
 
 
 async function deleteProject(projectId) {
     const confirmModal = document.createElement('div');
-    confirmModal.className = 'custom-modal-overlay';
+    confirmModal.className = 'dialog-overlay';
     confirmModal.id = 'deleteConfirmModal';
     confirmModal.innerHTML = `
-        <div class="custom-modal" style="max-width: 450px;">
-            <div class="custom-modal-header">
+        <div class="dialog" style="max-width: 450px;">
+            <div class="dialog-header">
                 <h5><i class="fas fa-exclamation-triangle text-warning me-2"></i>确认删除</h5>
+                <button class="btn-close" onclick="closeDeleteConfirmModal()"><i class="fas fa-times"></i></button>
             </div>
-            <div class="custom-modal-body">
+            <div class="dialog-body">
                 <p>删除项目后将无法恢复，确定要继续吗？</p>
             </div>
-            <div class="custom-modal-footer">
-                <button class="btn btn-secondary" onclick="closeDeleteConfirmModal()">取消</button>
-                <button class="btn btn-danger" onclick="showDeleteConfirmStep2(${projectId})">确认</button>
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeDeleteConfirmModal()">取消</button>
+                <button class="btn-danger" onclick="showDeleteConfirmStep2(${projectId})">确认</button>
             </div>
         </div>
     `;
@@ -169,20 +161,21 @@ function showDeleteConfirmStep2(projectId) {
     closeDeleteConfirmModal();
 
     const confirmModal = document.createElement('div');
-    confirmModal.className = 'custom-modal-overlay';
+    confirmModal.className = 'dialog-overlay';
     confirmModal.id = 'deleteConfirmModal';
     confirmModal.innerHTML = `
-        <div class="custom-modal" style="max-width: 450px;">
-            <div class="custom-modal-header">
+        <div class="dialog" style="max-width: 450px;">
+            <div class="dialog-header">
                 <h5><i class="fas fa-trash text-danger me-2"></i>二次确认</h5>
+                <button class="btn-close" onclick="closeDeleteConfirmModal()"><i class="fas fa-times"></i></button>
             </div>
-            <div class="custom-modal-body">
+            <div class="dialog-body">
                 <p>请输入 <strong>"确认删除"</strong> 以确认操作：</p>
                 <input type="text" id="delete-confirm-input" class="form-control mt-3" placeholder="请输入确认文字">
             </div>
-            <div class="custom-modal-footer">
-                <button class="btn btn-secondary" onclick="closeDeleteConfirmModal()">取消</button>
-                <button class="btn btn-danger" onclick="confirmDeleteProject(${projectId})">删除</button>
+            <div class="dialog-footer">
+                <button class="btn-cancel" onclick="closeDeleteConfirmModal()">取消</button>
+                <button class="btn-danger" onclick="confirmDeleteProject(${projectId})">删除</button>
             </div>
         </div>
     `;
@@ -225,7 +218,7 @@ function getProjectData(projectId) {
 }
 
 function closeEditProjectModal() {
-    document.getElementById('editProjectModal').classList.remove('active');
+    document.getElementById('editProjectModal').classList.remove('show');
     editingProjectId = null;
 }
 
@@ -239,7 +232,7 @@ async function saveProjectEdit() {
     }
 
     try {
-        const data = await api.post(`/api/projects/${editingProjectId}/update/`, { title, description });
+        const data = await api.put(`/api/projects/${editingProjectId}/`, { title, description });
         if (data.success) {
             closeEditProjectModal();
             loadProjects();
@@ -256,11 +249,11 @@ function openCreateProjectModal() {
     document.getElementById('create-project-title').value = '';
     document.getElementById('create-project-description').value = '';
     document.getElementById('ai-enhance-btn').disabled = true;
-    document.getElementById('createProjectModal').classList.add('active');
+    document.getElementById('createProjectModal').classList.add('show');
 }
 
 function closeCreateProjectModal() {
-    document.getElementById('createProjectModal').classList.remove('active');
+    document.getElementById('createProjectModal').classList.remove('show');
 }
 
 document.getElementById('create-project-description').addEventListener('input', function() {
@@ -304,7 +297,7 @@ async function aiEnhanceCreateProject() {
     const titleInput = document.getElementById('create-project-title');
     const descriptionInput = document.getElementById('create-project-description');
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>完善中...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>完善中...';
 
     showLoading('AI正在完善描述...');
 
@@ -344,7 +337,7 @@ function editProject(projectId) {
         editingProjectData = project;
         document.getElementById('edit-project-title').value = project.title;
         document.getElementById('edit-project-description').value = project.description || '';
-        document.getElementById('editProjectModal').classList.add('active');
+        document.getElementById('editProjectModal').classList.add('show');
     }
 }
 
@@ -367,15 +360,14 @@ async function aiEnhanceEditProject() {
     const titleInput = document.getElementById('edit-project-title');
     const descriptionInput = document.getElementById('edit-project-description');
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>完善中...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>完善中...';
 
     showLoading('AI正在完善描述...');
 
     try {
-        const data = await api.post('/api/projects/description-optimization/', {
+        const data = await api.post(`/api/projects/${editingProjectId}/description-optimization/`, {
             title: title,
-            description: description,
-            project_id: editingProjectId
+            description: description
         });
 
         if (data.success) {

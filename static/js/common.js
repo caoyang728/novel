@@ -459,6 +459,7 @@ function logout(redirectUrl = null, saveData = false) {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
+    localStorage.removeItem('has_llm_config');
 
     if (!redirectUrl) {
         showLoginModal();
@@ -499,6 +500,91 @@ function executeModalAction() {
 
 // ==================== API 请求封装 ====================
 
+/** 需要 LLM 服务商配置的 API 路径特征（URL 包含以下任一字符串时拦截） */
+const _LLM_PATH_MARKERS = ['/worldviews/', '/outline/', '/chapter/',
+    '/timeline/', '/note/', '/volume/'];
+
+function _isLLMRequired(url, method) {
+    if (method === 'GET' || method === 'DELETE') return false;
+    return _LLM_PATH_MARKERS.some(p => url.includes(p));
+}
+
+/** 无需认证即可访问的路径 */
+const _NO_AUTH_PATHS = ['/login/', '/register/'];
+
+function _isNoAuthUrl(url) {
+    return _NO_AUTH_PATHS.some(p => url.startsWith(p));
+}
+
+function _isLLMConfigured() {
+    const val = localStorage.getItem('has_llm_config');
+    return val === '1';
+}
+
+/** 确保 LLM 配置状态已缓存；未缓存时实时查询 */
+let _llmConfigPromise = null;
+async function _ensureLLMConfigured() {
+    const val = localStorage.getItem('has_llm_config');
+    if (val !== null) return val === '1';
+    // 防止并发重复查询
+    if (_llmConfigPromise) return _llmConfigPromise;
+    _llmConfigPromise = _fetchLLMConfigStatus();
+    try {
+        return await _llmConfigPromise;
+    } finally {
+        _llmConfigPromise = null;
+    }
+}
+async function _fetchLLMConfigStatus() {
+    try {
+        const token = getToken();
+        if (!token) return false;
+        const res = await fetch('/api/auth/user/', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+            const json = await res.json();
+            if (json.success && json.user) {
+                _updateLLMConfigStatus(json.user);
+                return json.user.has_llm_config === true;
+            }
+        }
+    } catch (e) {
+        // 查询失败，默认未配置
+    }
+    return false;
+}
+
+function _showLLMConfigRequired() {
+    if (document.getElementById('llm-config-modal')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'llm-config-modal';
+    overlay.className = 'dialog-overlay show';
+    overlay.style.background = 'rgba(0,0,0,0.6)';
+    overlay.innerHTML = `
+        <div class="dialog dialog-sm">
+            <div class="dialog-body">
+                <i class="fas fa-exclamation-triangle" style="font-size:2.5rem;color:#f59e0b;margin-bottom:1rem;display:block;"></i>
+                <h3 style="color:#f9fafb;margin:0 0 0.75rem;font-size:1.1rem;">未配置 LLM 服务商</h3>
+                <p style="color:#9ca3af;margin:0;line-height:1.6;">
+                    请先在「LLM 配置」页面添加并测试模型配置，<br>完成后即可使用 AI 功能。
+                </p>
+            </div>
+            <div class="dialog-footer" style="justify-content: space-around;">
+                <button class="btn-cancel" onclick="document.getElementById('llm-config-modal').remove();">取消</button>
+                <button class="btn-success" onclick="window.location.href='/llm_config.html'">前往配置</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function _updateLLMConfigStatus(userData) {
+    if (userData && userData.has_llm_config !== undefined) {
+        localStorage.setItem('has_llm_config', userData.has_llm_config ? '1' : '0');
+    }
+}
+
 const api = {
     // 获取 access token
     getToken: getToken,
@@ -515,9 +601,18 @@ const api = {
     // 通用请求方法
     async request(url, options = {}) {
         const token = getToken();
-        if (!token) {
+        if (!token && !_isNoAuthUrl(url)) {
             this.forceReLogin();
             return null;
+        }
+        // 检查 LLM 服务商配置（仅 LLM 相关路径才拦截）
+        const reqMethod = options.method || 'GET';
+        if (_isLLMRequired(url, reqMethod)) {
+            const configured = await _ensureLLMConfigured();
+            if (!configured) {
+                _showLLMConfigRequired();
+                return null;
+            }
         }
         const headers = {
             'Content-Type': options.contentType || 'application/json',
@@ -571,7 +666,20 @@ const api = {
 
             const contentType = response.headers.get('content-type');
             if (contentType && contentType.includes('application/json')) {
-                return await response.json();
+                const json = await response.json();
+                // 从用户信息响应中缓存 LLM 配置状态
+                if (url === '/api/auth/user/' && json && json.success && json.user) {
+                    _updateLLMConfigStatus(json.user);
+                }
+                // 检测 LLM 未配置错误，弹窗而非让页面 toast
+                if (_isLLMRequired(url, reqMethod) && json && json.success === false) {
+                    const msg = json.message || json.error || '';
+                    if (msg.includes('未配置 LLM') || msg.includes('LLM 服务商')) {
+                        _showLLMConfigRequired();
+                        return null;
+                    }
+                }
+                return json;
             }
 
             return await response.text();
@@ -609,9 +717,17 @@ const api = {
     //   2. data: [DONE] + {"content":"..."} 或 {"data":"..."}（旧格式兼容）
     async streamRequest(url, options = {}) {
         const token = getToken();
-        if (!token) {
+        if (!token && !_isNoAuthUrl(url)) {
             this.forceReLogin();
             return null;
+        }
+        // 检查 LLM 服务商配置
+        if (_isLLMRequired(url, 'POST')) {
+            const configured = await _ensureLLMConfigured();
+            if (!configured) {
+                _showLLMConfigRequired();
+                return null;
+            }
         }
         const headers = {
             'Content-Type': 'application/json',
@@ -674,7 +790,12 @@ const api = {
                         return parsed.data !== undefined ? parsed.data : result;
                     }
                     if (parsed.type === 'error') {
-                        throw new Error(parsed.message || '操作失败');
+                        const errMsg = parsed.message || '操作失败';
+                        if (errMsg.includes('未配置 LLM') || errMsg.includes('LLM 服务商')) {
+                            _showLLMConfigRequired();
+                            return null;
+                        }
+                        throw new Error(errMsg);
                     }
                     if (parsed.type === 'chunk' && parsed.data) {
                         result += parsed.data;
@@ -701,9 +822,17 @@ const api = {
     // 流式请求（实时回调）
     async streamRequestRaw(url, options = {}, onChunk) {
         const token = getToken();
-        if (!token) {
+        if (!token && !_isNoAuthUrl(url)) {
             this.forceReLogin();
             return null;
+        }
+        // 检查 LLM 服务商配置
+        if (_isLLMRequired(url, 'POST')) {
+            const configured = await _ensureLLMConfigured();
+            if (!configured) {
+                _showLLMConfigRequired();
+                return null;
+            }
         }
         const headers = {
             'Content-Type': 'application/json',
@@ -758,6 +887,14 @@ const api = {
                         }
                         try {
                             const parsed = JSON.parse(data);
+                            // 检测 LLM 未配置的 SSE 错误事件
+                            if (parsed.type === 'error') {
+                                const errMsg = parsed.message || '';
+                                if (errMsg.includes('未配置 LLM') || errMsg.includes('LLM 服务商')) {
+                                    _showLLMConfigRequired();
+                                    return null;
+                                }
+                            }
                             const chunkContent = parsed.content || parsed.data || '';
                             if (chunkContent) {
                                 fullContent += chunkContent;

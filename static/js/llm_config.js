@@ -115,12 +115,14 @@ function renderTaskConfigs(taskConfigs) {
             html += `<div class="task-config-item">`;
             html += `  <div class="task-config-left">`;
             html += `    <div class="task-name">${scene.name}</div>`;
-            html += `    <div class="task-defaults">默认: 温度 ${scene.default_temperature} | Token ${scene.default_max_tokens}</div>`;
-            if (config && config.temperature && config.temperature !== scene.default_temperature) {
-                html += `    <div class="task-override">自定义温度: ${config.temperature}</div>`;
-            }
-            if (config && config.max_tokens && config.max_tokens !== scene.default_max_tokens) {
-                html += `    <div class="task-override">自定义Token: ${config.max_tokens}</div>`;
+            if (scene.key !== 'default') {
+                html += `    <div class="task-defaults">默认: 温度 ${scene.default_temperature} | Token ${scene.default_max_tokens}</div>`;
+                if (config && config.temperature != null && config.temperature !== scene.default_temperature) {
+                    html += `    <div class="task-override">自定义温度: ${config.temperature}</div>`;
+                }
+                if (config && config.max_tokens != null && config.max_tokens !== scene.default_max_tokens) {
+                    html += `    <div class="task-override">自定义Token: ${config.max_tokens}</div>`;
+                }
             }
             html += `  </div>`;
             html += `  <div class="task-config-right">`;
@@ -354,6 +356,10 @@ function openTaskConfigModal(taskType) {
 
     document.getElementById('task-temperature').value = '';
     document.getElementById('task-max-tokens').value = '';
+
+    // default 场景不展示温度/Token 参数
+    const isDefaultScene = taskType === 'default';
+    document.getElementById('task-params-section').style.display = isDefaultScene ? 'none' : '';
 
     // 设置温度和 token 的说明提示及 placeholder
     let defaultTemp = '', defaultTokens = '';

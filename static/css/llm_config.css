@@ -194,6 +194,12 @@
     font-style: italic;
 }
 
+.task-config-right .btn {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 .task-type-display {
     padding: 0.625rem 0.875rem;
     border: 1px solid var(--border);
@@ -361,6 +367,10 @@
 .btn-test-connection:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+.dialog {
+    width: 60%;;
 }
 
 /* dialog-footer 覆盖：测试连接按钮在左，取消/保存在右 */

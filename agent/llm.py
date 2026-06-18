@@ -84,6 +84,7 @@ class LLM:
                 base_url=settings.LLM_BASE_URL,
                 **params
             )
+            logger.warning(f"[OLD-LLM] LLM.client used via settings.LLM_API_KEY! This path should be deprecated.")
         return self._client
     
     def as_runnable(self) -> ChatOpenAI:
@@ -280,7 +281,8 @@ def get_llm(user=None, scene=None, **kwargs) -> ChatOpenAI:
     2. 用户场景配置（UserLLMConfig）
     3. 用户默认配置（LLMConfig）
     4. 场景默认配置（LLM_SCENES）
-    5. 系统默认配置（settings）
+    
+    如果以上来源均未提供 api_key，则抛 ValueError。
     
     Args:
         user: 用户对象
@@ -289,26 +291,22 @@ def get_llm(user=None, scene=None, **kwargs) -> ChatOpenAI:
     
     Returns:
         ChatOpenAI: 配置好的客户端实例
+    
+    Raises:
+        ValueError: 未配置任何 LLM 服务商
     """
     
     
-    # 1. 系统默认配置
-    config = {
-        "api_key": settings.LLM_API_KEY,
-        "base_url": settings.LLM_BASE_URL,
-        "model": getattr(settings, "LLM_MODEL", "gpt-4o"),
-        "temperature": getattr(settings, "LLM_TEMPERATURE", 0.7),
-        "max_tokens": getattr(settings, "LLM_MAX_TOKENS", 4096),
-        "timeout": getattr(settings, "LLM_TIMEOUT", 120),
-    }
+    # 1. 从空配置开始，所有值由后续层提供
+    config = {}
     
     # 2. 场景默认配置
     if scene:
         scene_config = get_scene_config(scene)
-        config["temperature"] = scene_config.get("default_temperature", config["temperature"])
-        config["max_tokens"] = scene_config.get("default_max_tokens", config["max_tokens"])
+        config["temperature"] = scene_config.get("default_temperature")
+        config["max_tokens"] = scene_config.get("default_max_tokens")
     
-    # 3. 用户默认配置（LLMConfig）
+    # 3. 用户默认配置（LLMConfig）— 提供 api_key/base_url/model
     user_default_config = None
     if user:
         try:
@@ -316,17 +314,19 @@ def get_llm(user=None, scene=None, **kwargs) -> ChatOpenAI:
             user_default_config = UserLLMBaseConfig.objects.filter(
                 user=user,
                 is_default=True,
-                is_active=True
+                is_active=True,
+                test_passed=True
             ).first()
             if user_default_config:
-                config["api_key"] = user_default_config.get_api_key() or config["api_key"]
+                api_key = user_default_config.get_api_key()
+                if api_key:
+                    config["api_key"] = api_key
                 if user_default_config.base_url:
                     config["base_url"] = user_default_config.base_url
-                config["model"] = user_default_config.model_name
-                config["temperature"] = user_default_config.temperature
-                config["max_tokens"] = user_default_config.max_tokens
+                if user_default_config.model_name:
+                    config["model"] = user_default_config.model_name
         except Exception as e:
-            pass  # 无用户配置，保持现有配置
+            pass  # 无用户默认配置
     
     # 4. 用户场景配置（UserLLMConfig）
     if user and scene:
@@ -337,19 +337,34 @@ def get_llm(user=None, scene=None, **kwargs) -> ChatOpenAI:
             ).first()
             if user_scene_config:
                 # 使用用户场景配置关联的 LLM 配置
-                if user_scene_config.llm_config and user_scene_config.llm_config.is_active:
-                    config["api_key"] = user_scene_config.llm_config.get_api_key() or config["api_key"]
+                if user_scene_config.llm_config and user_scene_config.llm_config.is_active and user_scene_config.llm_config.test_passed:
+                    api_key = user_scene_config.llm_config.get_api_key()
+                    if api_key:
+                        config["api_key"] = api_key
                     if user_scene_config.llm_config.base_url:
                         config["base_url"] = user_scene_config.llm_config.base_url
-                    config["model"] = user_scene_config.llm_config.model_name
-                # 覆盖用户场景的温度和 token 数
-                config["temperature"] = user_scene_config.temperature
-                config["max_tokens"] = user_scene_config.max_tokens
+                    if user_scene_config.llm_config.model_name:
+                        config["model"] = user_scene_config.llm_config.model_name
+                # 覆盖用户场景的温度和 token 数（null 表示继承场景默认）
+                if user_scene_config.temperature is not None:
+                    config["temperature"] = user_scene_config.temperature
+                if user_scene_config.max_tokens is not None:
+                    config["max_tokens"] = user_scene_config.max_tokens
         except Exception as e:
             pass  # 无场景配置，保持现有配置
     
     # 5. kwargs 最终覆盖
     config.update(kwargs)
+    
+    # 6. 校验：必须有 api_key 和 model
+    if not config.get("api_key"):
+        raise ValueError(
+            "未配置 LLM 服务商。请在「LLM 配置」页面添加并设置默认模型配置后重试。"
+        )
+    if not config.get("model"):
+        raise ValueError(
+            "未配置 LLM 模型名称。请在「LLM 配置」页面添加并设置默认模型配置后重试。"
+        )
     
     # 构建参数（移除 None 值）
     # stream_usage=True: 流式响应时在最后一个 chunk 中返回 usage_metadata，用于 token 计量
@@ -397,7 +412,7 @@ def log_token_usage(task_type: str, result=None, input_tokens: int = 0, output_t
        log_token_usage('worldview_generate', input_tokens=100, output_tokens=200, user=user, project=project)
        → 直接使用传入的 token 数，cache 字段为 null（前端标记为"预估"）
     """
-    logger.info(f"log_token_usage called: task_type={task_type}, has_result={result is not None}, input_tokens={input_tokens}, output_tokens={output_tokens}, user={user}, project={project}")
+    # logger.info(f"log_token_usage called: task_type={task_type}, has_result={result is not None}, input_tokens={input_tokens}, output_tokens={output_tokens}, user={user}, project={project}")
 
     # 优先从 usage_result 提取（流式场景中 usage_metadata 可能在倒数第二个 chunk）
     usage_source = None
@@ -410,7 +425,7 @@ def log_token_usage(task_type: str, result=None, input_tokens: int = 0, output_t
     input_cache_miss_tokens = 0
     if usage_source is not None:
         # 模式1/2：从 usage_metadata 精确提取
-        logger.info(f"log_token_usage: usage_metadata={usage_source.usage_metadata}")
+        # logger.info(f"log_token_usage: usage_metadata={usage_source.usage_metadata}")
         input_tokens = usage_source.usage_metadata.get('input_tokens', 0)
         output_tokens = usage_source.usage_metadata.get('output_tokens', 0)
         # 检查缓存命中：input_token_details.cache_read > 0 表示有缓存命中
@@ -463,7 +478,7 @@ def log_token_usage(task_type: str, result=None, input_tokens: int = 0, output_t
             input_cache_miss_tokens=input_cache_miss_tokens,
             cost=cost,
         )
-        logger.info(f"log_token_usage: saved successfully, task_type={task_type}, input={input_tokens}, output={output_tokens}, cache_hit={input_cache_hit_tokens}, cache_miss={input_cache_miss_tokens}")
+        # logger.info(f"log_token_usage: saved successfully, task_type={task_type}, input={input_tokens}, output={output_tokens}, cache_hit={input_cache_hit_tokens}, cache_miss={input_cache_miss_tokens}")
     except Exception as e:
         logger.error(f"记录Token使用失败: {e}", exc_info=True)
 

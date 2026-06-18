@@ -92,7 +92,7 @@
 
     <!-- 弹窗：添加/编辑 LLM 配置 -->
     <div class="dialog-overlay" id="configModal">
-        <div class="dialog" style="max-width:560px;height:auto;min-height:unset;max-height:90vh;">
+        <div class="dialog" style="height:auto;min-height:unset;max-height:90vh;">
             <div class="dialog-header">
                 <h5 id="configModalTitle"><i class="fas fa-plus-circle me-2"></i>添加LLM配置</h5>
                 <button class="btn-close" onclick="closeConfigModal()"></button>
@@ -188,7 +188,7 @@
                     <select id="task-config" class="form-control">
                     </select>
                 </div>
-                <div class="form-row form-group">
+                <div class="form-row form-group" id="task-params-section">
                     <div class="form-group">
                         <label class="form-label">温度</label>
                         <input type="number" id="task-temperature" class="form-control" placeholder="留空使用场景默认值" min="0" max="2" step="0.1">
@@ -210,7 +210,7 @@
 
     <!-- 确认弹窗 -->
     <div class="dialog-overlay" id="confirm-modal">
-        <div class="dialog dialog-sm">
+        <div class="dialog">
             <div class="dialog-header">
                 <h5 id="modal-title">确认操作</h5>
                 <button class="btn-close" onclick="closeModal()"></button>

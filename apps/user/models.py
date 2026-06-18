@@ -27,6 +27,7 @@ class LLMConfig(models.Model):
     temperature = models.FloatField(default=0.7, verbose_name='温度参数')
     is_default = models.BooleanField(default=False, verbose_name='是否默认')
     is_active = models.BooleanField(default=True, verbose_name='是否激活')
+    test_passed = models.BooleanField(default=False, verbose_name='测试是否通过')
     input_price = models.FloatField(default=0, verbose_name='输入单价(元/百万Token)')
     output_price = models.FloatField(default=0, verbose_name='输出单价(元/百万Token)')
     cache_hit_price = models.FloatField(default=0, verbose_name='缓存命中单价(元/百万Token)')
@@ -91,8 +92,8 @@ class UserLLMConfig(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_llm_configs', verbose_name='用户')
     llm_config = models.ForeignKey(LLMConfig, on_delete=models.CASCADE, related_name='user_configs', verbose_name='LLM配置')
     task_type = models.CharField(max_length=50, choices=TASK_CHOICES, default='default', verbose_name='任务类型')
-    max_tokens = models.IntegerField(default=2000, verbose_name='最大Token数')
-    temperature = models.FloatField(default=0.7, verbose_name='温度参数')
+    max_tokens = models.IntegerField(null=True, blank=True, verbose_name='最大Token数(空=继承场景默认)')
+    temperature = models.FloatField(null=True, blank=True, verbose_name='温度参数(空=继承场景默认)')
 
     class Meta:
         db_table = 'user_llm_config'

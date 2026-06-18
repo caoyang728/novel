@@ -58,6 +58,24 @@ def _test_llm_connection(api_key, base_url, model_name):
         return False, error_msg[:100]
 
 
+def sync_default_task_config(user, llm_config):
+    """将默认模型配置同步到'默认'任务场景"""
+    UserLLMConfig.objects.update_or_create(
+        user=user,
+        task_type='default',
+        defaults={
+            'llm_config': llm_config,
+            'temperature': None,
+            'max_tokens': None,
+        }
+    )
+
+
+def clear_default_task_config(user):
+    """清除'默认'任务场景配置"""
+    UserLLMConfig.objects.filter(user=user, task_type='default').delete()
+
+
 # ============ Auth Views ============
 
 class LoginView(APIView):
@@ -240,7 +258,8 @@ class ApiUserView(APIView):
                     'user': {
                         'id': user.id,
                         'username': user.username,
-                        'email': user.email
+                        'email': user.email,
+                        'has_llm_config': LLMConfig.objects.filter(user=user, is_active=True, test_passed=True).exists()
                     }
                 })
             except (InvalidToken, User.DoesNotExist):
@@ -399,6 +418,10 @@ class LLMConfigView(View):
             max_tokens = int(request.POST.get('max_tokens', 4096))
             is_default = request.POST.get('is_default') == 'on'
 
+            # 首次添加自动设为默认
+            if not LLMConfig.objects.filter(user=request.user).exists():
+                is_default = True
+
             if is_default:
                 LLMConfig.objects.filter(user=request.user, is_default=True).update(is_default=False)
 
@@ -415,6 +438,9 @@ class LLMConfigView(View):
                 config.base_url = base_url
             config.set_api_key(api_key)
             config.save()
+
+            if is_default:
+                sync_default_task_config(request.user, config)
 
         elif action == 'set_task':
             task_type = request.POST.get('task_type')
@@ -434,6 +460,10 @@ class LLMConfigView(View):
                 task_type=task_type,
                 defaults=defaults
             )
+
+            if task_type == 'default' and config_id:
+                LLMConfig.objects.filter(user=request.user, is_default=True).exclude(pk=config_id).update(is_default=False)
+                LLMConfig.objects.filter(pk=config_id, user=request.user).update(is_default=True)
 
         elif action == 'delete':
             config_id = request.POST.get('config_id')
@@ -508,6 +538,10 @@ class ApiLLMConfigView(APIView):
                 cache_hit_price = float(request.data.get('cache_hit_price', 0))
                 is_default = request.data.get('is_default') == True or request.data.get('is_default') == 'true'
 
+                # 首次添加自动设为默认
+                if not LLMConfig.objects.filter(user=request.user).exists():
+                    is_default = True
+
                 if is_default:
                     LLMConfig.objects.filter(user=request.user, is_default=True).update(is_default=False)
 
@@ -528,6 +562,10 @@ class ApiLLMConfigView(APIView):
                 config.set_api_key(api_key)
                 config.save()
 
+                # 同步到 default 任务场景
+                if is_default:
+                    sync_default_task_config(request.user, config)
+
                 return JsonResponse({'success': True, 'config_id': config.id})
 
             elif action == 'set_task':
@@ -538,10 +576,15 @@ class ApiLLMConfigView(APIView):
                 max_tokens = request.data.get('max_tokens')
 
                 defaults = {'llm_config_id': config_id}
-                if temperature:
+                # null/空字符串 → 存 None，表示继承场景默认
+                if temperature is not None and temperature != '':
                     defaults['temperature'] = float(temperature)
-                if max_tokens:
+                else:
+                    defaults['temperature'] = None
+                if max_tokens is not None and max_tokens != '':
                     defaults['max_tokens'] = int(max_tokens)
+                else:
+                    defaults['max_tokens'] = None
 
                 task_config, created = UserLLMConfig.objects.update_or_create(
                     user=request.user,
@@ -549,12 +592,20 @@ class ApiLLMConfigView(APIView):
                     defaults=defaults
                 )
 
+                # default 任务场景与默认模型配置双向同步
+                if task_type == 'default' and config_id:
+                    LLMConfig.objects.filter(user=request.user, is_default=True).exclude(pk=config_id).update(is_default=False)
+                    LLMConfig.objects.filter(pk=config_id, user=request.user).update(is_default=True)
+
                 return JsonResponse({'success': True})
 
             elif action == 'delete':
                 config_id = request.data.get('config_id')
                 config = LLMConfig.objects.get(pk=config_id, user=request.user)
+                was_default = config.is_default
                 config.delete()
+                if was_default:
+                    clear_default_task_config(request.user)
                 return JsonResponse({'success': True})
 
             elif action == 'toggle_active':
@@ -563,6 +614,9 @@ class ApiLLMConfigView(APIView):
                 config = LLMConfig.objects.get(pk=config_id, user=request.user)
                 config.is_active = is_active
                 config.save()
+                # 如果停用的是默认配置，清除 default 任务场景绑定
+                if config.is_default and not is_active:
+                    clear_default_task_config(request.user)
                 return JsonResponse({'success': True})
 
             elif action == 'test_connection':
@@ -573,6 +627,9 @@ class ApiLLMConfigView(APIView):
                     if not api_key:
                         return JsonResponse({'success': False, 'message': '未配置API密钥'})
                     success, message = _test_llm_connection(api_key, config.base_url, config.model_name)
+                    if success:
+                        config.test_passed = True
+                        config.save(update_fields=['test_passed'])
                     return JsonResponse({'success': success, 'message': message})
                 except LLMConfig.DoesNotExist:
                     return JsonResponse({'success': False, 'message': '配置不存在'})
@@ -621,8 +678,16 @@ class ApiLLMConfigView(APIView):
 
                 if api_key:
                     config.set_api_key(api_key)
+                    # API 密钥变更后需要重新测试
+                    config.test_passed = False
 
                 config.save()
+
+                # 同步到 default 任务场景
+                if is_default:
+                    sync_default_task_config(request.user, config)
+                elif not LLMConfig.objects.filter(user=request.user, is_default=True).exists():
+                    clear_default_task_config(request.user)
 
                 return JsonResponse({'success': True})
 

@@ -955,6 +955,7 @@ textarea:-webkit-autofill:focus {
     min-height: 0;
     overflow-y: auto;
     color: var(--text-secondary);
+    text-align: center;
 }
 
 /* 旧名称兼容 */

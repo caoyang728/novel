@@ -222,7 +222,7 @@ body {
 .card-section-body {
     flex: 1;
     display: flex;
-    gap: 1rem;
+    /* gap: 1rem; */
     min-height: 0;
 }
 
@@ -240,37 +240,31 @@ body {
 .section-sidebar {
     width: var(--section-sidebar-width);
     flex-shrink: 0;
-    align-self: flex-start;
-    background: rgba(31, 41, 55, 0.9);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-radius: var(--radius-md);
-    padding: 0.625rem;
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-sm);
+    align-self: stretch;
+    background: transparent;
+    border-radius: 0;
+    padding: 1rem;
+    /* border-right: 1px solid rgba(255, 255, 255, 0.08); */
     overflow-y: auto;
-    transition: all var(--transition-normal);
-}
-
-.section-sidebar:hover {
-    box-shadow: var(--shadow-md);
-    border-color: rgba(99, 102, 241, 0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
 .section-nav-btn {
     width: 100%;
-    padding: 0.625rem 0.875rem;
+    padding: 0.5rem 0.75rem;
     border: none;
     background: transparent;
     color: var(--text-secondary);
     font-size: 0.825rem;
     font-weight: 500;
-    border-radius: var(--radius-xs);
+    border-radius: var(--radius-sm);
     cursor: pointer;
     text-align: left;
-    margin-bottom: 3px;
     transition: all 0.2s ease;
     white-space: nowrap;
+    position: relative;
 }
 
 .section-nav-btn:hover {
@@ -864,7 +858,7 @@ body {
     border-top: 1px solid var(--border-light);
 } */
 
-/* 共享：修改建议样式（问答深化 + 一致性检查） */
+/* 共享：修改建议样式（宏观缺口检测 + 宏观一致性检测） */
 .suggestion-item {
     background: var(--surface-dark);
     border: 1px solid var(--border);
@@ -1217,7 +1211,7 @@ body {
     }
 
     .section-sidebar {
-        padding: 0.5rem;
+        padding: 0.25rem 0.5rem 0.25rem 0;
     }
 
     .section-nav-btn {
@@ -1324,9 +1318,11 @@ body {
         max-height: none;
         display: flex;
         flex-wrap: wrap;
-        gap: 3px;
-        padding: 3px;
-        border-radius: var(--radius-md);
+        flex-direction: row;
+        gap: 4px;
+        padding: 0 0 0.5rem 0;
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .section-nav-btn {
@@ -1336,10 +1332,6 @@ body {
         margin-bottom: 0;
         padding: 0.55rem 0.875rem;
         border-radius: var(--radius-xs);
-    }
-
-    .section-nav-btn:hover {
-        padding-left: 0.875rem;
     }
 
     .section-content {
@@ -1403,4 +1395,37 @@ body {
     #tab-assets .card-section {
         padding: 1.25rem;
     }
+}
+
+/* ==================== AI 润色次要按钮（outline 风格） ==================== */
+.btn-outline-ai {
+    background: transparent;
+    border: 1.5px solid var(--purple);
+    border-radius: 10px;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--purple);
+    cursor: pointer;
+    transition: all 0.25s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.btn-outline-ai:hover {
+    background: rgba(139, 92, 246, 0.12);
+    border-color: var(--purple-dark);
+    color: var(--purple-dark);
+    transform: translateY(-1px);
+}
+
+.btn-outline-ai:active {
+    transform: translateY(0);
+}
+
+.btn-outline-ai:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
 }

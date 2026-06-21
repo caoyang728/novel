@@ -3,6 +3,7 @@ let worldviewId = null;
 let axioms = [''];
 let currentWorldview = null;
 let currentStructure = null;
+let _originalFlatData = {};  // { layerName: { flatKey: originalValue, ... } } — dirty tracking 快照
 
 function getSelectedGenre() {
     return document.getElementById('genreSelect')?.value || '';
@@ -64,6 +65,40 @@ function initGenreDropdown() {
 }
 
 
+// ==================== Dirty Tracking 辅助函数 ====================
+
+function captureOriginalLayerData(layerName) {
+    /** 快照当前层所有字段的 DOM 值，用于后续 dirty 检测 */
+    const config = LAYER_SAVE_CONFIG[layerName];
+    if (!config || !config.fields) return;
+    if (!_originalFlatData[layerName]) _originalFlatData[layerName] = {};
+    for (const field of config.fields) {
+        const val = field.valueFn
+            ? field.valueFn()
+            : (document.getElementById(field.id)?.value || '');
+        _originalFlatData[layerName][field.key] = val;
+    }
+}
+
+function getDirtyFields(layerName) {
+    /** 对比当前 DOM 值与快照，返回脏字段 */
+    const config = LAYER_SAVE_CONFIG[layerName];
+    if (!config || !config.fields) return { dirtyData: {}, changedKeys: [] };
+    const snapshot = _originalFlatData[layerName] || {};
+    const dirtyData = {};
+    const changedKeys = [];
+    for (const field of config.fields) {
+        const currentVal = field.valueFn
+            ? field.valueFn()
+            : (document.getElementById(field.id)?.value || '');
+        const originalVal = snapshot[field.key] !== undefined ? snapshot[field.key] : '';
+        if (currentVal !== originalVal) {
+            dirtyData[field.key] = currentVal;
+            changedKeys.push(field.key);
+        }
+    }
+    return { dirtyData, changedKeys };
+}
 
 document.addEventListener('DOMContentLoaded', async function() {
     showLoading('加载中...');
@@ -161,7 +196,11 @@ function updateWorldviewUI(worldviewData) {
     renderCulture(currentStructure);
     renderHistory(currentStructure);
     renderSpecial(currentStructure);
-    
+
+    // 初始化 dirty tracking 快照（渲染后所有 DOM 值已就绪）
+    const allLayers = ['setting', 'foundation', 'power', 'races', 'society', 'culture', 'history', 'special'];
+    allLayers.forEach(l => captureOriginalLayerData(l));
+
     setTimeout(() => initAutoResizeTextareas(), 100);
 }
 
@@ -357,7 +396,7 @@ const worldviewSuggestionMixin = {
     }
 };
 
-// Alpine.js 深化问答状态对象 - 工厂函数形式
+// Alpine.js 宏观缺口检测状态对象 - 工厂函数形式
 function deepeningState() {
     return {
         state: 'empty',  // empty | hasQuestions | noQuestions | hasSuggestions
@@ -370,7 +409,7 @@ function deepeningState() {
 
         async generateQuestions() {
             if (!worldviewId) return;
-            showLoading('正在生成深化问题...');
+            showLoading('正在检测宏观缺口...');
 
             try {
                 const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/deepening/questions/`, {
@@ -475,7 +514,7 @@ function deepeningState() {
     };
 }
 
-// Alpine.js 一致性检查状态对象 - 工厂函数形式
+// Alpine.js 宏观一致性检测状态对象 - 工厂函数形式
 function consistencyState() {
     return {
         state: 'empty',
@@ -484,7 +523,7 @@ function consistencyState() {
 
         async checkConsistency() {
             if (!worldviewId) return;
-            showLoading('正在检查一致性...');
+            showLoading('正在检测宏观一致性...');
 
             try {
                 const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/consistency/check/`, {
@@ -721,12 +760,12 @@ function renderCulture(structure) {
     setField('cultureLanguage', language.languages);
     setField('cultureScript', language.writing_system);
     setField('cultureClothing', daily.clothing);
-    setField('cultureFood', daily.food);
+    setField('cultureFood', daily.cuisine || daily.food);
     setField('cultureArchitecture', daily.architecture);
     setField('cultureTransport', daily.transportation);
-    setField('cultureDeity', religion.deity);
+    setField('cultureDeity', religion.deities || religion.deity);
     setField('cultureReligionOrg', religion.organization);
-    setField('cultureFaithDiff', religion.faith_diff);
+    setField('cultureFaithDiff', religion.faith_differences || religion.faith_diff);
 }
 
 function renderSociety(structure) {
@@ -734,18 +773,18 @@ function renderSociety(structure) {
     const court = s.court || {};
     const sect = s.sect || {};
     const martial = s.martial || {};
-    const social_class = s.class || {};
+    const strata = s.strata || {};
     const currency = s.currency || {};
     
     setField('societyGovernment', court.political_system);
     setField('societyBureaucracy', court.bureaucracy);
     setField('societySectLevel', sect.levels);
-    setField('societySectHeritage', sect.relationships);
+    setField('societySectRelation', sect.relationships);
     setField('societyMartialFaction', martial.factions);
     setField('societyMartialGuild', martial.alliances);
     setField('societyExternal', s.external);
-    setField('societyClassLevel', social_class.social_classes);
-    setField('societyClassMobility', social_class.mobility);
+    setField('societyClassLevel', strata.social_classes);
+    setField('societyClassMobility', strata.mobility);
     setField('societyCurrencyType', currency.types);
     setField('societyCurrencyRule', currency.rules);
     setField('societyResource', s.resource);
@@ -933,1224 +972,596 @@ function showSpecialSection(sectionName) {
 
 
 
-/** 保存 */
+/* 保存 - 通用分层配置 */
 
-async function saveSetting() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-
-    const worldName = document.getElementById('worldName')?.value?.trim() || '';
-    showLoading('正在保存故事设定...');
-
-    try {
-        const data = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/setting/`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                world_name: worldName,
-                genre: getSelectedGenre(),
-                identity: document.getElementById('worldIdentity')?.value || '',
-                tone: document.getElementById('worldTone')?.value || '',
-                overview: document.getElementById('worldOverview')?.value || '',
-                conflict: document.getElementById('worldCoreConflict')?.value || '',
-            })
-        });
-
-        if (data.success) {
-            // 直接将页面数据更新到本地
-            if (!currentWorldview.setting) {
-                currentWorldview.setting = {};
-            }
-            if (!currentWorldview.setting.identity) {
-                currentWorldview.setting.identity = {};
-            }
-            if (!currentWorldview.setting.position) {
-                currentWorldview.setting.position = {};
-            }
-            currentWorldview.setting.identity.world_name = worldName;
-            currentWorldview.setting.identity.genre = getSelectedGenre();
-            currentWorldview.setting.position.identity = document.getElementById('worldIdentity')?.value || '';
-            currentWorldview.setting.position.tone = document.getElementById('worldTone')?.value || '';
-            currentWorldview.setting.overview = document.getElementById('worldOverview')?.value || '';
-            currentWorldview.setting.conflict = document.getElementById('worldCoreConflict')?.value || '';
-            
-            // 重新 渲染 故事设定
-            renderSetting(currentWorldview);
-            showToast('基础设定已保存');
-        } else {
-            throw new Error(data.message || '保存失败');
-        }
-    } catch (error) {
-        console.error('Save basic settings failed:', error);
-        showToast('保存失败: ' + (error.message || '未知错误'), 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-async function saveFoundation() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-    showLoading('正在保存世界基础...');
-    
-    try {
-        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/foundation/`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                continent: document.getElementById('foundationContinent')?.value || '',
-                terrain: document.getElementById('foundationTerrain')?.value || '',
-                era: document.getElementById('foundationEra')?.value || '',
-                days: document.getElementById('foundationDays')?.value || '',
-                seasons: document.getElementById('foundationSeasons')?.value || '',
-                festivals: document.getElementById('foundationFestivals')?.value || '',
-                laws: document.getElementById('foundationLaws')?.value || '',
-                boundary: document.getElementById('foundationBoundary')?.value || '',
-                axioms: getAxiomsText(),
-                balance: document.getElementById('foundationBalance')?.value || '',
-            })
-        });
-        
-        if (response.success) {
-            // 更新本地数据
-            if (!currentWorldview.foundation) {
-                currentWorldview.foundation = {};
-            }
-            currentWorldview.foundation = response.data.foundation;
-            currentStructure.foundation = response.data.foundation;
-            
-            // 更新 currentStructure 中的 axioms
+const LAYER_SAVE_CONFIG = {
+    setting: {
+        sectionName: '基础设定',
+        fields: [
+            { key: 'world_name', id: 'worldName' },
+            { key: 'genre', valueFn: getSelectedGenre },
+            { key: 'identity', id: 'worldIdentity' },
+            { key: 'tone', id: 'worldTone' },
+            { key: 'overview', id: 'worldOverview' },
+            { key: 'conflict', id: 'worldCoreConflict' },
+        ],
+    },
+    foundation: {
+        sectionName: '世界基础',
+        fields: [
+            { key: 'continent', id: 'foundationContinent' },
+            { key: 'terrain', id: 'foundationTerrain' },
+            { key: 'era', id: 'foundationEra' },
+            { key: 'days', id: 'foundationDays' },
+            { key: 'seasons', id: 'foundationSeasons' },
+            { key: 'festivals', id: 'foundationFestivals' },
+            { key: 'laws', id: 'foundationLaws' },
+            { key: 'boundary', id: 'foundationBoundary' },
+            { key: 'axioms', valueFn: getAxiomsText },
+            { key: 'balance', id: 'foundationBalance' },
+        ],
+        postSave() {
             if (currentStructure.rules) {
                 currentStructure.rules.axioms = getAxiomsText().split('\n').filter(a => a.trim());
             }
-            
-            showToast('世界基础保存成功');
-        } else {
-            throw new Error(response.message || '保存失败');
-        }
-    } catch (error) {
-        console.error('Save foundation failed:', error);
-        showToast('保存失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
+        },
+    },
+    power: {
+        sectionName: '力量体系',
+        fields: [
+            { key: 'energy_types', id: 'powerEnergyType' },
+            { key: 'energy_distribution', id: 'powerEnergyDistribution' },
+            { key: 'energy_properties', id: 'powerEnergyTraits' },
+            { key: 'level', id: 'powerLevels' },
+            { key: 'martial_categories', id: 'powerMartialCategory' },
+            { key: 'martial_inheritance', id: 'powerMartialHeritage' },
+            { key: 'treasure_categories', id: 'powerTreasureCategory' },
+            { key: 'treasure_pills', id: 'powerTreasurePill' },
+            { key: 'beast_levels', id: 'powerBeastLevel' },
+            { key: 'beast_mythical', id: 'powerBeastLegend' },
+        ],
+    },
+    races: {
+        sectionName: '种族族群',
+        fields: [
+            { key: 'category', id: 'racesCategory' },
+            { key: 'value', id: 'racesValue' },
+            { key: 'lifespan', id: 'racesLifespan' },
+            { key: 'reproduction', id: 'racesReproduction' },
+            { key: 'physique', id: 'racesConstitution' },
+            { key: 'relation', id: 'racesRelation' },
+        ],
+    },
+    society: {
+        sectionName: '社会结构',
+        fields: [
+            { key: 'government', id: 'societyGovernment' },
+            { key: 'bureaucracy', id: 'societyBureaucracy' },
+            { key: 'sect_level', id: 'societySectLevel' },
+            { key: 'sect_heritage', id: 'societySectHeritage' },
+            { key: 'martial_faction', id: 'societyMartialFaction' },
+            { key: 'martial_guild', id: 'societyMartialGuild' },
+            { key: 'external', id: 'societyExternal' },
+            { key: 'class_level', id: 'societyClassLevel' },
+            { key: 'class_mobility', id: 'societyClassMobility' },
+            { key: 'currency_type', id: 'societyCurrencyType' },
+            { key: 'currency_rule', id: 'societyCurrencyRule' },
+            { key: 'resource', id: 'societyResource' },
+        ],
+    },
+    culture: {
+        sectionName: '文化人文',
+        fields: [
+            { key: 'festival', id: 'cultureFestival' },
+            { key: 'ritual', id: 'cultureRitual' },
+            { key: 'language', id: 'cultureLanguage' },
+            { key: 'script', id: 'cultureScript' },
+            { key: 'clothing', id: 'cultureClothing' },
+            { key: 'food', id: 'cultureFood' },
+            { key: 'architecture', id: 'cultureArchitecture' },
+            { key: 'transport', id: 'cultureTransport' },
+            { key: 'deity', id: 'cultureDeity' },
+            { key: 'religion_org', id: 'cultureReligionOrg' },
+            { key: 'faith_diff', id: 'cultureFaithDiff' },
+        ],
+    },
+    history: {
+        sectionName: '历史进程',
+        fields: [
+            { key: 'ancient', id: 'historyAncient' },
+            { key: 'modern', id: 'historyModern' },
+            { key: 'crisis', id: 'historyCrisis' },
+            { key: 'destiny', id: 'historyDestiny' },
+            { key: 'future', id: 'historyFuture' },
+        ],
+    },
+    special: {
+        sectionName: '特殊设定',
+        fields: [
+            { key: 'taboo', id: 'specialTaboo' },
+            { key: 'secret', id: 'specialSecret' },
+            { key: 'fortune', id: 'specialFortune' },
+            { key: 'destiny', id: 'specialDestiny' },
+            { key: 'soul', id: 'specialSoul' },
+            { key: 'reincarnation', id: 'specialReincarnation' },
+            { key: 'transmigration', id: 'specialTransmigration' },
+            { key: 'system', id: 'specialSystem' },
+            { key: 'rules', id: 'specialRules' },
+        ],
+    },
+};
 
-async function savePower() {
+async function saveLayer(layerName) {
     if (!worldviewId) {
         showToast('世界观未加载', 'error');
         return;
     }
-    showLoading('正在保存力量体系...');
-    
+
+    const config = LAYER_SAVE_CONFIG[layerName];
+    if (!config) return;
+
+    showLoading(`正在保存${config.sectionName}...`);
+
     try {
-        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/power/`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                energy_types: document.getElementById('powerEnergyType')?.value || '',
-                energy_distribution: document.getElementById('powerEnergyDistribution')?.value || '',
-                energy_properties: document.getElementById('powerEnergyTraits')?.value || '',
-                level: document.getElementById('powerLevels')?.value || '',
-                martial_categories: document.getElementById('powerMartialCategory')?.value || '',
-                martial_inheritance: document.getElementById('powerMartialHeritage')?.value || '',
-                treasure_categories: document.getElementById('powerTreasureCategory')?.value || '',
-                treasure_pills: document.getElementById('powerTreasurePill')?.value || '',
-                beast_levels: document.getElementById('powerBeastLevel')?.value || '',
-                beast_mythical: document.getElementById('powerBeastLegend')?.value || '',
-            })
-        });
-        
+        // Build request body from config
+        const body = {};
+        for (const field of config.fields) {
+            body[field.key] = field.valueFn
+                ? field.valueFn()
+                : (document.getElementById(field.id)?.value || '');
+        }
+
+        const response = await api.request(
+            `/api/projects/${currentProjectId}/worldviews/${worldviewId}/layer/${layerName}/`,
+            { method: 'PUT', body: JSON.stringify(body) }
+        );
+
         if (response.success) {
-            // 更新本地数据
-            if (!currentWorldview.power) {
-                currentWorldview.power = {};
-            }
-            currentWorldview.power = response.data.power;
-            currentStructure.power = response.data.power;
-            
-            // 重新渲染力量体系表单
-            renderPower(currentStructure);
-            
-            showToast('力量体系保存成功');
+            // Update local data from server response
+            if (!currentWorldview[layerName]) currentWorldview[layerName] = {};
+            currentWorldview[layerName] = response.data[layerName];
+            currentStructure[layerName] = response.data[layerName];
+
+            // Post-save hook (e.g., foundation axioms sync)
+            if (config.postSave) config.postSave();
+
+            // Re-render form
+            const capitalized = layerName.charAt(0).toUpperCase() + layerName.slice(1);
+            const renderFn = window[`render${capitalized}`];
+            if (renderFn) renderFn(currentStructure);
+
+            // 保存后更新 dirty tracking 快照
+            captureOriginalLayerData(layerName);
+
+            showToast(`${config.sectionName}保存成功`);
         } else {
             throw new Error(response.message || '保存失败');
         }
     } catch (error) {
-        console.error('Save power failed:', error);
+        console.error(`Save ${layerName} failed:`, error);
         showToast('保存失败', 'error');
     } finally {
         hideLoading();
     }
 }
-
-async function saveRaces() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-    showLoading('正在保存种族族群...');
-    
-    try {
-        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/races/`, {
-            method: 'PUT',
-
-            body: JSON.stringify({
-                category: document.getElementById('racesCategory')?.value || '',
-                value: document.getElementById('racesValue')?.value || '',
-                lifespan: document.getElementById('racesLifespan')?.value || '',
-                reproduction: document.getElementById('racesReproduction')?.value || '',
-                physique: document.getElementById('racesConstitution')?.value || '',
-                relation: document.getElementById('racesRelation')?.value || '',
-            })
-        });
-
-        if (response.success) {
-            if (!currentWorldview.races) {
-                currentWorldview.races = {};
-            }
-            currentWorldview.races = response.data.races;
-            currentStructure.races = response.data.races;
-            
-            // 重新渲染种族族群表单
-            renderRaces(currentStructure);
-            
-            showToast('种族族群保存成功');
-        } else {
-            throw new Error(response.message || '保存失败');
-        }
-    } catch (error) {
-        console.error('Save races failed:', error);
-        showToast('保存失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-async function saveSociety() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-    showLoading('正在保存社会结构...');
-    
-    try {
-        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/society/`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                government: document.getElementById('societyGovernment')?.value || '',
-                bureaucracy: document.getElementById('societyBureaucracy')?.value || '',
-                sect_level: document.getElementById('societySectLevel')?.value || '',
-                sect_heritage: document.getElementById('societySectHeritage')?.value || '',
-                martial_faction: document.getElementById('societyMartialFaction')?.value || '',
-                martial_guild: document.getElementById('societyMartialGuild')?.value || '',
-                external: document.getElementById('societyExternal')?.value || '',
-                class_level: document.getElementById('societyClassLevel')?.value || '',
-                class_mobility: document.getElementById('societyClassMobility')?.value || '',
-                currency_type: document.getElementById('societyCurrencyType')?.value || '',
-                currency_rule: document.getElementById('societyCurrencyRule')?.value || '',
-                resource: document.getElementById('societyResource')?.value || '',
-            })
-        });
-
-        if (response.success) {
-            if (!currentWorldview.society) {
-                currentWorldview.society = {};
-            }
-            currentWorldview.society = response.data.society;
-            currentStructure.society = response.data.society;
-            
-            // 重新渲染社会结构表单
-            renderSociety(currentStructure);
-            
-            showToast('社会结构保存成功');
-        } else {
-            throw new Error(response.message || '保存失败');
-        }
-    } catch (error) {
-        console.error('Save society failed:', error);
-        showToast('保存失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-async function saveCulture() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-    showLoading('正在保存文化人文...');
-    
-    try {
-        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/culture/`, {
-            method: 'PUT',
-
-            body: JSON.stringify({
-                festival: document.getElementById('cultureFestival')?.value || '',
-                ritual: document.getElementById('cultureRitual')?.value || '',
-                language: document.getElementById('cultureLanguage')?.value || '',
-                script: document.getElementById('cultureScript')?.value || '',
-                clothing: document.getElementById('cultureClothing')?.value || '',
-                food: document.getElementById('cultureFood')?.value || '',
-                architecture: document.getElementById('cultureArchitecture')?.value || '',
-                transport: document.getElementById('cultureTransport')?.value || '',
-                deity: document.getElementById('cultureDeity')?.value || '',
-                religion_org: document.getElementById('cultureReligionOrg')?.value || '',
-                faith_diff: document.getElementById('cultureFaithDiff')?.value || '',
-            })
-        });
-
-        if (response.success) {
-            if (!currentWorldview.culture) {
-                currentWorldview.culture = {};
-            }
-            currentWorldview.culture = response.data.culture;
-            currentStructure.culture = response.data.culture;
-            
-            // 重新渲染文化人文表单
-            renderCulture(currentStructure);
-            
-            showToast('文化人文保存成功');
-        } else {
-            throw new Error(response.message || '保存失败');
-        }
-    } catch (error) {
-        console.error('Save culture failed:', error);
-        showToast('保存失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-async function saveHistory() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-    showLoading('正在保存历史进程...');
-    
-    try {
-        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/history/`, {
-            method: 'PUT',
-
-            body: JSON.stringify({
-                ancient: document.getElementById('historyAncient')?.value || '',
-                modern: document.getElementById('historyModern')?.value || '',
-                crisis: document.getElementById('historyCrisis')?.value || '',
-                destiny: document.getElementById('historyDestiny')?.value || '',
-                future: document.getElementById('historyFuture')?.value || '',
-            })
-        });
-
-        if (response.success) {
-            if (!currentWorldview.history) {
-                currentWorldview.history = {};
-            }
-            currentWorldview.history = response.data.history;
-            currentStructure.history = response.data.history;
-            
-            // 重新渲染历史进程表单
-            renderHistory(currentStructure);
-            
-            showToast('历史进程保存成功');
-        } else {
-            throw new Error(response.message || '保存失败');
-        }
-    } catch (error) {
-        console.error('Save history failed:', error);
-        showToast('保存失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-async function saveSpecial() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-    showLoading('正在保存特殊设定...');
-    
-    try {
-        const response = await api.request(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/special/`, {
-            method: 'PUT',
-
-            body: JSON.stringify({
-                taboo: document.getElementById('specialTaboo')?.value || '',
-                secret: document.getElementById('specialSecret')?.value || '',
-                fortune: document.getElementById('specialFortune')?.value || '',
-                destiny: document.getElementById('specialDestiny')?.value || '',
-                soul: document.getElementById('specialSoul')?.value || '',
-                reincarnation: document.getElementById('specialReincarnation')?.value || '',
-                transmigration: document.getElementById('specialTransmigration')?.value || '',
-                system: document.getElementById('specialSystem')?.value || '',
-                rules: document.getElementById('specialRules')?.value || '',
-            })
-        });
-
-        if (response.success) {
-            if (!currentWorldview.special) {
-                currentWorldview.special = {};
-            }
-            currentWorldview.special = response.data.special;
-            currentStructure.special = response.data.special;
-            
-            // 重新渲染特殊规则表单
-            renderSpecial(currentStructure);
-            
-            showToast('特色地标保存成功');
-        } else {
-            throw new Error(response.message || '保存失败');
-        }
-    } catch (error) {
-        console.error('Save special failed:', error);
-        showToast('保存失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-
-
-
-
-
-
-
-
-
 
 /* AI 优化 */
 
-async function aiFillSetting() {
-    if (!worldviewId) return;
-
-    // 检查所有基础设定字段是否已填写
-    const fields = [
-        { id: 'worldName', label: '世界名称' },
-        { id: 'genreSelect', label: '小说类型', type: 'hidden' },
-        { id: 'worldIdentity', label: '世界身份 / 类型气质' },
-        { id: 'worldTone', label: '整体调性' },
-        { id: 'worldOverview', label: '世界概述' },
-        { id: 'worldCoreConflict', label: '核心冲突' },
-    ];
-
-    const emptyFields = [];
-    for (const field of fields) {
-        const el = document.getElementById(field.id);
-        const val = el ? (field.type === 'hidden' ? el.value : el.value.trim()) : '';
-        if (!val) {
-            emptyFields.push(field.label);
+const LAYER_CONFIG = {
+    setting: {
+        sectionName: '基础设定',
+        fields: [
+            { id: 'worldName', label: '世界名称' },
+            { id: 'genreSelect', label: '小说类型', trim: false },
+            { id: 'worldIdentity', label: '世界身份 / 类型气质' },
+            { id: 'worldTone', label: '整体调性' },
+            { id: 'worldOverview', label: '世界概述' },
+            { id: 'worldCoreConflict', label: '核心冲突' },
+        ],
+        setFormFields(data) {
+            setField('worldName', data.identity?.world_name || '');
+            setField('worldIdentity', data.position?.identity || '');
+            setField('worldTone', data.position?.tone || '');
+            setField('worldOverview', data.overview || '');
+            setField('worldCoreConflict', data.conflict || '');
+        },
+        updateLocalData(data) {
+            if (!currentWorldview.setting) currentWorldview.setting = {};
+            if (!currentWorldview.setting.identity) currentWorldview.setting.identity = {};
+            if (!currentWorldview.setting.position) currentWorldview.setting.position = {};
+            currentWorldview.setting.identity.world_name = data.identity?.world_name || '';
+            currentWorldview.setting.identity.genre = getSelectedGenre();
+            currentWorldview.setting.position.identity = data.position?.identity || '';
+            currentWorldview.setting.position.tone = data.position?.tone || '';
+            currentWorldview.setting.overview = data.overview || '';
+            currentWorldview.setting.conflict = data.conflict || '';
         }
-    }
+    },
 
-    if (emptyFields.length > 0) {
-        showToast(`请先完善基础设定：${emptyFields.join('、')}`, 'error');
-        return;
-    }
-
-    showLoading('AI正在优化基础设定...');
-
-    try {
-        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/setting/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                world_name: document.getElementById('worldName').value.trim(),
-                genre: getSelectedGenre(),
-                identity: document.getElementById('worldIdentity').value.trim(),
-                tone: document.getElementById('worldTone').value.trim(),
-                overview: document.getElementById('worldOverview').value.trim(),
-                conflict: document.getElementById('worldCoreConflict').value.trim(),
-            })
-        });
-
-        // 解析返回的结果（嵌套结构）
-        let setting;
-        if (typeof fullContent === 'string') {
-            let jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*?\})\s*```/s);
-            if (jsonMatch) {
-                setting = JSON.parse(jsonMatch[1]);
-            } else {
-                setting = JSON.parse(fullContent);
+    foundation: {
+        sectionName: '世界基础',
+        fields: [
+            { id: 'foundationContinent', label: '大陆分布' },
+            { id: 'foundationTerrain', label: '特殊地形' },
+            { id: 'foundationEra', label: '纪年方式' },
+            { id: 'foundationDays', label: '一年天数' },
+            { id: 'foundationSeasons', label: '季节划分' },
+            { id: 'foundationFestivals', label: '特殊节气/节日' },
+            { id: 'foundationLaws', label: '自然法则' },
+            { id: 'foundationBoundary', label: '世界边界' },
+            { id: 'foundationBalance', label: '平衡机制' },
+        ],
+        preValidate() {
+            if (!getAxiomsText()) {
+                showToast('请先填写核心公理', 'error');
+                return false;
             }
-        } else {
-            setting = fullContent;
-        }
-
-        // 更新表单字段
-        setField('worldName', setting.identity?.world_name || '');
-        setField('worldIdentity', setting.position?.identity || '');
-        setField('worldTone', setting.position?.tone || '');
-        setField('worldOverview', setting.overview || '');
-        setField('worldCoreConflict', setting.conflict || '');
-        
-        // 更新本地 currentWorldview（嵌套结构）
-        if (!currentWorldview.setting) {
-            currentWorldview.setting = {};
-        }
-        if (!currentWorldview.setting.identity) {
-            currentWorldview.setting.identity = {};
-        }
-        if (!currentWorldview.setting.position) {
-            currentWorldview.setting.position = {};
-        }
-        // console.debug(setting)
-        currentWorldview.setting.identity.world_name = setting.identity?.world_name || '';
-        currentWorldview.setting.identity.genre = getSelectedGenre();
-        currentWorldview.setting.position.identity = setting.position?.identity || '';
-        currentWorldview.setting.position.tone = setting.position?.tone || '';
-        currentWorldview.setting.overview = setting.overview || '';
-        currentWorldview.setting.conflict = setting.conflict || '';
-        
-        showToast('AI优化完成');
-    } catch (error) {
-        console.error('Failed to expand:', error);
-        showToast('完善失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-async function aiFillFoundation() {
-    // AI生成 世界基础
-    if (!worldviewId) return;
-
-    const fields = [
-        { id: 'foundationContinent', label: '大陆分布' },
-        { id: 'foundationTerrain', label: '特殊地形' },
-        { id: 'foundationEra', label: '纪年方式' },
-        { id: 'foundationDays', label: '一年天数' },
-        { id: 'foundationSeasons', label: '季节划分' },
-        { id: 'foundationFestivals', label: '特殊节气/节日' },
-        { id: 'foundationLaws', label: '自然法则' },
-        { id: 'foundationBoundary', label: '世界边界' },
-        { id: 'foundationBalance', label: '平衡机制' },
-    ];
-
-    const emptyFields = [];
-    for (const field of fields) {
-        const el = document.getElementById(field.id);
-        const val = el ? el.value.trim() : '';
-        if (!val) emptyFields.push(field.label);
-    }
-    if (!getAxiomsText()) emptyFields.push('核心公理');
-
-    if (emptyFields.length > 0) {
-        showToast(`请先完善世界基础：${emptyFields.join('、')}`, 'error');
-        return;
-    }
-
-    showLoading('AI正在优化世界基础...');
-
-    try {
-        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/foundation/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                genre: getSelectedGenre(),
-                continent: document.getElementById('foundationContinent').value.trim(),
-                terrain: document.getElementById('foundationTerrain').value.trim(),
-                era: document.getElementById('foundationEra').value.trim(),
-                days: document.getElementById('foundationDays').value.trim(),
-                seasons: document.getElementById('foundationSeasons').value.trim(),
-                festivals: document.getElementById('foundationFestivals').value.trim(),
-                laws: document.getElementById('foundationLaws').value.trim(),
-                boundary: document.getElementById('foundationBoundary').value.trim(),
-                axioms: getAxiomsText(),
-                balance: document.getElementById('foundationBalance').value.trim(),
-            })
-        });
-
-        let foundation;
-        if (typeof fullContent === 'string') {
-            let jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*?\})\s*```/s);
-            if (jsonMatch) {
-                foundation = JSON.parse(jsonMatch[1]);
-            } else {
-                foundation = JSON.parse(fullContent);
+            return true;
+        },
+        setFormFields(data) {
+            setField('foundationContinent', data.geography?.continent_distribution || '');
+            setField('foundationTerrain', data.geography?.special_terrain || '');
+            setField('foundationEra', data.calendar?.era || '');
+            setField('foundationDays', data.calendar?.days_per_year || '');
+            setField('foundationSeasons', data.calendar?.seasons || '');
+            setField('foundationFestivals', data.calendar?.festivals || '');
+            setField('foundationLaws', data.rules?.natural_laws || '');
+            setField('foundationBoundary', data.rules?.boundaries || '');
+            if (data.rules?.axioms) setAxiomsFromText(data.rules.axioms);
+            setField('foundationBalance', data.balance || '');
+        },
+        updateLocalData(data) {
+            if (!currentWorldview.foundation) currentWorldview.foundation = {};
+            if (!currentWorldview.foundation.geography) currentWorldview.foundation.geography = {};
+            if (!currentWorldview.foundation.calendar) currentWorldview.foundation.calendar = {};
+            if (!currentWorldview.foundation.rules) currentWorldview.foundation.rules = {};
+            currentWorldview.foundation.geography.continent_distribution = data.geography?.continent_distribution || '';
+            currentWorldview.foundation.geography.special_terrain = data.geography?.special_terrain || '';
+            currentWorldview.foundation.calendar.era = data.calendar?.era || '';
+            currentWorldview.foundation.calendar.days_per_year = data.calendar?.days_per_year || '';
+            currentWorldview.foundation.calendar.seasons = data.calendar?.seasons || '';
+            currentWorldview.foundation.calendar.festivals = data.calendar?.festivals || '';
+            currentWorldview.foundation.rules.natural_laws = data.rules?.natural_laws || '';
+            currentWorldview.foundation.rules.boundaries = data.rules?.boundaries || '';
+            if (data.rules?.axioms) {
+                currentWorldview.foundation.rules.axioms = typeof data.rules.axioms === 'string'
+                    ? data.rules.axioms.split('\n').filter(a => a.trim())
+                    : data.rules.axioms;
             }
-        } else {
-            foundation = fullContent;
-        }
-
-        // 更新表单字段
-        setField('foundationContinent', foundation.geography?.continent_distribution || '');
-        setField('foundationTerrain', foundation.geography?.special_terrain || '');
-        setField('foundationEra', foundation.calendar?.era || '');
-        setField('foundationDays', foundation.calendar?.days_per_year || '');
-        setField('foundationSeasons', foundation.calendar?.seasons || '');
-        setField('foundationFestivals', foundation.calendar?.festivals || '');
-        setField('foundationLaws', foundation.rules?.natural_laws || '');
-        setField('foundationBoundary', foundation.rules?.boundaries || '');
-        if (foundation.rules?.axioms) setAxiomsFromText(foundation.rules.axioms);
-        setField('foundationBalance', foundation.balance || '');
-        
-        // 更新本地数据
-        if (!currentWorldview.foundation) {
-            currentWorldview.foundation = {};
-        }
-        if (!currentWorldview.foundation.geography) {
-            currentWorldview.foundation.geography = {};
-        }
-        if (!currentWorldview.foundation.calendar) {
-            currentWorldview.foundation.calendar = {};
-        }
-        if (!currentWorldview.foundation.rules) {
-            currentWorldview.foundation.rules = {};
-        }
-        
-        currentWorldview.foundation.geography.continent_distribution = foundation.geography?.continent_distribution || '';
-        currentWorldview.foundation.geography.special_terrain = foundation.geography?.special_terrain || '';
-        currentWorldview.foundation.calendar.era = foundation.calendar?.era || '';
-        currentWorldview.foundation.calendar.days_per_year = foundation.calendar?.days_per_year || '';
-        currentWorldview.foundation.calendar.seasons = foundation.calendar?.seasons || '';
-        currentWorldview.foundation.calendar.festivals = foundation.calendar?.festivals || '';
-        currentWorldview.foundation.rules.natural_laws = foundation.rules?.natural_laws || '';
-        currentWorldview.foundation.rules.boundaries = foundation.rules?.boundaries || '';
-        if (foundation.rules?.axioms) {
-            if (typeof foundation.rules.axioms === 'string') {
-                currentWorldview.foundation.rules.axioms = foundation.rules.axioms.split('\n').filter(a => a.trim());
-            } else {
-                currentWorldview.foundation.rules.axioms = foundation.rules.axioms;
+            currentWorldview.foundation.balance = data.balance || '';
+            currentStructure.foundation = JSON.parse(JSON.stringify(currentWorldview.foundation));
+            if (currentStructure.foundation.rules) {
+                currentStructure.rules = { ...currentStructure.rules, axioms: currentStructure.foundation.rules.axioms || [] };
+            }
+            if (currentStructure.foundation.rules?.axioms) {
+                axioms.length = 0;
+                currentStructure.foundation.rules.axioms.forEach(v => axioms.push(v));
+                renderAxioms();
             }
         }
-        currentWorldview.foundation.balance = foundation.balance || '';
-        
-        // 同步更新 currentStructure
-        currentStructure.foundation = JSON.parse(JSON.stringify(currentWorldview.foundation));
-        if (currentStructure.foundation.rules) {
-            currentStructure.rules = {
-                ...currentStructure.rules,
-                axioms: currentStructure.foundation.rules.axioms || []
-            };
+    },
+
+    power: {
+        sectionName: '力量体系',
+        fields: [
+            { id: 'powerEnergyType', label: '主要能量类型' },
+            { id: 'powerEnergyDistribution', label: '能量分布' },
+            { id: 'powerEnergyTraits', label: '能量特性' },
+            { id: 'powerLevels', label: '修炼等级' },
+            { id: 'powerMartialCategory', label: '功法分类' },
+            { id: 'powerMartialHeritage', label: '传承方式' },
+            { id: 'powerTreasureCategory', label: '法宝分类' },
+            { id: 'powerTreasurePill', label: '丹药体系' },
+            { id: 'powerBeastLevel', label: '妖兽等级' },
+            { id: 'powerBeastLegend', label: '神兽传说' },
+        ],
+        setFormFields(data) {
+            setField('powerEnergyType', data.energy?.types || '');
+            setField('powerEnergyDistribution', data.energy?.distribution || '');
+            setField('powerEnergyTraits', data.energy?.properties || '');
+            setField('powerLevels', data.level || '');
+            setField('powerMartialCategory', data.martial?.categories || '');
+            setField('powerMartialHeritage', data.martial?.inheritance || '');
+            setField('powerTreasureCategory', data.treasure?.categories || '');
+            setField('powerTreasurePill', data.treasure?.pills || '');
+            setField('powerBeastLevel', data.beast?.levels || '');
+            setField('powerBeastLegend', data.beast?.mythical || '');
+        },
+        updateLocalData(data) {
+            if (!currentWorldview.power) currentWorldview.power = {};
+            currentWorldview.power = JSON.parse(JSON.stringify(data));
+            currentStructure.power = JSON.parse(JSON.stringify(data));
         }
-        
-        // 更新 axioms 数组和 DOM
-        if (currentStructure.foundation.rules?.axioms) {
-            axioms.length = 0;
-            currentStructure.foundation.rules.axioms.forEach(v => axioms.push(v));
-            renderAxioms();
+    },
+
+    races: {
+        sectionName: '种族族群',
+        fields: [
+            { id: 'racesCategory', label: '种族分类' },
+            { id: 'racesValue', label: '种族价值观' },
+            { id: 'racesLifespan', label: '寿命特征' },
+            { id: 'racesReproduction', label: '繁衍方式' },
+            { id: 'racesConstitution', label: '体质特征' },
+            { id: 'racesRelation', label: '种族关系' },
+        ],
+        setFormFields(data) {
+            setField('racesCategory', data.category || '');
+            setField('racesValue', data.value || '');
+            setField('racesLifespan', data.trait?.lifespan || '');
+            setField('racesReproduction', data.trait?.reproduction || '');
+            setField('racesConstitution', data.trait?.physique || '');
+            setField('racesRelation', data.relation || '');
+        },
+        updateLocalData(data) {
+            if (!currentWorldview.races) currentWorldview.races = {};
+            if (!currentWorldview.races.trait) currentWorldview.races.trait = {};
+            currentWorldview.races.category = data.category || '';
+            currentWorldview.races.value = data.value || '';
+            currentWorldview.races.trait.lifespan = data.trait?.lifespan || '';
+            currentWorldview.races.trait.reproduction = data.trait?.reproduction || '';
+            currentWorldview.races.trait.physique = data.trait?.physique || '';
+            currentWorldview.races.relation = data.relation || '';
+            currentStructure.races = JSON.parse(JSON.stringify(currentWorldview.races));
         }
-        
-        showToast('AI优化完成');
-    } catch (error) {
-        console.error('Failed to expand foundation:', error);
-        showToast('完善失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
+    },
 
-async function aiFillPower() {
-    if (!worldviewId) return;
-
-    const fields = [
-        { id: 'powerEnergyType', label: '主要能量类型' },
-        { id: 'powerEnergyDistribution', label: '能量分布' },
-        { id: 'powerEnergyTraits', label: '能量特性' },
-        { id: 'powerLevels', label: '修炼等级' },
-        { id: 'powerMartialCategory', label: '功法分类' },
-        { id: 'powerMartialHeritage', label: '传承方式' },
-        { id: 'powerTreasureCategory', label: '法宝分类' },
-        { id: 'powerTreasurePill', label: '丹药体系' },
-        { id: 'powerBeastLevel', label: '妖兽等级' },
-        { id: 'powerBeastLegend', label: '神兽传说' },
-    ];
-
-    const emptyFields = [];
-    for (const field of fields) {
-        const el = document.getElementById(field.id);
-        const val = el ? el.value.trim() : '';
-        if (!val) emptyFields.push(field.label);
-    }
-
-    if (emptyFields.length > 0) {
-        showToast(`请先完善力量体系：${emptyFields.join('、')}`, 'error');
-        return;
-    }
-
-    showLoading('AI正在优化力量体系...');
-
-    try {
-        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/power/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                genre: getSelectedGenre(),
-                energy_types: document.getElementById('powerEnergyType').value.trim(),
-                energy_distribution: document.getElementById('powerEnergyDistribution').value.trim(),
-                energy_properties: document.getElementById('powerEnergyTraits').value.trim(),
-                level: document.getElementById('powerLevels').value.trim(),
-                martial_categories: document.getElementById('powerMartialCategory').value.trim(),
-                martial_inheritance: document.getElementById('powerMartialHeritage').value.trim(),
-                treasure_categories: document.getElementById('powerTreasureCategory').value.trim(),
-                treasure_pills: document.getElementById('powerTreasurePill').value.trim(),
-                beast_levels: document.getElementById('powerBeastLevel').value.trim(),
-                beast_mythical: document.getElementById('powerBeastLegend').value.trim(),
-            })
-        });
-
-        let power;
-        if (typeof fullContent === 'string') {
-            let jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*?\})\s*```/s);
-            if (jsonMatch) {
-                power = JSON.parse(jsonMatch[1]);
-            } else {
-                power = JSON.parse(fullContent);
-            }
-        } else {
-            power = fullContent;
+    society: {
+        sectionName: '社会结构',
+        fields: [
+            { id: 'societyGovernment', label: '国家体制' },
+            { id: 'societyBureaucracy', label: '官僚体系' },
+            { id: 'societySectLevel', label: '门派等级' },
+            { id: 'societySectHeritage', label: '传承关系' },
+            { id: 'societyMartialFaction', label: '武林帮派' },
+            { id: 'societyMartialGuild', label: '商会联盟' },
+            { id: 'societyExternal', label: '域外势力' },
+            { id: 'societyClassLevel', label: '社会等级' },
+            { id: 'societyClassMobility', label: '阶层流动' },
+            { id: 'societyCurrencyType', label: '货币类型' },
+            { id: 'societyCurrencyRule', label: '货币规则' },
+            { id: 'societyResource', label: '资源分布' },
+        ],
+        setFormFields(data) {
+            setField('societyGovernment', data.court?.political_system || '');
+            setField('societyBureaucracy', data.court?.bureaucracy || '');
+            setField('societySectLevel', data.sect?.levels || '');
+            setField('societySectHeritage', data.sect?.relationships || '');
+            setField('societyMartialFaction', data.martial?.factions || '');
+            setField('societyMartialGuild', data.martial?.alliances || '');
+            setField('societyExternal', data.external || '');
+            setField('societyClassLevel', data.strata?.social_classes || '');
+            setField('societyClassMobility', data.strata?.mobility || '');
+            setField('societyCurrencyType', data.currency?.types || '');
+            setField('societyCurrencyRule', data.currency?.rules || '');
+            setField('societyResource', data.resource || '');
+        },
+        updateLocalData(data) {
+            if (!currentWorldview.society) currentWorldview.society = {};
+            if (!currentWorldview.society.court) currentWorldview.society.court = {};
+            if (!currentWorldview.society.sect) currentWorldview.society.sect = {};
+            if (!currentWorldview.society.martial) currentWorldview.society.martial = {};
+            if (!currentWorldview.society.strata) currentWorldview.society.strata = {};
+            if (!currentWorldview.society.currency) currentWorldview.society.currency = {};
+            currentWorldview.society.court.political_system = data.court?.political_system || '';
+            currentWorldview.society.court.bureaucracy = data.court?.bureaucracy || '';
+            currentWorldview.society.sect.levels = data.sect?.levels || '';
+            currentWorldview.society.sect.relationships = data.sect?.relationships || '';
+            currentWorldview.society.martial.factions = data.martial?.factions || '';
+            currentWorldview.society.martial.alliances = data.martial?.alliances || '';
+            currentWorldview.society.external = data.external || '';
+            currentWorldview.society.strata.social_classes = data.strata?.social_classes || '';
+            currentWorldview.society.strata.mobility = data.strata?.mobility || '';
+            currentWorldview.society.currency.types = data.currency?.types || '';
+            currentWorldview.society.currency.rules = data.currency?.rules || '';
+            currentWorldview.society.resource = data.resource || '';
+            currentStructure.society = JSON.parse(JSON.stringify(currentWorldview.society));
         }
+    },
 
-        // 更新表单字段
-        setField('powerEnergyType', power.energy?.types || '');
-        setField('powerEnergyDistribution', power.energy?.distribution || '');
-        setField('powerEnergyTraits', power.energy?.properties || '');
-        setField('powerLevels', power.level || '');
-        setField('powerMartialCategory', power.martial?.categories || '');
-        setField('powerMartialHeritage', power.martial?.inheritance || '');
-        setField('powerTreasureCategory', power.treasure?.categories || '');
-        setField('powerTreasurePill', power.treasure?.pills || '');
-        setField('powerBeastLevel', power.beast?.levels || '');
-        setField('powerBeastLegend', power.beast?.mythical || '');
-        
-        // 更新本地数据
-        if (!currentWorldview.power) {
-            currentWorldview.power = {};
+    culture: {
+        sectionName: '文化人文',
+        fields: [
+            { id: 'cultureFestival', label: '节日庆典' },
+            { id: 'cultureRitual', label: '仪式习俗' },
+            { id: 'cultureLanguage', label: '语言文字' },
+            { id: 'cultureScript', label: '书写系统' },
+            { id: 'cultureClothing', label: '服饰风格' },
+            { id: 'cultureFood', label: '饮食文化' },
+            { id: 'cultureArchitecture', label: '建筑特色' },
+            { id: 'cultureTransport', label: '交通方式' },
+            { id: 'cultureDeity', label: '神祇信仰' },
+            { id: 'cultureReligionOrg', label: '宗教组织' },
+            { id: 'cultureFaithDiff', label: '信仰差异' },
+        ],
+        setFormFields(data) {
+            setField('cultureFestival', data.custom?.festivals || '');
+            setField('cultureRitual', data.custom?.rituals || '');
+            setField('cultureLanguage', data.language?.languages || '');
+            setField('cultureScript', data.language?.writing_system || '');
+            setField('cultureClothing', data.daily?.clothing || '');
+            setField('cultureFood', data.daily?.cuisine || data.daily?.food || '');
+            setField('cultureArchitecture', data.daily?.architecture || '');
+            setField('cultureTransport', data.daily?.transportation || '');
+            setField('cultureDeity', data.religion?.deities || data.religion?.deity || '');
+            setField('cultureReligionOrg', data.religion?.organization || '');
+            setField('cultureFaithDiff', data.religion?.faith_differences || data.religion?.faith_diff || '');
+        },
+        updateLocalData(data) {
+            if (!currentWorldview.culture) currentWorldview.culture = {};
+            if (!currentWorldview.culture.custom) currentWorldview.culture.custom = {};
+            if (!currentWorldview.culture.language) currentWorldview.culture.language = {};
+            if (!currentWorldview.culture.daily) currentWorldview.culture.daily = {};
+            if (!currentWorldview.culture.religion) currentWorldview.culture.religion = {};
+            currentWorldview.culture.custom.festivals = data.custom?.festivals || '';
+            currentWorldview.culture.custom.rituals = data.custom?.rituals || '';
+            currentWorldview.culture.language.languages = data.language?.languages || '';
+            currentWorldview.culture.language.writing_system = data.language?.writing_system || '';
+            currentWorldview.culture.daily.clothing = data.daily?.clothing || '';
+            currentWorldview.culture.daily.food = data.daily?.food || '';
+            currentWorldview.culture.daily.architecture = data.daily?.architecture || '';
+            currentWorldview.culture.daily.transportation = data.daily?.transportation || '';
+            currentWorldview.culture.religion.deity = data.religion?.deity || '';
+            currentWorldview.culture.religion.organization = data.religion?.organization || '';
+            currentWorldview.culture.religion.faith_diff = data.religion?.faith_diff || '';
+            currentStructure.culture = JSON.parse(JSON.stringify(currentWorldview.culture));
         }
-        currentWorldview.power = JSON.parse(JSON.stringify(power));
-        currentStructure.power = JSON.parse(JSON.stringify(power));
-        
-        showToast('AI优化完成');
-    } catch (error) {
-        console.error('Failed to expand power:', error);
-        showToast('完善失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
+    },
 
-async function aiFillRaces() {
+    history: {
+        sectionName: '历史进程',
+        fields: [
+            { id: 'historyAncient', label: '上古往事' },
+            { id: 'historyModern', label: '近代变故' },
+            { id: 'historyCrisis', label: '世界隐患' },
+            { id: 'historyDestiny', label: '宿命轨迹' },
+            { id: 'historyFuture', label: '未来走向' },
+        ],
+        preprocessResponse(data) {
+            return data.success && data.data ? data.data.history : data;
+        },
+        setFormFields(data) {
+            setField('historyAncient', data.ancient || '');
+            setField('historyModern', data.modern || '');
+            setField('historyCrisis', data.crisis || '');
+            setField('historyDestiny', data.destiny || '');
+            setField('historyFuture', data.future || '');
+        },
+        updateLocalData(data) {
+            if (!currentWorldview.history) currentWorldview.history = {};
+            currentWorldview.history.ancient = data.ancient || '';
+            currentWorldview.history.modern = data.modern || '';
+            currentWorldview.history.crisis = data.crisis || '';
+            currentWorldview.history.destiny = data.destiny || '';
+            currentWorldview.history.future = data.future || '';
+            currentStructure.history = JSON.parse(JSON.stringify(currentWorldview.history));
+        }
+    },
+
+    special: {
+        sectionName: '特殊规则',
+        fields: [
+            { id: 'specialTaboo', label: '世界禁忌' },
+            { id: 'specialSecret', label: '隐藏秘密' },
+            { id: 'specialFortune', label: '运势规则' },
+            { id: 'specialDestiny', label: '命运类型' },
+            { id: 'specialSoul', label: '灵魂规则' },
+            { id: 'specialReincarnation', label: '轮回机制' },
+            { id: 'specialTransmigration', label: '穿越规则' },
+            { id: 'specialSystem', label: '系统规则' },
+            { id: 'specialRules', label: '特殊规则' },
+        ],
+        setFormFields(data) {
+            setField('specialTaboo', data.taboo || '');
+            setField('specialSecret', data.secret || '');
+            setField('specialFortune', data.fate?.fortune_rules || '');
+            setField('specialDestiny', data.fate?.destiny_types || '');
+            setField('specialSoul', data.reincarnation?.soul_rules || '');
+            setField('specialReincarnation', data.reincarnation?.mechanics || '');
+            setField('specialTransmigration', data.transmigration || '');
+            setField('specialSystem', data.system || '');
+            setField('specialRules', data.rules || '');
+        },
+        updateLocalData(data) {
+            if (!currentWorldview.special) currentWorldview.special = {};
+            if (!currentWorldview.special.fate) currentWorldview.special.fate = {};
+            if (!currentWorldview.special.reincarnation) currentWorldview.special.reincarnation = {};
+            currentWorldview.special.taboo = data.taboo || '';
+            currentWorldview.special.secret = data.secret || '';
+            currentWorldview.special.fate.fortune_rules = data.fate?.fortune_rules || '';
+            currentWorldview.special.fate.destiny_types = data.fate?.destiny_types || '';
+            currentWorldview.special.reincarnation.soul_rules = data.reincarnation?.soul_rules || '';
+            currentWorldview.special.reincarnation.mechanics = data.reincarnation?.mechanics || '';
+            currentWorldview.special.transmigration = data.transmigration || '';
+            currentWorldview.special.system = data.system || '';
+            currentWorldview.special.rules = data.rules || '';
+            currentStructure.special = JSON.parse(JSON.stringify(currentWorldview.special));
+        }
+    }
+};
+
+async function aiPolishLayer(layerName) {
+    /** AI 润色：仅润色用户修改过的字段（dirty fields），其余字段不动 */
     if (!worldviewId) {
         showToast('世界观未加载', 'error');
         return;
     }
 
-    const fields = [
-        { id: 'racesCategory', label: '种族分类' },
-        { id: 'racesValue', label: '种族价值观' },
-        { id: 'racesLifespan', label: '寿命特征' },
-        { id: 'racesReproduction', label: '繁衍方式' },
-        { id: 'racesConstitution', label: '体质特征' },
-        { id: 'racesRelation', label: '种族关系' },
-    ];
+    const config = LAYER_CONFIG[layerName];
+    if (!config) return;
 
-    const emptyFields = [];
-    for (const field of fields) {
-        const el = document.getElementById(field.id);
-        const val = el ? el.value.trim() : '';
-        if (!val) emptyFields.push(field.label);
-    }
+    // Pre-validate (e.g., foundation checks axioms)
+    if (config.preValidate && !config.preValidate()) return;
 
-    if (emptyFields.length > 0) {
-        showToast(`请先完善种族族群：${emptyFields.join('、')}`, 'error');
+    // 获取脏字段
+    const { dirtyData, changedKeys } = getDirtyFields(layerName);
+    if (changedKeys.length === 0) {
+        showToast('没有需要润色的修改，请先编辑字段内容', 'warning');
         return;
     }
 
-    showLoading('AI正在优化种族族群...');
+    showLoading(`AI正在润色${config.sectionName}...`);
 
     try {
-        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/races/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                genre: getSelectedGenre(),
-                category: document.getElementById('racesCategory').value.trim() || '请生成完整的种族设定',
-                value: document.getElementById('racesValue').value.trim() || '请生成种族价值观设定',
-                lifespan: document.getElementById('racesLifespan').value.trim() || '',
-                reproduction: document.getElementById('racesReproduction').value.trim() || '',
-                physique: document.getElementById('racesConstitution').value.trim() || '',
-                relation: document.getElementById('racesRelation').value.trim() || '请生成种族关系设定',
-            })
-        });
-
-        let races;
-        if (typeof fullContent === 'string') {
-            let jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*?\})\s*```/s);
-            if (jsonMatch) {
-                races = JSON.parse(jsonMatch[1]);
-            } else {
-                races = JSON.parse(fullContent);
+        const fullContent = await api.streamRequest(
+            `/api/projects/${currentProjectId}/worldviews/${worldviewId}/optimize/${layerName}/`,
+            {
+                method: 'POST',
+                body: JSON.stringify({
+                    genre: getSelectedGenre(),
+                    layer_data: dirtyData,
+                    changed_keys: changedKeys,
+                })
             }
-        } else if (fullContent && typeof fullContent === 'object') {
-            races = fullContent;
-        } else {
-            throw new Error('AI返回数据格式错误');
-        }
+        );
 
-        // 更新表单字段
-        setField('racesCategory', races.category || '');
-        setField('racesValue', races.value || '');
-        setField('racesLifespan', races.trait?.lifespan || '');
-        setField('racesReproduction', races.trait?.reproduction || '');
-        setField('racesConstitution', races.trait?.physique || '');
-        setField('racesRelation', races.relation || '');
-
-        // 更新本地数据
-        if (!currentWorldview.races) {
-            currentWorldview.races = {};
-        }
-        if (!currentWorldview.races.trait) {
-            currentWorldview.races.trait = {};
-        }
-        currentWorldview.races.category = races.category || '';
-        currentWorldview.races.value = races.value || '';
-        currentWorldview.races.trait.lifespan = races.trait?.lifespan || '';
-        currentWorldview.races.trait.reproduction = races.trait?.reproduction || '';
-        currentWorldview.races.trait.physique = races.trait?.physique || '';
-        currentWorldview.races.relation = races.relation || '';
-        currentStructure.races = JSON.parse(JSON.stringify(currentWorldview.races));
-        
-        showToast('AI优化完成');
+        _handleOptimizeResponse(layerName, config, fullContent);
     } catch (error) {
-        console.error('Failed to fill races:', error);
-        showToast('补全失败', 'error');
+        console.error(`Polish ${layerName} failed:`, error);
+        showToast(error.message || '润色失败', 'error');
     } finally {
         hideLoading();
     }
 }
 
-async function aiFillSociety() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
+function _handleOptimizeResponse(layerName, config, fullContent) {
+    /** 解析 LLM 润色返回结果并更新 UI + 快照 */
+    let result;
+    if (typeof fullContent === 'string') {
+        const jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*\})\s*```/s);
+        result = jsonMatch ? JSON.parse(jsonMatch[1]) : JSON.parse(fullContent);
+    } else if (fullContent && typeof fullContent === 'object') {
+        result = fullContent;
+    } else {
+        throw new Error('AI返回数据格式错误');
     }
 
-    const fields = [
-        { id: 'societyGovernment', label: '国家体制' },
-        { id: 'societyBureaucracy', label: '官僚体系' },
-        { id: 'societySectLevel', label: '门派等级' },
-        { id: 'societySectHeritage', label: '传承关系' },
-        { id: 'societyMartialFaction', label: '武林帮派' },
-        { id: 'societyMartialGuild', label: '商会联盟' },
-        { id: 'societyExternal', label: '域外势力' },
-        { id: 'societyClassLevel', label: '社会等级' },
-        { id: 'societyClassMobility', label: '阶层流动' },
-        { id: 'societyCurrencyType', label: '货币类型' },
-        { id: 'societyCurrencyRule', label: '货币规则' },
-        { id: 'societyResource', label: '资源分布' },
-    ];
-
-    const emptyFields = [];
-    for (const field of fields) {
-        const el = document.getElementById(field.id);
-        const val = el ? el.value.trim() : '';
-        if (!val) emptyFields.push(field.label);
+    // Unwrap: LLM always returns {layer_name, polished_data}, extract polished_data
+    if (result.polished_data && typeof result.polished_data === 'object') {
+        result = result.polished_data;
     }
 
-    if (emptyFields.length > 0) {
-        showToast(`请先完善社会结构：${emptyFields.join('、')}`, 'error');
-        return;
+    // Preprocess (e.g., history unwraps success.data.history)
+    if (config.preprocessResponse) {
+        result = config.preprocessResponse(result);
     }
 
-    showLoading('AI正在优化社会结构...');
+    // Update form fields
+    config.setFormFields(result);
 
-    try {
-        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/society/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                genre: getSelectedGenre(),
-                government: document.getElementById('societyGovernment').value.trim() || '请生成国家体制设定',
-                bureaucracy: document.getElementById('societyBureaucracy').value.trim() || '',
-                sect_level: document.getElementById('societySectLevel').value.trim() || '',
-                sect_heritage: document.getElementById('societySectHeritage').value.trim() || '',
-                martial_faction: document.getElementById('societyMartialFaction').value.trim() || '',
-                martial_guild: document.getElementById('societyMartialGuild').value.trim() || '',
-                external: document.getElementById('societyExternal').value.trim() || '请生成域外势力设定',
-                class_level: document.getElementById('societyClassLevel').value.trim() || '请生成社会等级设定',
-                class_mobility: document.getElementById('societyClassMobility').value.trim() || '',
-                currency_type: document.getElementById('societyCurrencyType').value.trim() || '',
-                currency_rule: document.getElementById('societyCurrencyRule').value.trim() || '',
-                resource: document.getElementById('societyResource').value.trim() || '',
-            })
-        });
-        // console.log(typeof fullContent)
-        // console.log(fullContent)
-        let society;
-        if (typeof fullContent === 'string') {
-            let jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*?\})\s*```/s);
-            if (jsonMatch) {
-                society = JSON.parse(jsonMatch[1]);
-            } else {
-                society = JSON.parse(fullContent);
-            }
-        } else {
-            society = fullContent;
-        }
-        
-        
+    // Update local data
+    config.updateLocalData(result);
 
-        // 更新表单字段
-        setField('societyGovernment', society.court?.political_system || '');
-        setField('societyBureaucracy', society.court?.bureaucracy || '');
-        setField('societySectLevel', society.sect?.levels || '');
-        setField('societySectHeritage', society.sect?.relationships || '');
-        setField('societyMartialFaction', society.martial?.factions || '');
-        setField('societyMartialGuild', society.martial?.alliances || '');
-        setField('societyExternal', society.external || '');
-        setField('societyClassLevel', society.class?.social_classes || '');
-        setField('societyClassMobility', society.class?.mobility || '');
-        setField('societyCurrencyType', society.currency?.types || '');
-        setField('societyCurrencyRule', society.currency?.rules || '');
-        setField('societyResource', society.resource || '');
+    // 更新 dirty tracking 快照
+    captureOriginalLayerData(layerName);
 
-        // 更新本地数据
-        if (!currentWorldview.society) {
-            currentWorldview.society = {};
-        }
-        if (!currentWorldview.society.court) {
-            currentWorldview.society.court = {};
-        }
-        if (!currentWorldview.society.sect) {
-            currentWorldview.society.sect = {};
-        }
-        if (!currentWorldview.society.martial) {
-            currentWorldview.society.martial = {};
-        }
-        if (!currentWorldview.society.class) {
-            currentWorldview.society.class = {};
-        }
-        if (!currentWorldview.society.currency) {
-            currentWorldview.society.currency = {};
-        }
-        currentWorldview.society.court.political_system = society.court?.political_system || '';
-        currentWorldview.society.court.bureaucracy = society.court?.bureaucracy || '';
-        currentWorldview.society.sect.levels = society.sect?.levels || '';
-        currentWorldview.society.sect.relationships = society.sect?.relationships || '';
-        currentWorldview.society.martial.factions = society.martial?.factions || '';
-        currentWorldview.society.martial.alliances = society.martial?.alliances || '';
-        currentWorldview.society.external = society.external || '';
-        currentWorldview.society.class.social_classes = society.class?.social_classes || '';
-        currentWorldview.society.class.mobility = society.class?.mobility || '';
-        currentWorldview.society.currency.types = society.currency?.types || '';
-        currentWorldview.society.currency.rules = society.currency?.rules || '';
-        currentWorldview.society.resource = society.resource || '';
-        currentStructure.society = JSON.parse(JSON.stringify(currentWorldview.society));
-        
-        showToast('AI优化完成');
-    } catch (error) {
-        console.error('Failed to fill society:', error);
-        showToast(error.message || '补全失败', 'error');
-    } finally {
-        hideLoading();
-    }
+    showToast('AI润色完成');
 }
 
-async function aiFillCulture() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-
-    const fields = [
-        { id: 'cultureFestival', label: '节日庆典' },
-        { id: 'cultureRitual', label: '仪式习俗' },
-        { id: 'cultureLanguage', label: '语言文字' },
-        { id: 'cultureScript', label: '书写系统' },
-        { id: 'cultureClothing', label: '服饰风格' },
-        { id: 'cultureFood', label: '饮食文化' },
-        { id: 'cultureArchitecture', label: '建筑特色' },
-        { id: 'cultureTransport', label: '交通方式' },
-        { id: 'cultureDeity', label: '神祇信仰' },
-        { id: 'cultureReligionOrg', label: '宗教组织' },
-        { id: 'cultureFaithDiff', label: '信仰差异' },
-    ];
-
-    const emptyFields = [];
-    for (const field of fields) {
-        const el = document.getElementById(field.id);
-        const val = el ? el.value.trim() : '';
-        if (!val) emptyFields.push(field.label);
-    }
-
-    if (emptyFields.length > 0) {
-        showToast(`请先完善文化人文：${emptyFields.join('、')}`, 'error');
-        return;
-    }
-
-    showLoading('AI正在优化文化人文...');
-
-    try {
-        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/culture/`, {
-            method: 'POST',
-
-            body: JSON.stringify({
-                genre: getSelectedGenre(),
-                festival: document.getElementById('cultureFestival').value.trim() || '请生成节日庆典设定',
-                ritual: document.getElementById('cultureRitual').value.trim() || '',
-                language: document.getElementById('cultureLanguage').value.trim() || '请生成语言文字设定',
-                script: document.getElementById('cultureScript').value.trim() || '',
-                clothing: document.getElementById('cultureClothing').value.trim() || '',
-                food: document.getElementById('cultureFood').value.trim() || '',
-                architecture: document.getElementById('cultureArchitecture').value.trim() || '',
-                transport: document.getElementById('cultureTransport').value.trim() || '',
-                deity: document.getElementById('cultureDeity').value.trim() || '请生成宗教信仰设定',
-                religion_org: document.getElementById('cultureReligionOrg').value.trim() || '',
-                faith_diff: document.getElementById('cultureFaithDiff').value.trim() || '',
-            })
-        });
-
-        let culture;
-        if (typeof fullContent === 'string') {
-            let jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*?\})\s*```/s);
-            if (jsonMatch) {
-                culture = JSON.parse(jsonMatch[1]);
-            } else {
-                culture = JSON.parse(fullContent);
-            }
-        } else if (fullContent && typeof fullContent === 'object') {
-            culture = fullContent;
-        } else {
-            throw new Error('AI返回数据格式错误');
-        }
-
-        // 更新表单字段
-        setField('cultureFestival', culture.custom?.festivals || '');
-        setField('cultureRitual', culture.custom?.rituals || '');
-        setField('cultureLanguage', culture.language?.languages || '');
-        setField('cultureScript', culture.language?.writing_system || '');
-        setField('cultureClothing', culture.daily?.clothing || '');
-        setField('cultureFood', culture.daily?.food || '');
-        setField('cultureArchitecture', culture.daily?.architecture || '');
-        setField('cultureTransport', culture.daily?.transportation || '');
-        setField('cultureDeity', culture.religion?.deity || '');
-        setField('cultureReligionOrg', culture.religion?.organization || '');
-        setField('cultureFaithDiff', culture.religion?.faith_diff || '');
-
-        // 更新本地数据
-        if (!currentWorldview.culture) {
-            currentWorldview.culture = {};
-        }
-        if (!currentWorldview.culture.custom) {
-            currentWorldview.culture.custom = {};
-        }
-        if (!currentWorldview.culture.language) {
-            currentWorldview.culture.language = {};
-        }
-        if (!currentWorldview.culture.daily) {
-            currentWorldview.culture.daily = {};
-        }
-        if (!currentWorldview.culture.religion) {
-            currentWorldview.culture.religion = {};
-        }
-        currentWorldview.culture.custom.festivals = culture.custom?.festivals || '';
-        currentWorldview.culture.custom.rituals = culture.custom?.rituals || '';
-        currentWorldview.culture.language.languages = culture.language?.languages || '';
-        currentWorldview.culture.language.writing_system = culture.language?.writing_system || '';
-        currentWorldview.culture.daily.clothing = culture.daily?.clothing || '';
-        currentWorldview.culture.daily.food = culture.daily?.food || '';
-        currentWorldview.culture.daily.architecture = culture.daily?.architecture || '';
-        currentWorldview.culture.daily.transportation = culture.daily?.transportation || '';
-        currentWorldview.culture.religion.deity = culture.religion?.deity || '';
-        currentWorldview.culture.religion.organization = culture.religion?.organization || '';
-        currentWorldview.culture.religion.faith_diff = culture.religion?.faith_diff || '';
-        currentStructure.culture = JSON.parse(JSON.stringify(currentWorldview.culture));
-        
-        showToast('AI优化完成');
-    } catch (error) {
-        console.error('Failed to fill culture:', error);
-        showToast('补全失败', 'error');
-    } finally {
-        hideLoading();
-    }
+// 保留旧函数名作为 polish 模式的别名，兼容可能的旧引用
+async function aiFillLayer(layerName) {
+    return aiPolishLayer(layerName);
 }
 
-async function aiFillHistory() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-
-    const fields = [
-        { id: 'historyAncient', label: '上古往事' },
-        { id: 'historyModern', label: '近代变故' },
-        { id: 'historyCrisis', label: '世界隐患' },
-        { id: 'historyDestiny', label: '宿命轨迹' },
-        { id: 'historyFuture', label: '未来走向' },
-    ];
-
-    const emptyFields = [];
-    for (const field of fields) {
-        const el = document.getElementById(field.id);
-        const val = el ? el.value.trim() : '';
-        if (!val) emptyFields.push(field.label);
-    }
-
-    if (emptyFields.length > 0) {
-        showToast(`请先完善历史进程：${emptyFields.join('、')}`, 'error');
-        return;
-    }
-
-    showLoading('AI正在优化历史进程...');
-
-    try {
-        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/history/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                genre: getSelectedGenre(),
-                ancient: document.getElementById('historyAncient').value.trim(),
-                modern: document.getElementById('historyModern').value.trim(),
-                crisis: document.getElementById('historyCrisis').value.trim(),
-                destiny: document.getElementById('historyDestiny').value.trim(),
-                future: document.getElementById('historyFuture').value.trim(),
-            })
-        });
-
-        let history;
-        if (typeof fullContent === 'string') {
-            let jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*?\})\s*```/s);
-            if (jsonMatch) {
-                history = JSON.parse(jsonMatch[1]);
-            } else {
-                history = JSON.parse(fullContent);
-            }
-        } else if (fullContent && typeof fullContent === 'object') {
-            history = fullContent;
-        } else {
-            throw new Error('AI返回数据格式错误');
-        }
-
-        const result = history.success && history.data ? history.data.history : history;
-
-        // 更新表单字段
-        setField('historyAncient', result.ancient || '');
-        setField('historyModern', result.modern || '');
-        setField('historyCrisis', result.crisis || '');
-        setField('historyDestiny', result.destiny || '');
-        setField('historyFuture', result.future || '');
-
-        // 更新本地数据
-        if (!currentWorldview.history) {
-            currentWorldview.history = {};
-        }
-        currentWorldview.history.ancient = result.ancient || '';
-        currentWorldview.history.modern = result.modern || '';
-        currentWorldview.history.crisis = result.crisis || '';
-        currentWorldview.history.destiny = result.destiny || '';
-        currentWorldview.history.future = result.future || '';
-        currentStructure.history = JSON.parse(JSON.stringify(currentWorldview.history));
-
-        showToast('AI优化完成');
-    } catch (error) {
-        console.error('Failed to fill history:', error);
-        showToast('优化失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-async function aiFillSpecial() {
-    if (!worldviewId) {
-        showToast('世界观未加载', 'error');
-        return;
-    }
-
-    const fields = [
-        { id: 'specialTaboo', label: '世界禁忌' },
-        { id: 'specialSecret', label: '隐藏秘密' },
-        { id: 'specialFortune', label: '运势规则' },
-        { id: 'specialDestiny', label: '命运类型' },
-        { id: 'specialSoul', label: '灵魂规则' },
-        { id: 'specialReincarnation', label: '轮回机制' },
-        { id: 'specialTransmigration', label: '穿越规则' },
-        { id: 'specialSystem', label: '系统规则' },
-        { id: 'specialRules', label: '特殊规则' },
-    ];
-
-    const emptyFields = [];
-    for (const field of fields) {
-        const el = document.getElementById(field.id);
-        const val = el ? el.value.trim() : '';
-        if (!val) emptyFields.push(field.label);
-    }
-
-    if (emptyFields.length > 0) {
-        showToast(`请先完善特殊规则：${emptyFields.join('、')}`, 'error');
-        return;
-    }
-
-    showLoading('AI正在优化特殊规则...');
-
-    try {
-        const fullContent = await api.streamRequest(`/api/projects/${currentProjectId}/worldviews/${worldviewId}/special/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                genre: getSelectedGenre(),
-                taboo: document.getElementById('specialTaboo').value.trim(),
-                secret: document.getElementById('specialSecret').value.trim(),
-                fortune: document.getElementById('specialFortune').value.trim(),
-                destiny: document.getElementById('specialDestiny').value.trim(),
-                soul: document.getElementById('specialSoul').value.trim(),
-                reincarnation: document.getElementById('specialReincarnation').value.trim(),
-                transmigration: document.getElementById('specialTransmigration').value.trim(),
-                system: document.getElementById('specialSystem').value.trim(),
-                rules: document.getElementById('specialRules').value.trim(),
-            })
-        });
-
-        let special;
-        if (typeof fullContent === 'string') {
-            let jsonMatch = fullContent.match(/```(?:json)?\s*(\{.*?\})\s*```/s);
-            if (jsonMatch) {
-                special = JSON.parse(jsonMatch[1]);
-            } else {
-                special = JSON.parse(fullContent);
-            }
-        } else if (fullContent && typeof fullContent === 'object') {
-            special = fullContent;
-        } else {
-            throw new Error('AI返回数据格式错误');
-        }
-
-        // 更新表单字段
-        setField('specialTaboo', special.taboo || '');
-        setField('specialSecret', special.secret || '');
-        setField('specialFortune', special.fate?.fortune_rules || '');
-        setField('specialDestiny', special.fate?.destiny_types || '');
-        setField('specialSoul', special.reincarnation?.soul_rules || '');
-        setField('specialReincarnation', special.reincarnation?.mechanics || '');
-        setField('specialTransmigration', special.transmigration || '');
-        setField('specialSystem', special.system || '');
-        setField('specialRules', special.rules || '');
-
-        // 更新本地数据
-        if (!currentWorldview.special) {
-            currentWorldview.special = {};
-        }
-        if (!currentWorldview.special.fate) {
-            currentWorldview.special.fate = {};
-        }
-        if (!currentWorldview.special.reincarnation) {
-            currentWorldview.special.reincarnation = {};
-        }
-        currentWorldview.special.taboo = special.taboo || '';
-        currentWorldview.special.secret = special.secret || '';
-        currentWorldview.special.fate.fortune_rules = special.fate?.fortune_rules || '';
-        currentWorldview.special.fate.destiny_types = special.fate?.destiny_types || '';
-        currentWorldview.special.reincarnation.soul_rules = special.reincarnation?.soul_rules || '';
-        currentWorldview.special.reincarnation.mechanics = special.reincarnation?.mechanics || '';
-        currentWorldview.special.transmigration = special.transmigration || '';
-        currentWorldview.special.system = special.system || '';
-        currentWorldview.special.rules = special.rules || '';
-        currentStructure.special = JSON.parse(JSON.stringify(currentWorldview.special));
-        
-        showToast('AI优化完成');
-    } catch (error) {
-        console.error('Failed to fill special:', error);
-        showToast('优化失败', 'error');
-    } finally {
-        hideLoading();
-    }
-}
 
 
 

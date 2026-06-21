@@ -67,11 +67,11 @@
                     <hr class="sidebar-divider">
                     <button class="sidebar-tab" onclick="showTab('deepening')">
                         <i class="fas fa-comments"></i>
-                        <span>问答深化</span>
+                        <span>宏观缺口</span>
                     </button>
                     <button class="sidebar-tab" onclick="showTab('consistency')">
                         <i class="fas fa-check-double"></i>
-                        <span>一致性</span>
+                        <span>宏观一致性</span>
                     </button>
                     <button class="sidebar-tab" onclick="showTab('references')">
                         <i class="fas fa-book"></i>
@@ -87,7 +87,7 @@
             <div class="workspace-main">
                 <div id="tab-overview" class="tab-content active">
                     <div class="card-section card-section-with-actions">
-                        <div class="d-flex gap-4 card-section-body">
+                        <div class="d-flex card-section-body">
                             <div class="section-sidebar">
                                 <button class="section-nav-btn active" onclick="showSettingSection('identity')">世界标识</button>
                                 <button class="section-nav-btn" onclick="showSettingSection('position')">核心定位</button>
@@ -144,10 +144,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-ai" onclick="aiFillSetting()" id="expandSectionBtn">
-                                <i class="fas fa-magic me-1"></i> AI 完善
+                            <button class="btn-ai" onclick="aiPolishLayer('setting')" id="expandSectionBtn">
+                                <i class="fas fa-magic me-1"></i> AI 润色
                             </button>
-                            <button class="btn-success" onclick="saveSetting()">
+<button class="btn-success" onclick="saveLayer('setting')">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -156,7 +156,7 @@
 
                 <div id="tab-foundation" class="tab-content hidden">
                     <div class="card-section card-section-with-actions">
-                        <div class="d-flex gap-4 card-section-body">
+                        <div class="d-flex card-section-body">
                             <div class="section-sidebar">
                                 <button class="section-nav-btn active" onclick="showFoundationSection('geography')">世界地理</button>
                                 <button class="section-nav-btn" onclick="showFoundationSection('calendar')">时间历法</button>
@@ -235,10 +235,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-ai" onclick="aiFillFoundation()" id="expandFoundationBtn">
-                                <i class="fas fa-magic me-1"></i> AI 完善
+                            <button class="btn-ai" onclick="aiPolishLayer('foundation')" id="expandFoundationBtn">
+                                <i class="fas fa-magic me-1"></i> AI 润色
                             </button>
-                            <button class="btn-success" onclick="saveFoundation()">
+<button class="btn-success" onclick="saveLayer('foundation')">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -247,7 +247,7 @@
 
                 <div id="tab-power" class="tab-content hidden">
                     <div class="card-section card-section-with-actions">
-                        <div class="d-flex gap-4 card-section-body">
+                        <div class="d-flex card-section-body">
                             <div class="section-sidebar">
                                 <button class="section-nav-btn active" onclick="showPowerSection('energy')">能量来源</button>
                                 <button class="section-nav-btn" onclick="showPowerSection('level')">修炼等级</button>
@@ -323,10 +323,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-ai" onclick="aiFillPower()" id="expandPowerBtn">
-                                <i class="fas fa-magic me-1"></i> AI 完善
+                            <button class="btn-ai" onclick="aiPolishLayer('power')" id="expandPowerBtn">
+                                <i class="fas fa-magic me-1"></i> AI 润色
                             </button>
-                            <button class="btn-success" onclick="savePower()">
+<button class="btn-success" onclick="saveLayer('power')">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -335,7 +335,7 @@
 
                 <div id="tab-races" class="tab-content hidden">
                     <div class="card-section card-section-with-actions">
-                        <div class="d-flex gap-4 card-section-body">
+                        <div class="d-flex card-section-body">
                             <div class="section-sidebar">
                                 <button class="section-nav-btn active" onclick="showRacesSection('category')">种族分类</button>
                                 <button class="section-nav-btn" onclick="showRacesSection('value')">价值观</button>
@@ -383,10 +383,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-ai" onclick="aiFillRaces()" id="expandRacesBtn">
-                                <i class="fas fa-magic me-1"></i> AI 完善
+                            <button class="btn-ai" onclick="aiPolishLayer('races')" id="expandRacesBtn">
+                                <i class="fas fa-magic me-1"></i> AI 润色
                             </button>
-                            <button class="btn-success" onclick="saveRaces()">
+<button class="btn-success" onclick="saveLayer('races')">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -395,7 +395,7 @@
 
                 <div id="tab-society" class="tab-content hidden">
                     <div class="card-section card-section-with-actions">
-                        <div class="d-flex gap-4 card-section-body">
+                        <div class="d-flex card-section-body">
                             <div class="section-sidebar">
                                 <button class="section-nav-btn active" onclick="showSocietySection('court')">朝堂皇权</button>
                                 <button class="section-nav-btn" onclick="showSocietySection('sect')">宗门门派</button>
@@ -489,10 +489,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-ai" onclick="aiFillSociety()" id="expandSocietyBtn">
-                                <i class="fas fa-magic me-1"></i> AI 完善
+                            <button class="btn-ai" onclick="aiPolishLayer('society')" id="expandSocietyBtn">
+                                <i class="fas fa-magic me-1"></i> AI 润色
                             </button>
-                            <button class="btn-success" onclick="saveSociety()">
+<button class="btn-success" onclick="saveLayer('society')">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -501,7 +501,7 @@
 
                 <div id="tab-culture" class="tab-content hidden">
                     <div class="card-section card-section-with-actions">
-                        <div class="d-flex gap-4 card-section-body">
+                        <div class="d-flex card-section-body">
                             <div class="section-sidebar">
                                 <button class="section-nav-btn active" onclick="showCultureSection('custom')">人文习俗</button>
                                 <button class="section-nav-btn" onclick="showCultureSection('language')">语言文字</button>
@@ -577,10 +577,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-ai" onclick="aiFillCulture()" id="expandCultureBtn">
-                                <i class="fas fa-magic me-1"></i> AI 完善
+                            <button class="btn-ai" onclick="aiPolishLayer('culture')" id="expandCultureBtn">
+                                <i class="fas fa-magic me-1"></i> AI 润色
                             </button>
-                            <button class="btn-success" onclick="saveCulture()">
+<button class="btn-success" onclick="saveLayer('culture')">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -589,7 +589,7 @@
 
                 <div id="tab-history" class="tab-content hidden">
                     <div class="card-section card-section-with-actions">
-                        <div class="d-flex gap-4 card-section-body">
+                        <div class="d-flex card-section-body">
                             <div class="section-sidebar">
                                 <button class="section-nav-btn active" onclick="showHistorySection('ancient')">上古往事</button>
                                 <button class="section-nav-btn" onclick="showHistorySection('modern')">近代变故</button>
@@ -622,10 +622,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-ai" onclick="aiFillHistory()" id="expandHistoryBtn">
-                                <i class="fas fa-magic me-1"></i> AI 完善
+                            <button class="btn-ai" onclick="aiPolishLayer('history')" id="expandHistoryBtn">
+                                <i class="fas fa-magic me-1"></i> AI 润色
                             </button>
-                            <button class="btn-success" onclick="saveHistory()">
+<button class="btn-success" onclick="saveLayer('history')">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -634,7 +634,7 @@
 
                 <div id="tab-special" class="tab-content hidden">
                     <div class="card-section card-section-with-actions">
-                        <div class="d-flex gap-4 card-section-body">
+                        <div class="d-flex card-section-body">
                             <div class="section-sidebar">
                                 <button class="section-nav-btn active" onclick="showSpecialSection('taboo')">世界禁忌</button>
                                 <button class="section-nav-btn" onclick="showSpecialSection('secret')">隐藏秘密</button>
@@ -705,10 +705,10 @@
                             </div>
                         </div>
                         <div class="card-section-actions">
-                            <button class="btn-ai" onclick="aiFillSpecial()" id="expandSpecialBtn">
-                                <i class="fas fa-magic me-1"></i> AI 完善
+                            <button class="btn-ai" onclick="aiPolishLayer('special')" id="expandSpecialBtn">
+                                <i class="fas fa-magic me-1"></i> AI 润色
                             </button>
-                            <button class="btn-success" onclick="saveSpecial()">
+<button class="btn-success" onclick="saveLayer('special')">
                                 <i class="fas fa-save me-1"></i> 保存设定
                             </button>
                         </div>
@@ -718,18 +718,18 @@
                 <div id="tab-deepening" class="tab-content hidden" x-data="deepeningState()">
                     <div class="dc-panel-container">
                         <h3 class="dc-panel-header">
-                            <i class="fas fa-comments"></i> 问答深化
+                            <i class="fas fa-comments"></i> 宏观缺口检测
                         </h3>
                         <div class="d-flex gap-2 mb-3 dc-panel-actions">
                             <template x-if="state === 'empty' || state === 'noQuestions'">
                                 <button class="btn-ai" @click="generateQuestions()">
-                                    <i class="fas fa-magic me-1"></i> 生成深化问题
+                                    <i class="fas fa-magic me-1"></i> 检测缺口
                                 </button>
                             </template>
                             <template x-if="state === 'hasQuestions'">
                                 <div class="d-flex gap-2">
                                     <button class="btn-ai" @click="generateQuestions()">
-                                        <i class="fas fa-magic me-1"></i> 生成深化问题
+                                        <i class="fas fa-magic me-1"></i> 检测缺口
                                     </button>
                                     <button class="btn-success" :disabled="!hasAnswer" @click="submitAnswers()">
                                         <i class="fas fa-paper-plane me-1"></i> 提交并整合回答
@@ -750,14 +750,14 @@
                         <div class="dc-panel-content">
                             <!-- 初始状态 -->
                             <div x-show="state === 'empty'" class="dc-report-box dc-report-box--center">
-                                <p class="dc-report-empty">点击上方按钮生成深化问题</p>
+                                <p class="dc-report-empty">点击上方按钮检测宏观缺口</p>
                             </div>
 
                             <!-- 无问题状态 -->
                             <div x-show="state === 'noQuestions'" class="dc-report-box dc-report-box--center">
                                 <div class="dc-report-success">
                                     <span class="dc-report-success-icon">✓</span>
-                                    <p class="dc-report-success-text">世界观设定已经比较完善了，AI 都找不到需要深化的问题</p>
+                                    <p class="dc-report-success-text">世界观设定已经比较完善了，未发现宏观缺口</p>
                                 </div>
                             </div>
 
@@ -765,7 +765,13 @@
                             <div x-show="state === 'hasQuestions'" class="dc-report-box dc-report-box--top">
                                 <template x-for="(q, index) in questions" :key="index">
                                     <div class="question-item">
-                                        <p class="question-text mb-2"><strong x-text="(index + 1) + '. ' + q.question"></strong></p>
+                                        <p class="question-text mb-1"><strong x-text="(index + 1) + '. ' + q.question"></strong></p>
+                                        <p class="question-meta mb-2">
+                                            <span class="text-muted">影响层级：</span>
+                                            <span x-text="getLayerName(q.targetLayer)"></span>
+                                            <span class="text-muted mx-1">/</span>
+                                            <code x-text="translateFieldPath(q.targetField)"></code>
+                                        </p>
                                         <textarea class="form-control auto-resize" rows="2" placeholder="输入答案..."
                                                   x-model="q.answer"></textarea>
                                     </div>
@@ -824,18 +830,18 @@
                 <div id="tab-consistency" class="tab-content hidden" x-data="consistencyState()">
                     <div class="dc-panel-container">
                         <h3 class="dc-panel-header">
-                            <i class="fas fa-check-double"></i> 一致性检查
+                            <i class="fas fa-check-double"></i> 宏观一致性检测
                         </h3>
                         <div class="d-flex gap-2 mb-3 dc-panel-actions">
                             <template x-if="state === 'empty' || state === 'noIssues'">
                                 <button class="btn-ai" @click="checkConsistency()">
-                                    <i class="fas fa-search me-1"></i> 检查一致性
+                                    <i class="fas fa-search me-1"></i> 检测一致性
                                 </button>
                             </template>
                             <template x-if="state === 'hasIssues'">
                                 <div class="d-flex gap-2">
                                     <button class="btn-ai" @click="checkConsistency()">
-                                        <i class="fas fa-search me-1"></i> 检查一致性
+                                        <i class="fas fa-search me-1"></i> 检测一致性
                                     </button>
                                     <button class="btn-ai" @click="fixConsistency()">
                                         <i class="fas fa-wand-magic-sparkles me-1"></i> AI 修复
@@ -856,7 +862,7 @@
                         <div class="dc-panel-content">
                             <!-- 初始状态 -->
                             <div x-show="state === 'empty'" class="dc-report-box dc-report-box--center">
-                                <p class="dc-report-empty">点击上方按钮检查设定一致性</p>
+                                <p class="dc-report-empty">点击上方按钮检测设定宏观一致性</p>
                             </div>
 
                             <!-- 无问题状态 -->

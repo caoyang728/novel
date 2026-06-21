@@ -9,10 +9,10 @@ class WorldView(models.Model):
     section-nav-btn onclick 参数（子区块名）保持一致。
     """
 
-    project = models.ForeignKey(
+    project = models.OneToOneField(
         'project.ProjectList',
         on_delete=models.CASCADE,
-        related_name='worldviews',
+        related_name='worldview',
         verbose_name='所属项目'
     )
 
@@ -73,7 +73,7 @@ class WorldView(models.Model):
             '"sect":{"levels":"","relationships":""},'
             '"martial":{"factions":"","alliances":""},'
             '"external":"",'
-            '"class":{"social_classes":"","mobility":""},'
+            '"strata":{"social_classes":"","mobility":""},'
             '"currency":{"types":"","rules":""},'
             '"resource":""}'
         )

@@ -56,7 +56,9 @@ templates/         # HTML 模板
 
 ### LLM 层架构
 
-- **`llm.py`**: LangChain 的 `ChatOpenAI` 轻量级封装，处理配置合并、流式/非流式调用和重试逻辑
+- **`agent/llm.py`**: LangChain 的 `ChatOpenAI` 轻量级封装，处理配置合并、流式/非流式调用和重试逻辑
+- **`agent/llm_scenes.py`**: 场景配置管理，定义不同使用场景的 LLM 参数
+- **`agent/memory.py`**: 记忆模块，管理对话上下文
 - **`prompts.py`**: **每个应用独立维护**提示模板，位于各自的 APP 目录下（如 `apps/outline/prompts.py`、`apps/worldview/prompts.py`）
 - **注意**: 项目**不使用** `services.py`，所有业务逻辑直接在视图层或工具函数中处理
 
@@ -83,6 +85,13 @@ pip install -r requirements.txt
 
 ## 应用结构
 
+### 核心模块
+
+| 模块 | 用途 |
+|-----|------|
+| `agent/` | LLM 封装 (`llm.py`)、场景配置 (`llm_scenes.py`)、记忆模块 (`memory.py`) |
+| `apps/` | Django 应用，包含业务逻辑 |
+
 ### Apps（`apps/` 中的 Django 应用）
 
 | 应用 | 用途 |
@@ -95,7 +104,6 @@ pip install -r requirements.txt
 | `characters` | 仅角色生成提示（模型位于 `project` 中） |
 | `timeline` | TimelineEvent、TimelineChatHistory — 基于章节范围的故事时间线 |
 | `note` | Note — 自由形式的"随手记"，支持 AI 润色 |
-| `ai` | LLM 封装 (`llm.py`)、通用提示模板 |
 | `user` | 用户 LLM 配置（LLMConfig、UserLLMConfig）、TokenUsageLog、JWT 认证视图 |
 
 ### URL 和路由模式
@@ -112,9 +120,38 @@ pip install -r requirements.txt
 
 自定义 JWT 中间件 (`novel_agent/middleware.py`) 处理 API 请求（缺少令牌时返回 401）和页面请求（重定向到 `/login/`）。API 视图使用 DRF 的 `JWTAuthentication` + `IsAuthenticated`。
 
+### 视图继承架构
+
+```
+project/base.py:BaseAPIView (根基类)
+├── worldview/views.py:BaseWorldAPIView
+├── chapter/views.py:BaseChapterAPIView
+├── volume/views.py:BaseVolumeAPIView
+├── timeline/views.py:BaseTimelineAPIView
+├── outline/views.py:BaseOutlineAPIView
+└── (其他 app...)
+```
+
+- **`project/base.py:BaseAPIView`** — 根基类，提供鉴权、项目查询、SSE工具、Token统计等公共方法
+- **每个app的`views.py`** — 定义`Base*APIView`继承`BaseAPIView`，封装该app特有的公共方法
+- **App视图** — 继承app的base视图，实现具体业务逻辑
+
+### 目录结构示例
+
+```
+apps/
+├── project/
+│   ├── base.py          # BaseAPIView 根基类
+│   └── views.py         # Project 视图
+├── worldview/
+│   └── views.py         # BaseWorldAPIView + Worldview 视图
+├── chapter/
+│   └── views.py         # BaseChapterAPIView + Chapter 视图
+└── ...
+```
+
 ### 关键环境变量（`.env`）
 
-- `LLM_API_KEY`、`LLM_MODEL`、`LLM_BASE_URL` — LLM 配置
 - `MYSQL_DB_*` — MySQL 数据库连接
 - `REDIS_DB_*` — Redis 缓存连接
 
@@ -148,9 +185,79 @@ pip install -r requirements.txt
 ### 前端开发规范
 
 1. **文件分离**: HTML、CSS、JavaScript 必须分别写在独立文件中，不允许混写在同一个文件内
-2. **暗色风格**: 所有前端页面必须使用暗色主题，颜色配置参考上方的暗色主题规范
-3. **样式一致性**: 使用 CSS 变量保持颜色、间距、阴影等视觉效果的一致性
-4. **API 请求封装**: 前端所有请求必须使用 `common.js` 中封装的 `api` 对象，统一处理认证、错误和重连逻辑
+2. **API 请求封装**: 前端所有请求必须使用 `common.js` 中封装的 `api` 对象，统一处理认证、错误和重连逻辑
+
+### CSS 规范
+
+1. **颜色优先从 `common.css` 获取**: 使用 CSS 变量（如 `--primary`, `--text-primary`, `--surface` 等）
+2. **布局、弹窗、按钮等使用 `common.css` 中的样式**:
+   - 页面布局: `.page-header`, `.page-content`, `.page-full-height`
+   - 弹窗系统: `.dialog-overlay`, `.dialog`, `.dialog-header`, `.dialog-body`, `.dialog-footer`
+   - 按钮: `.btn-primary`, `.btn-success`, `.btn-danger`, `.btn-ai`, `.btn-cancel`, `.btn-outline-*`
+   - 表单: `.form-group`, `.form-label`, `.form-control`, `.form-select`
+   - 聊天: `.chat-card`, `.chat-bubble`, `.chat-message`
+   - 空状态: `.empty-state`
+   - 徽章: `.badge-primary`, `.badge-success`, `.badge-warning`, `.badge-danger`
+3. **如有其他需求，在内部再覆盖**: 使用更具体的选择器覆盖公共样式
+
+### JS 规范
+
+**`common.js` 公共方法列表:**
+
+| 类别 | 方法 | 说明 |
+|------|------|------|
+| **API 请求** | `api.get(url, options)` | GET 请求 |
+| | `api.post(url, data, options)` | POST 请求 |
+| | `api.put(url, data, options)` | PUT 请求 |
+| | `api.delete(url, options)` | DELETE 请求 |
+| | `api.streamRequest(url, options)` | 流式请求（聚合返回） |
+| | `api.streamRequestRaw(url, options, onChunk)` | 流式请求（实时回调） |
+| **认证** | `api.isAuthenticated()` | 检查是否已登录 |
+| | `api.getToken()` | 获取 access token |
+| | `api.getUser()` | 获取用户信息 |
+| | `api.forceReLogin()` | 强制重新登录 |
+| | `checkAuth()` | 统一认证检查 |
+| | `logout()` | 退出登录 |
+| **提示** | `showToast(message, type, duration)` | 显示提示消息 |
+| | `showSuccess(message, duration)` | 显示成功提示 |
+| | `showError(message, duration)` | 显示错误提示 |
+| | `showWarning(message, duration)` | 显示警告提示 |
+| **加载** | `showLoading(message, opacity)` | 显示加载动画 |
+| | `hideLoading()` | 隐藏加载动画 |
+| **弹窗** | `showModal(title, message, action)` | 显示确认弹窗 |
+| | `closeModal()` | 关闭确认弹窗 |
+| | `openModalById(id)` | 通过 ID 打开模态框 |
+| | `closeModalById(id)` | 通过 ID 关闭模态框 |
+| | `showLoginModal(onSuccess, onCancel)` | 显示登录弹窗 |
+| | `hideLoginModal()` | 隐藏登录弹窗 |
+| **工具** | `getProjectIdFromUrl()` | 从 URL 获取项目 ID |
+| | `escapeHtml(text)` | HTML 转义 |
+| | `extractJsonFromString(str)` | 从字符串提取 JSON |
+| | `safeJsonParse(str)` | 安全的 JSON 解析 |
+| | `safeMarkdownParse(text)` | 安全的 Markdown 解析 |
+| | `formatDate(dateStr, includeTime)` | 格式化日期 |
+| | `formatTokenCount(num)` | 格式化 Token 数量 |
+| | `setField(id, value)` | 设置表单字段值 |
+| **DOM** | `showElement(el)` | 显示元素 |
+| | `hideElement(el, hideClass)` | 隐藏元素 |
+| | `lockScroll()` / `unlockScroll()` | 滚动锁定/解锁 |
+| **按钮** | `setButtonLoading(btn, loadingText)` | 设置按钮 loading 状态 |
+| | `resetButton(btn, originalHTML)` | 恢复按钮状态 |
+| **聊天** | `initChatInput(inputEl, options)` | 初始化聊天输入框 |
+| **选择模式** | `enterSelectionMode()` | 进入选择模式 |
+| | `cancelSelection()` | 取消选择 |
+| | `toggleMessageSelect(index)` | 切换消息选择 |
+| | `deleteSelectedMessages()` | 删除选中消息 |
+| **数据存储** | `savePendingData(key, data)` | 保存待恢复数据 |
+| | `restorePendingData(key)` | 恢复待处理数据 |
+| | `clearPendingData(key)` | 清除待处理数据 |
+| **项目/用户** | `loadProjectInfo(projectId, onSuccess)` | 加载项目信息 |
+| | `loadUserInfo(options)` | 加载用户信息和 Token 用量 |
+
+**使用规则:**
+1. 优先使用 `common.js` 中的公共方法
+2. 如果没有对应公共方法，再在自己的 js 中构建
+3. **方法复用规则**: 如果某个方法被 **3 个及以上文件**调用，应迁移到 `common.js` 中
 
 ### API 请求规范
 
@@ -169,7 +276,7 @@ pip install -r requirements.txt
 
 #### 环境变量配置规范
 
-1. **敏感配置必须使用环境变量**: 模型 Key、接口地址、超时时间等敏感配置统一写入 `.env` 文件，禁止硬编码到代码中
+1. **敏感配置必须使用环境变量**: 数据库密码、Redis 密码等敏感配置统一写入 `.env` 文件，禁止硬编码到代码中
 2. **后端通过 `settings.py` 读取**: 后端通过 `os.getenv()` 从环境变量读取配置
 3. **前端通过 API 获取**: 前端不应直接读取环境变量，敏感配置应通过后端 API 接口获取
 

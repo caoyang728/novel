@@ -1,25 +1,30 @@
 import json
 import re
-from django.db import transaction, IntegrityError
+from django.db import transaction
 from loguru import logger
-from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from langchain_core.prompts import ChatPromptTemplate
 
+from apps.project.base import BaseAPIView
 from apps.project.models import ProjectList
 from apps.characters.models import Character
+from rest_framework.throttling import UserRateThrottle
+
 from apps.characters.serializers import (
     CharacterListSerializer,
     CharacterDetailSerializer,
     CharacterCreateSerializer,
     CharacterUpdateSerializer,
     CharacterPolishSerializer,
+    sanitize_character_name,
 )
+
+
+class AIGenerationRateThrottle(UserRateThrottle):
+    """AI 生成类接口专用限流，比普通接口更严格"""
+    scope = 'ai_gen'
 from agent.llm import get_llm, stream_llm_response
 from apps.characters.constants import (
     RELATIONSHIP_REVERSE,
@@ -39,33 +44,30 @@ from apps.characters.prompts import (
 )
 
 
-class BaseCharacterAPIView(APIView):
-    """角色API基础类 - 封装鉴权和项目查询"""
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+class BaseCharacterAPIView(BaseAPIView):
+    """角色API基础类 - 继承 BaseAPIView，封装鉴权、项目查询和限流"""
+    throttle_classes = [AIGenerationRateThrottle]  # 默认 10次/分钟/用户，子类可按需覆盖
 
     def get_project(self, request, pk):
-        """获取项目，如果不存在则抛出404异常"""
+        """获取项目，如果不存在则抛出404异常（URL 路径参数场景）"""
         return get_object_or_404(ProjectList, pk=pk, user=request.user)
 
     def _handle_validation_error(self, serializer):
         """统一处理序列化器校验错误，返回标准错误响应"""
+        error_messages = [
+            str(err)
+            for errors in serializer.errors.values()
+            for err in errors
+        ]
+
+        # 检测是否为重复名称错误（优先用 DRF error code，回退到文本匹配）
         name_errors = serializer.errors.get('name', [])
         is_duplicate = any(
             getattr(e, 'code', '') == 'DUPLICATE_NAME'
             for e in name_errors
         )
-
-        error_messages = []
-        for field, errors in serializer.errors.items():
-            for err in errors:
-                err_str = str(err)
-                if err_str == '该角色名称已存在':
-                    error_messages.append(err_str)
-                elif field != 'non_field_errors':
-                    error_messages.append(err_str)
-                else:
-                    error_messages.append(err_str)
+        if not is_duplicate:
+            is_duplicate = any('已存在' in msg for msg in error_messages)
 
         return Response({
             'success': False,
@@ -74,9 +76,17 @@ class BaseCharacterAPIView(APIView):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     def _get_worldview_str(self, project):
-        """获取项目世界观描述字符串"""
+        """获取项目世界观描述字符串（优先使用知识库完整上下文）"""
+        try:
+            worldview_text, _, _ = self.get_knowledge_context(project)
+            if worldview_text and '暂无' not in worldview_text:
+                return worldview_text
+        except Exception:
+            pass
+
+        # 回退：直接从世界观模型读取
         worldview_str = '暂无世界观设定'
-        wv = project.worldviews.first()
+        wv = project.worldview
         if wv:
             worldview_parts = []
             if wv.setting:
@@ -93,45 +103,38 @@ class BaseCharacterAPIView(APIView):
                 worldview_str = '\n'.join(worldview_parts)
         return worldview_str
 
+    # 角色字段→LLM 显示标签映射
+    _CHARACTER_FIELD_DISPLAY = [
+        ('定位', 'role_type'),
+        ('性别', 'gender'),
+        ('年龄', 'age'),
+        ('身份', 'identity'),
+        ('性格', 'personality'),
+        ('外貌', 'appearance'),
+        ('势力', 'faction'),
+        ('背景', 'backstory'),
+        ('动机', 'motivation'),
+        ('优点', 'strengths'),
+        ('缺点', 'flaws'),
+        ('执念', 'obsession'),
+        ('能力', 'abilities'),
+        ('禁忌', 'taboos'),
+        ('秘密', 'secrets'),
+        ('黑历史', 'dark_history'),
+        ('成长轨迹', 'development'),
+        ('弱点', 'weaknesses'),
+    ]
+
     def _format_character_data(self, characters):
         """将角色列表格式化为 LLM 输入字符串"""
         characters_data_parts = []
         for c in characters:
             parts = [f"角色：{c.name}"]
-            parts.append(f"  定位：{c.role_type}")
-            parts.append(f"  性别：{c.gender}")
-            if c.age:
-                parts.append(f"  年龄：{c.age}")
-            if c.identity:
-                parts.append(f"  身份：{c.identity}")
-            if c.personality:
-                parts.append(f"  性格：{c.personality}")
-            if c.appearance:
-                parts.append(f"  外貌：{c.appearance}")
-            if c.faction:
-                parts.append(f"  势力：{c.faction}")
-            if c.backstory:
-                parts.append(f"  背景：{c.backstory}")
-            if c.motivation:
-                parts.append(f"  动机：{c.motivation}")
-            if c.strengths:
-                parts.append(f"  优点：{c.strengths}")
-            if c.flaws:
-                parts.append(f"  缺点：{c.flaws}")
-            if c.obsession:
-                parts.append(f"  执念：{c.obsession}")
-            if c.abilities:
-                parts.append(f"  能力：{c.abilities}")
-            if c.taboos:
-                parts.append(f"  禁忌：{c.taboos}")
-            if c.secrets:
-                parts.append(f"  秘密：{c.secrets}")
-            if c.dark_history:
-                parts.append(f"  黑历史：{c.dark_history}")
-            if c.development:
-                parts.append(f"  成长轨迹：{c.development}")
-            if c.weaknesses:
-                parts.append(f"  弱点：{c.weaknesses}")
+            for label, field_name in self._CHARACTER_FIELD_DISPLAY:
+                val = getattr(c, field_name, None)
+                if val:
+                    parts.append(f"  {label}：{val}")
+            # 关系字段需要特殊格式化
             if c.relationships:
                 rels = c.relationships
                 if isinstance(rels, list):
@@ -141,13 +144,13 @@ class BaseCharacterAPIView(APIView):
                             r_type = normalize_relationship_type(r.get('relationshipType'))
                             r_target = r.get('targetName', '?')
                             r_desc = r.get('description', '')
-                            # 明确标注：关系类型以本人为基准
                             rel_strs.append(f"{r_target}是我的{r_type}{' - ' + r_desc if r_desc else ''}")
                         else:
                             rel_strs.append(str(r))
                     parts.append(f"  关系（以本人为基准，描述对方相对于本人的角色）：{'; '.join(rel_strs)}")
                 elif isinstance(rels, str):
                     parts.append(f"  关系（以本人为基准）：{rels}")
+            # 经历字段需要特殊格式化
             if c.experiences:
                 exps = c.experiences
                 if isinstance(exps, list) and exps:
@@ -158,18 +161,23 @@ class BaseCharacterAPIView(APIView):
 
     @transaction.atomic
     def _create_reverse_relationships(self, project, character, relationships):
-        """创建反向关系（事务保护）"""
+        """创建反向关系（事务保护，批量保存）"""
         # 批量查询所有目标角色，避免 N+1
         target_names = [
             rel.get('targetName') for rel in relationships
             if isinstance(rel, dict) and rel.get('createReverse') and rel.get('targetName')
         ]
-        target_chars_map = {}
-        if target_names:
+        if not target_names:
+            return
+
+        target_chars_map = {
+            char.name: char
             for char in Character.objects.filter(
                 project=project, name__in=target_names, is_deleted=False
-            ):
-                target_chars_map[char.name] = char
+            )
+        }
+
+        dirty_chars = []  # 收集修改过的角色，统一 bulk_update
 
         for rel in relationships:
             if not isinstance(rel, dict):
@@ -179,7 +187,6 @@ class BaseCharacterAPIView(APIView):
 
             target_name = rel.get('targetName')
             target_char = target_chars_map.get(target_name)
-
             if not target_char:
                 continue
 
@@ -188,7 +195,6 @@ class BaseCharacterAPIView(APIView):
 
             target_rels = list(target_char.relationships or [])
 
-            # 检查是否已存在指向该角色的同向或反向关系（避免重复创建）
             existing_rel = next(
                 (r for r in target_rels if isinstance(r, dict)
                  and r.get('targetName') == character.name),
@@ -196,14 +202,12 @@ class BaseCharacterAPIView(APIView):
             )
 
             if existing_rel:
-                # 已有关系，检查类型是否需要更新为正确的反向类型
                 existing_type = existing_rel.get('relationshipType', '其他')
                 if existing_type != reverse_type:
-                    # 类型不匹配时更新为正确的反向类型
                     existing_rel['relationshipType'] = reverse_type
                     existing_rel['createReverse'] = False
                     target_char.relationships = target_rels
-                    target_char.save()
+                    dirty_chars.append(target_char)
                 continue
 
             target_rels.append({
@@ -213,38 +217,33 @@ class BaseCharacterAPIView(APIView):
                 'createReverse': False
             })
             target_char.relationships = target_rels
-            target_char.save()
+            dirty_chars.append(target_char)
+
+        if dirty_chars:
+            Character.objects.bulk_update(dirty_chars, ['relationships'])
 
     def _sync_reverse_relationships(self, project, character, old_relationships, new_relationships):
-        """精确对比新旧关系差异，同步更新反向关系
-
-        对比逻辑：
-        1. 被删除的关系（旧有新无）→ 清理目标角色的反向关系
-        2. 新增的关系（新有旧无）→ 在目标角色创建反向关系
-        3. 类型变更的关系（同目标，类型不同）→ 更新目标角色的反向类型
-        """
-        # 构建索引：targetName → 关系对象
-        old_map = {}
-        for rel in old_relationships:
-            if isinstance(rel, dict) and rel.get('targetName'):
-                old_map[rel['targetName']] = rel
-
-        new_map = {}
-        for rel in new_relationships:
-            if isinstance(rel, dict) and rel.get('targetName'):
-                new_map[rel['targetName']] = rel
+        """精确对比新旧关系差异，同步更新反向关系（批量保存）"""
+        old_map = {rel['targetName']: rel for rel in old_relationships
+                   if isinstance(rel, dict) and rel.get('targetName')}
+        new_map = {rel['targetName']: rel for rel in new_relationships
+                   if isinstance(rel, dict) and rel.get('targetName')}
 
         old_targets = set(old_map.keys())
         new_targets = set(new_map.keys())
         all_target_names = old_targets | new_targets
 
-        # 批量查询所有涉及的目标角色，避免 N+1
-        target_chars_map = {}
-        if all_target_names:
+        if not all_target_names:
+            return
+
+        target_chars_map = {
+            char.name: char
             for char in Character.objects.filter(
                 project=project, name__in=all_target_names, is_deleted=False
-            ):
-                target_chars_map[char.name] = char
+            )
+        }
+
+        dirty_chars = []
 
         # 1. 被删除的关系 → 清理反向
         for target_name in (old_targets - new_targets):
@@ -257,7 +256,7 @@ class BaseCharacterAPIView(APIView):
                 ]
                 if len(updated_rels) != len(target_rels):
                     target_char.relationships = updated_rels
-                    target_char.save()
+                    dirty_chars.append(target_char)
 
         # 2. 新增的关系 → 创建反向
         for target_name in (new_targets - old_targets):
@@ -282,7 +281,7 @@ class BaseCharacterAPIView(APIView):
                         'createReverse': False
                     })
                 target_char.relationships = target_rels
-                target_char.save()
+                dirty_chars.append(target_char)
 
         # 3. 类型变更的关系 → 更新反向类型
         for target_name in (old_targets & new_targets):
@@ -299,10 +298,13 @@ class BaseCharacterAPIView(APIView):
                             r['createReverse'] = False
                             break
                     target_char.relationships = target_rels
-                    target_char.save()
+                    dirty_chars.append(target_char)
+
+        if dirty_chars:
+            Character.objects.bulk_update(dirty_chars, ['relationships'])
 
     def _update_reverse_for_single_change(self, project, character, origin_rel, new_rel):
-        """基于单条关系变更，精确更新目标角色的反向关系
+        """基于单条关系变更，精确更新目标角色的反向关系（批量保存）
 
         处理场景：
         1. origin 有 targetName, new 也有 targetName（同一目标，类型变了）→ 更新反向类型
@@ -334,6 +336,8 @@ class BaseCharacterAPIView(APIView):
                 new_target = parsed.get('targetName')
                 new_type = parsed.get('relationshipType')
 
+        dirty_chars = []
+
         # 场景1: 同一目标，类型变了 → 更新反向关系的类型
         if origin_target and new_target and origin_target == new_target:
             if origin_type != new_type and new_type:
@@ -349,7 +353,9 @@ class BaseCharacterAPIView(APIView):
                             r['createReverse'] = False
                             break
                     target_char.relationships = target_rels
-                    target_char.save()
+                    dirty_chars.append(target_char)
+            if dirty_chars:
+                Character.objects.bulk_update(dirty_chars, ['relationships'])
             return
 
         # 场景2: 目标变了或关系被删除 → 清理旧目标的反向关系
@@ -365,7 +371,7 @@ class BaseCharacterAPIView(APIView):
                 ]
                 if len(updated_rels) != len(target_rels):
                     target_char.relationships = updated_rels
-                    target_char.save()
+                    dirty_chars.append(target_char)
 
         # 场景3: 新增关系 → 在目标角色创建反向关系
         if new_target and new_target != origin_target:
@@ -376,17 +382,14 @@ class BaseCharacterAPIView(APIView):
                 reverse_type = get_reverse_type(new_type or '其他')
                 target_rels = list(target_char.relationships or [])
 
-                # 检查是否已有指向当前角色的关系
                 existing = next(
                     (r for r in target_rels if isinstance(r, dict) and r.get('targetName') == character.name),
                     None
                 )
                 if existing:
-                    # 已有关系，更新类型
                     existing['relationshipType'] = reverse_type
                     existing['createReverse'] = False
                 else:
-                    # 新增反向关系
                     desc = new_rel.get('description', '') if isinstance(new_rel, dict) else ''
                     target_rels.append({
                         'targetName': character.name,
@@ -395,7 +398,10 @@ class BaseCharacterAPIView(APIView):
                         'createReverse': False
                     })
                 target_char.relationships = target_rels
-                target_char.save()
+                dirty_chars.append(target_char)
+
+        if dirty_chars:
+            Character.objects.bulk_update(dirty_chars, ['relationships'])
 
     def _apply_relationship_change(self, character, origin, new_value):
         """增量更新 relationships 字段：只修改指定的那条关系记录
@@ -523,11 +529,12 @@ class ApiCharacterListView(BaseCharacterAPIView):
         if not serializer.is_valid():
             return self._handle_validation_error(serializer)
 
-        character = serializer.save(project=project)
-        
-        relationships = serializer.validated_data.get('relationships')
-        if relationships and isinstance(relationships, list):
-            self._create_reverse_relationships(project, character, relationships)
+        with transaction.atomic():
+            character = serializer.save(project=project)
+
+            relationships = serializer.validated_data.get('relationships')
+            if relationships and isinstance(relationships, list):
+                self._create_reverse_relationships(project, character, relationships)
 
         return Response({
             'success': True,
@@ -557,16 +564,21 @@ class ApiCharacterDetailView(BaseCharacterAPIView):
         # 支持恢复已删除角色
         action = request.data.get('action')
         if action == 'restore':
-            character = get_object_or_404(Character, pk=character_id, project=project)
-            try:
+            with transaction.atomic():
+                character = get_object_or_404(
+                    Character.objects.select_for_update(),
+                    pk=character_id, project=project
+                )
+                # 再次确认同名角色不存在（在锁保护下检查）
+                if Character.objects.filter(
+                    project=project, name=character.name, is_deleted=False
+                ).exclude(pk=character.pk).exists():
+                    return Response(
+                        {'success': False, 'error': f'已存在同名角色"{character.name}"，无法恢复'},
+                        status=400
+                    )
                 character.is_deleted = False
                 character.save()
-            except IntegrityError:
-                # 同名角色已存在时，唯一约束冲突
-                return Response(
-                    {'success': False, 'error': f'已存在同名角色"{character.name}"，无法恢复'},
-                    status=400
-                )
             return Response({'success': True})
 
         character = get_object_or_404(Character, pk=character_id, project=project, is_deleted=False)
@@ -583,13 +595,14 @@ class ApiCharacterDetailView(BaseCharacterAPIView):
         # 保存旧关系用于清理
         old_relationships = list(character.relationships or []) if character.relationships else []
 
-        character = serializer.save()
+        with transaction.atomic():
+            character = serializer.save()
 
-        relationships = request.data.get('relationships', [])
-        if relationships:
-            # 精确对比新旧关系差异，更新反向关系
-            new_relationships = character.relationships or []
-            self._sync_reverse_relationships(project, character, old_relationships, new_relationships)
+            relationships = request.data.get('relationships', [])
+            if relationships:
+                # 精确对比新旧关系差异，更新反向关系
+                new_relationships = character.relationships or []
+                self._sync_reverse_relationships(project, character, old_relationships, new_relationships)
 
         return Response({'success': True})
 
@@ -676,6 +689,8 @@ class ApiCharacterPolishView(BaseCharacterAPIView):
 
 class ApiCharacterCheckView(BaseCharacterAPIView):
     """AI角色检测API - 检查所有角色的设定问题"""
+    # 检测与生成/优化分开限流，避免互相挤占配额
+    throttle_classes = []  # 检测操作不限流（只读分析），如需限流可配置独立 scope
 
     def post(self, request, pk):
         project = self.get_project(request, pk)
@@ -707,15 +722,19 @@ class ApiCharacterOptimizeView(BaseCharacterAPIView):
 
     @staticmethod
     def _post_process_optimize(full_content):
-        """优化接口后处理：从 LLM 输出提取 JSON 数组并二次编码"""
+        """优化接口后处理：从 LLM 输出提取 JSON 数组并二次编码
+        解析失败时返回空数组结构，避免前端收到无法解析的数据"""
         array_match = re.search(r'\[[\s\S]*\]', full_content)
         if array_match:
             try:
                 parsed = json.loads(array_match.group(0))
-                return json.dumps(parsed, ensure_ascii=False)
+                if isinstance(parsed, list):
+                    return json.dumps(parsed, ensure_ascii=False)
             except json.JSONDecodeError:
                 pass
-        return json.dumps(full_content, ensure_ascii=False)
+        # 解析失败返回空数组，前端会提示用户重试
+        logger.warning(f"优化后处理: 无法从 LLM 输出解析 JSON 数组，返回空结果")
+        return json.dumps([], ensure_ascii=False)
 
     def post(self, request, pk):
         project = self.get_project(request, pk)
@@ -758,12 +777,25 @@ class ApiCharacterOptimizeView(BaseCharacterAPIView):
                 "issues_with_instructions": issues_with_instructions,
             },
             request.user,
-            scene="character_optimize",
+            scene="character_polish",
             error_msg='角色优化失败，请重试',
             post_process=self._post_process_optimize,
             project=project,
             task_type='character_optimize',
         )
+
+
+class ApiCharacterRelationshipTypesView(BaseCharacterAPIView):
+    """关系类型配置 API — 前端动态获取，避免前后端重复维护映射表"""
+    throttle_classes = []  # 配置类接口，无需限流
+
+    def get(self, request, pk):
+        from apps.characters.constants import VALID_RELATIONSHIP_TYPES, RELATIONSHIP_REVERSE, RELATIONSHIP_EN_TO_CN
+        return Response({
+            'types': sorted(VALID_RELATIONSHIP_TYPES),
+            'reverse_map': RELATIONSHIP_REVERSE,
+            'en_to_cn': RELATIONSHIP_EN_TO_CN,
+        })
 
 
 class ApiCharacterOptimizeSaveView(BaseCharacterAPIView):
@@ -783,7 +815,7 @@ class ApiCharacterOptimizeSaveView(BaseCharacterAPIView):
         '动机': 'motivation', '核心动机': 'motivation',
         '标签': 'tagline', '签名': 'tagline',
         '优点': 'strengths', '优点/特长': 'strengths',
-        '缺点': 'flaws', '弱点': 'weaknesses', '弱点/代价': 'weaknesses',
+        '缺点': 'flaws', '弱点/代价': 'weaknesses',
         '执念': 'obsession', '执念/软肋': 'obsession',
         '能力': 'abilities',
         '禁忌': 'taboos',
@@ -812,27 +844,42 @@ class ApiCharacterOptimizeSaveView(BaseCharacterAPIView):
 
         with transaction.atomic():
             for item in items:
-                name = item.get('name', '').strip()
+                raw_name = item.get('name', '').strip()
                 op_type = item.get('type', 'modify')
                 params = item.get('params', [])
 
-                if not name:
+                if not raw_name:
                     errors.append(f"缺少角色名称，已跳过")
                     continue
 
+                # 统一使用安全过滤后的名称进行查找
+                safe_name = sanitize_character_name(raw_name)
+                lookup_name = safe_name if safe_name else raw_name
+
                 if op_type == 'delete':
-                    count = Character.objects.filter(project=project, name=name, is_deleted=False).update(is_deleted=True)
+                    count = Character.objects.filter(
+                        project=project, name=lookup_name, is_deleted=False
+                    ).update(is_deleted=True)
+                    if count == 0:
+                        # 回退到原始名称尝试
+                        count = Character.objects.filter(
+                            project=project, name=raw_name, is_deleted=False
+                        ).update(is_deleted=True)
                     if count:
                         saved_count += 1
                     continue
 
                 if op_type == 'add':
+                    # 安全过滤名称
+                    if not safe_name:
+                        errors.append(f"角色名称不合法，已跳过")
+                        continue
                     # 校验名称唯一性
-                    if Character.objects.filter(project=project, name=name, is_deleted=False).exists():
-                        errors.append(f"角色 '{name}' 已存在，已跳过")
+                    if Character.objects.filter(project=project, name=safe_name, is_deleted=False).exists():
+                        errors.append(f"角色 '{safe_name}' 已存在，已跳过")
                         continue
 
-                    character = Character(project=project, name=name)
+                    character = Character(project=project, name=safe_name)
                     for p in params:
                         field = self.FIELD_NAME_MAP.get(p.get('param', ''), p.get('param', ''))
                         if field not in self.ALLOWED_FIELDS:
@@ -849,10 +896,16 @@ class ApiCharacterOptimizeSaveView(BaseCharacterAPIView):
                     saved_count += 1
                     continue
 
-                # modify
-                character = Character.objects.filter(project=project, name=name, is_deleted=False).first()
+                # modify：优先用安全名称查找，回退到原始名称
+                character = Character.objects.filter(
+                    project=project, name=lookup_name, is_deleted=False
+                ).first()
+                if not character and lookup_name != raw_name:
+                    character = Character.objects.filter(
+                        project=project, name=raw_name, is_deleted=False
+                    ).first()
                 if not character:
-                    logger.warning(f"优化保存: 未找到角色 '{name}'")
+                    logger.warning(f"优化保存: 未找到角色 '{raw_name}'")
                     continue
 
                 # 先保存旧关系，用于后续清理反向关系

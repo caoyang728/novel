@@ -7,31 +7,90 @@ let currentRelationships = [];  // 当前编辑的角色关系
 let currentExperiences = [];  // 当前编辑的角色经历
 let searchDebounceTimer = null;  // 搜索防抖计时器
 
-// 共享字段映射：API 字段名 → 表单元素 ID 后缀（配合 formPrefix 使用）
-// 注意：key 使用模型字段名（tagline），但 AI 返回的是 tags，applyPolishResult 中有兼容 shim
-const CHARACTER_FIELD_MAP = {
-    'gender': 'Gender',
-    'role_type': 'Role',
-    'age': 'Age',
-    'identity': 'Identity',
-    'personality': 'Personality',
-    'strengths': 'Strengths',
-    'flaws': 'Flaws',
-    'obsession': 'Obsession',
-    'motivation': 'Motivation',
-    'appearance': 'Appearance',
-    'faction': 'Faction',
-    'abilities': 'Abilities',
-    'taboos': 'Taboos',
-    'dark_history': 'DarkHistory',
-    'secrets': 'Secrets',
-    'backstory': 'Background',
-    'development': 'Development',
-    'weaknesses': 'Weaknesses',
-    'tagline': 'Tags'
+// 角色字段统一配置：API 字段名 → { suffix: 表单 ID 后缀, label: 中文标签 }
+// suffix 为 null 表示该字段无对应表单元素（如 relationships/experiences 有自定义渲染）
+// 注意：tagline 使用 suffix 'Tags'，但 AI 返回的是 tags，applyPolishResult 中有兼容 shim
+const CHARACTER_FIELDS = {
+    'gender':        { suffix: 'Gender',        label: '性别' },
+    'role_type':     { suffix: 'Role',          label: '角色定位' },
+    'age':           { suffix: 'Age',           label: '年龄' },
+    'identity':      { suffix: 'Identity',      label: '身份/称号' },
+    'personality':   { suffix: 'Personality',   label: '性格特点' },
+    'strengths':     { suffix: 'Strengths',     label: '优点' },
+    'flaws':         { suffix: 'Flaws',         label: '缺点' },
+    'obsession':     { suffix: 'Obsession',     label: '执念/软肋' },
+    'motivation':    { suffix: 'Motivation',    label: '核心动机' },
+    'appearance':    { suffix: 'Appearance',    label: '外貌特征' },
+    'faction':       { suffix: 'Faction',       label: '势力/阵营' },
+    'abilities':     { suffix: 'Abilities',     label: '能力' },
+    'taboos':        { suffix: 'Taboos',        label: '禁忌' },
+    'dark_history':  { suffix: 'DarkHistory',   label: '过往黑历史' },
+    'secrets':       { suffix: 'Secrets',       label: '秘密' },
+    'backstory':     { suffix: 'Background',    label: '背景故事' },
+    'development':   { suffix: 'Development',   label: '成长轨迹' },
+    'weaknesses':    { suffix: 'Weaknesses',    label: '弱点代价' },
+    'tagline':       { suffix: 'Tags',          label: '标签' },
+    'relationships': { suffix: null,            label: '人际关系' },
+    'experiences':   { suffix: null,            label: '经历' },
 };
 
+// 从 CHARACTER_FIELDS 派生：API 字段名 → 表单元素 ID 后缀
+const CHARACTER_FIELD_MAP = {};
+for (const [key, cfg] of Object.entries(CHARACTER_FIELDS)) {
+    if (cfg.suffix) CHARACTER_FIELD_MAP[key] = cfg.suffix;
+}
+
+// 从 CHARACTER_FIELDS 派生：API 字段名 → 中文标签
+const FIELD_LABELS = {};
+for (const [key, cfg] of Object.entries(CHARACTER_FIELDS)) {
+    FIELD_LABELS[key] = cfg.label;
+}
+
 // ==================== 通用工具函数 ====================
+
+/**
+ * 初始化字符计数显示（name 字段 100 字符限制，textarea 字段 5000 字符限制）
+ */
+function initCharCounts() {
+    // name 字段计数
+    ['createName', 'aiGeneratedName', 'editName'].forEach(id => {
+        const el = document.getElementById(id);
+        const countEl = document.getElementById(id + 'Count');
+        if (!el || !countEl) return;
+        const update = () => {
+            const len = el.value.length;
+            const max = 100;
+            countEl.textContent = `${len}/${max}`;
+            countEl.className = 'char-count-inline' + (len > max * 0.8 ? (len >= max ? ' over' : ' warn') : '');
+        };
+        el.addEventListener('input', update);
+        update();
+    });
+}
+
+/**
+ * 初始化长文本 textarea 的字符计数
+ * @param {string} id - textarea 元素 ID
+ * @param {number} max - 最大字符数（默认 5000）
+ */
+function initTextareaCount(id, max = 5000) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    // 创建或复用计数元素
+    let countEl = el.parentElement.querySelector('.char-count-inline');
+    if (!countEl) {
+        countEl = document.createElement('span');
+        countEl.className = 'char-count-inline';
+        el.parentElement.appendChild(countEl);
+    }
+    const update = () => {
+        const len = el.value.length;
+        countEl.textContent = `${len}/${max}`;
+        countEl.className = 'char-count-inline' + (len > max * 0.8 ? (len >= max ? ' over' : ' warn') : '');
+    };
+    el.addEventListener('input', update);
+    update();
+}
 
 /**
  * 设置按钮加载/空闲状态
@@ -40,7 +99,7 @@ const CHARACTER_FIELD_MAP = {
  * @param {string} loadingText - 加载时显示的文本
  * @param {string} [normalHtml] - 恢复时的原始 HTML（不传则用 dataset 缓存）
  */
-function setButtonLoading(btn, loading, loadingText, normalHtml) {
+function setCharBtnLoading(btn, loading, loadingText, normalHtml) {
     const el = typeof btn === 'string' ? document.getElementById(btn) : btn;
     if (!el) return;
     el.disabled = loading;
@@ -88,6 +147,7 @@ function setFormFields(prefix, values, fieldMapping = {}) {
 document.addEventListener('DOMContentLoaded', function() {
     checkAuth();
     showLoading('加载中...');
+    loadRelationshipTypes();
     initPage();
     setupCreateFormValidation();
     setupEventListeners();
@@ -128,9 +188,11 @@ async function loadCharacters() {
 
     try {
         const data = await api.get(`/api/projects/${currentProjectId}/characters/`);
+        if (!data) return;
 
         if (data.success) {
             characters = data.characters;
+            updateRoleFilterCounts();
             updateFactionFilterOptions();
             // 重新应用当前筛选条件，而非直接显示全部
             filterCharacters();
@@ -143,30 +205,62 @@ async function loadCharacters() {
     }
 }
 
+/**
+ * 更新角色定位筛选下拉框的统计数字
+ */
+function updateRoleFilterCounts() {
+    const activeChars = characters.filter(c => !c.is_deleted);
+    const total = activeChars.length;
+
+    // 按角色定位统计
+    const roleCounts = {};
+    activeChars.forEach(c => {
+        const role = c.role_type || '未知';
+        roleCounts[role] = (roleCounts[role] || 0) + 1;
+    });
+
+    const roleFilter = document.getElementById('roleFilter');
+    if (!roleFilter) return;
+
+    // 更新「全部角色」
+    const allOption = roleFilter.querySelector('option[value=""]');
+    if (allOption) allOption.textContent = `全部角色 (${total})`;
+
+    // 更新各角色定位选项
+    ['主角', '反派', '配角', '路人'].forEach(role => {
+        const option = roleFilter.querySelector(`option[value="${role}"]`);
+        if (option) {
+            const count = roleCounts[role] || 0;
+            option.textContent = `${role} (${count})`;
+        }
+    });
+}
+
 function updateFactionFilterOptions() {
-    // 收集所有不重复的势力
-    const allFactionsSet = new Set();
-    characters.forEach(c => {
+    // 收集所有不重复的势力并统计数量（仅统计未删除角色）
+    const activeChars = characters.filter(c => !c.is_deleted);
+    const factionCounts = {};
+    activeChars.forEach(c => {
         if (c.faction) {
             c.faction.split(',').forEach(f => {
                 const trimmed = f.trim();
                 if (trimmed) {
-                    allFactionsSet.add(trimmed);
+                    factionCounts[trimmed] = (factionCounts[trimmed] || 0) + 1;
                 }
             });
         }
     });
-    
-    allFactions = Array.from(allFactionsSet).sort();
+
+    allFactions = Object.keys(factionCounts).sort();
 
     const factionFilter = document.getElementById('factionFilter');
     const currentValue = factionFilter.value;
 
-    factionFilter.innerHTML = '<option value="">全部势力</option>';
+    factionFilter.innerHTML = `<option value="">全部势力 (${activeChars.length})</option>`;
     allFactions.forEach(f => {
         const option = document.createElement('option');
         option.value = f;
-        option.textContent = f;
+        option.textContent = `${f} (${factionCounts[f]})`;
         factionFilter.appendChild(option);
     });
 
@@ -236,7 +330,7 @@ function renderCharacterList() {
         const factions = c.faction ? c.faction.split(',').map(f => f.trim()).filter(f => f) : [];
         const isDeleted = c.is_deleted === true;
         return `
-        <div class="char-item${isDeleted ? ' char-item-deleted' : ''}" ${isDeleted ? '' : `onclick="openEditDialog(${c.id})"`}>
+        <div class="char-item${isDeleted ? ' char-item-deleted' : ''}" data-char-id="${c.id}">
             <div class="char-item-header">
                 <div class="char-item-avatar">${escapeHtml(c.name.charAt(0))}</div>
                 <div class="char-item-info">
@@ -248,7 +342,7 @@ function renderCharacterList() {
                     </div>
                 </div>
             </div>
-            ${isDeleted ? `<div class="char-item-actions"><button class="btn-restore" onclick="event.stopPropagation(); restoreCharacter(${c.id})"><i class="fas fa-undo"></i> 恢复</button></div>` : ''}
+            ${isDeleted ? `<div class="char-item-actions"><button class="btn-restore" data-restore-id="${c.id}"><i class="fas fa-undo"></i> 恢复</button></div>` : ''}
         </div>`;
     }
 
@@ -282,6 +376,7 @@ async function restoreCharacter(id) {
         const data = await api.put(`/api/projects/${currentProjectId}/characters/${id}/`, {
             action: 'restore'
         });
+        if (!data) return;
 
         if (data.success) {
             showSuccess('角色已恢复');
@@ -322,11 +417,30 @@ function setupCreateFormValidation() {
 }
 
 function setupEventListeners() {
+    // 初始化字符计数
+    initCharCounts();
+
     // 搜索/筛选事件
     const searchInput = document.getElementById('searchInput');
+    const searchClearBtn = document.getElementById('searchClearBtn');
     const roleFilter = document.getElementById('roleFilter');
     const factionFilter = document.getElementById('factionFilter');
-    if (searchInput) searchInput.addEventListener('input', filterCharacters);
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            filterCharacters();
+            if (searchClearBtn) {
+                searchClearBtn.style.display = this.value ? 'flex' : 'none';
+            }
+        });
+    }
+    if (searchClearBtn) {
+        searchClearBtn.addEventListener('click', function() {
+            searchInput.value = '';
+            searchInput.focus();
+            this.style.display = 'none';
+            filterCharacters();
+        });
+    }
     if (roleFilter) roleFilter.addEventListener('change', filterCharacters);
     if (factionFilter) factionFilter.addEventListener('change', filterCharacters);
 
@@ -340,6 +454,27 @@ function setupEventListeners() {
     document.querySelectorAll('[id$="Faction"]').forEach(el => {
         el.addEventListener('blur', function() { normalizeFactionInputField(this); });
     });
+
+    // 角色列表事件委托（替代内联 onclick）
+    const charList = document.getElementById('characterList');
+    if (charList) {
+        charList.addEventListener('click', function(e) {
+            // 恢复按钮
+            const restoreBtn = e.target.closest('.btn-restore');
+            if (restoreBtn) {
+                e.stopPropagation();
+                const restoreId = restoreBtn.dataset.restoreId;
+                if (restoreId) restoreCharacter(parseInt(restoreId));
+                return;
+            }
+            // 角色卡片点击 → 打开编辑
+            const charItem = e.target.closest('.char-item');
+            if (charItem && !charItem.classList.contains('char-item-deleted')) {
+                const charId = charItem.dataset.charId;
+                if (charId) openEditDialog(parseInt(charId));
+            }
+        });
+    }
 }
 
 function closeCreateDialog(e) {
@@ -458,13 +593,14 @@ async function createCharacter() {
         return;
     }
 
-    setButtonLoading('saveCreateBtn', true, '创建中...');
+    setCharBtnLoading('saveCreateBtn', true, '创建中...');
 
     try {
         const bodyData = collectCharacterFields('create');
         bodyData.relationships = document.getElementById('createRelationships').value;
 
         const data = await api.post(`/api/projects/${currentProjectId}/characters/`, bodyData);
+        if (!data) { setCharBtnLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 保存角色'); return; }
 
         if (data.success) {
             showSuccess('角色创建成功');
@@ -480,7 +616,7 @@ async function createCharacter() {
     } catch (error) {
         showError('网络错误');
     } finally {
-        setButtonLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 保存角色');
+        setCharBtnLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 保存角色');
     }
 }
 
@@ -495,7 +631,7 @@ async function generateCharacterPreview() {
         return;
     }
 
-    setButtonLoading('aiActionBtn', true, '生成中...');
+    setCharBtnLoading('aiActionBtn', true, '生成中...');
     document.getElementById('saveCreateBtn').disabled = true;
 
     // 显示生成内容区域并清空
@@ -529,7 +665,7 @@ async function generateCharacterPreview() {
         const redoHtml = '<i class="fas fa-redo"></i> AI 重新生成';
         const magicHtml = '<i class="fas fa-magic"></i> AI 生成';
         const hasContent = currentAiGenerated && Object.keys(currentAiGenerated).length > 0;
-        setButtonLoading('aiActionBtn', false, null, hasContent ? redoHtml : magicHtml);
+        setCharBtnLoading('aiActionBtn', false, null, hasContent ? redoHtml : magicHtml);
     }
 }
 
@@ -540,24 +676,19 @@ function clearAiGeneratedFields() {
 function displayAiGeneratedCharacter(charData) {
     document.getElementById('aiGeneratedContent').style.display = 'block';
 
-    // AI 返回字段名与模型字段名不一致时的映射：AI字段名 → 模型字段名
-    const fieldMapping = {
-        'role_type': 'role',  // AI 返回 role，模型字段为 role_type
-        'backstory': 'backstory',
-        'tagline': 'tagline'
-    };
+    // 兼容旧 prompt 返回 role/background/tags 的情况
+    if (charData.role && !charData.role_type) charData.role_type = charData.role;
+    if (charData.background && !charData.backstory) charData.backstory = charData.background;
+    if (charData.tags && !charData.tagline) charData.tagline = charData.tags;
 
-    // 构造统一值对象：优先取 charData 映射后的字段，fallback 到原始字段
+    // 构造统一值对象
     const values = {};
     for (const key of Object.keys(CHARACTER_FIELD_MAP)) {
-        const mapped = fieldMapping[key] || key;
-        values[key] = charData[mapped] || charData[key] || '';
+        values[key] = charData[key] || '';
     }
     values.name = charData.name || '';
-    // role/backstory/tagline 特殊默认值
+    // 默认值
     if (!values.role_type) values.role_type = '配角';
-    if (!values.backstory) values.backstory = charData.background || '';
-    if (!values.tagline) values.tagline = charData.tags || '';
 
     setFormFields('aiGenerated', values);
 }
@@ -570,7 +701,7 @@ async function saveAiGeneratedCharacter() {
         return;
     }
 
-    setButtonLoading('saveCreateBtn', true, '保存中...');
+    setCharBtnLoading('saveCreateBtn', true, '保存中...');
 
     try {
         // 收集 relationships（LLM 可能返回对象数组或字符串）
@@ -583,6 +714,7 @@ async function saveAiGeneratedCharacter() {
         bodyData.relationships = relationships;
 
         const data = await api.post(`/api/projects/${currentProjectId}/characters/`, bodyData);
+        if (!data) { setCharBtnLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 保存角色'); return; }
 
         if (data.success) {
             showSuccess('角色保存成功');
@@ -599,7 +731,7 @@ async function saveAiGeneratedCharacter() {
         console.error('保存角色失败:', error);
         showError('网络错误');
     } finally {
-        setButtonLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 保存角色');
+        setCharBtnLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 保存角色');
     }
 }
 
@@ -614,7 +746,7 @@ async function generateBatchCharacters() {
         return;
     }
 
-    setButtonLoading('aiActionBtn', true, '生成中...');
+    setCharBtnLoading('aiActionBtn', true, '生成中...');
     document.getElementById('saveCreateBtn').disabled = true;
 
     document.getElementById('batchGeneratedContent').style.display = 'none';
@@ -651,7 +783,10 @@ async function generateBatchCharacters() {
         console.error('批量生成角色失败:', error);
         showError(error.message || '网络错误，请重试');
     } finally {
-        setButtonLoading('aiActionBtn', false);
+        const redoHtml = '<i class="fas fa-redo"></i> AI 重新生成';
+        const magicHtml = '<i class="fas fa-magic"></i> 批量生成';
+        const hasContent = currentBatchGenerated && currentBatchGenerated.length > 0;
+        setCharBtnLoading('aiActionBtn', false, null, hasContent ? redoHtml : magicHtml);
     }
 }
 
@@ -668,10 +803,10 @@ function renderBatchCharacters() {
             <div class="batch-character-content">
                 <div class="batch-character-header">
                     <span class="batch-character-name">${escapeHtml(char.name || '未命名')}</span>
-                    <span class="batch-character-role">${escapeHtml(char.role || '配角')}</span>
+                    <span class="batch-character-role">${escapeHtml(char.role_type || char.role || '配角')}</span>
                 </div>
                 <div class="batch-character-info">
-                    ${char.age ? `<span class="info-item">年龄: ${escapeHtml(char.age)}</span>` : ''}
+                    ${char.age != null && char.age !== '' ? `<span class="info-item">年龄: ${escapeHtml(char.age)}</span>` : ''}
                     ${char.identity ? `<span class="info-item">身份: ${escapeHtml(char.identity)}</span>` : ''}
                     ${char.faction ? `<span class="info-item">势力: ${escapeHtml(char.faction)}</span>` : ''}
                 </div>
@@ -699,7 +834,7 @@ async function saveCharacterToApi(char) {
         const result = await api.post(`/api/projects/${currentProjectId}/characters/`, {
             name: charName,
             gender: char.gender || '未知',
-            role_type: char.role || '配角',
+            role_type: char.role_type || char.role || '配角',
             personality: char.personality || '',
             backstory: char.background || char.backstory || '',
             appearance: char.appearance || '',
@@ -734,7 +869,7 @@ async function saveBatchCharacters() {
         return;
     }
 
-    setButtonLoading('saveCreateBtn', true, '保存中...');
+    setCharBtnLoading('saveCreateBtn', true, '保存中...');
 
     try {
         // 获取已有角色名集合
@@ -769,8 +904,10 @@ async function saveBatchCharacters() {
                     successCount++;
                 } else {
                     failCount++;
-                    // 失败后重试一次
-                    if (result.status === 'fulfilled' && !result.value.skipped) {
+                    // 失败后重试一次（覆盖 API 返回失败和网络异常两种场景）
+                    const shouldRetry = result.status === 'rejected'
+                        || (result.status === 'fulfilled' && !result.value.skipped);
+                    if (shouldRetry) {
                         const retryChar = chunk[j];
                         const retryResult = await saveCharacterToApi(retryChar);
                         if (retryResult.success) {
@@ -792,34 +929,31 @@ async function saveBatchCharacters() {
         console.error('批量保存角色失败:', error);
         showError('网络错误');
     } finally {
-        setButtonLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 批量保存');
+        setCharBtnLoading('saveCreateBtn', false, null, '<i class="fas fa-save"></i> 批量保存');
     }
 }
 
 // ============ 编辑角色 ============
 async function openEditDialog(id) {
-    // 先弹出弹窗并显示加载状态
+    // 先弹出弹窗并显示加载覆盖层
     lockScroll();
     document.getElementById('editDialog').classList.add('show');
-
-    const modalBody = document.querySelector('#editDialog .dialog-body');
-    const originalContent = modalBody.innerHTML;
-    modalBody.innerHTML = '<div class="dialog-loading"><div class="loading-spinner"><div class="loading-spinner-outer"></div><div class="loading-spinner-inner"></div></div><p>加载角色数据...</p></div>';
+    showEditDialogLoading(true);
 
     try {
         const data = await api.get(`/api/projects/${currentProjectId}/characters/${id}/`);
+        if (!data) {
+            closeEditDialog();
+            return;
+        }
 
         if (!data.success || !data.character) {
-            document.getElementById('editDialog').classList.remove('show');
-            unlockScroll();
+            closeEditDialog();
             showError('加载角色失败');
             return;
         }
 
         const character = data.character;
-
-        // 恢复弹窗内容
-        modalBody.innerHTML = originalContent;
 
         document.getElementById('editCharacterId').value = character.id;
 
@@ -840,12 +974,21 @@ async function openEditDialog(id) {
 
         // 切换到第一个标签页
         switchEditTab('basic');
+
+        // 更新字符计数
+        initCharCounts();
     } catch (error) {
-        document.getElementById('editDialog').classList.remove('show');
-        unlockScroll();
+        closeEditDialog();
         console.error('加载角色详情失败:', error);
         showError('加载角色失败');
+    } finally {
+        showEditDialogLoading(false);
     }
+}
+
+function showEditDialogLoading(show) {
+    const overlay = document.getElementById('editDialogLoading');
+    if (overlay) overlay.style.display = show ? 'flex' : 'none';
 }
 
 function closeEditDialog(e) {
@@ -860,6 +1003,7 @@ async function deleteCharacter() {
     showModal('确认删除', '确定要删除这个角色吗？删除后可在角色列表中恢复。', async () => {
         try {
             const data = await api.delete(`/api/projects/${currentProjectId}/characters/${id}/`);
+            if (!data) return;
 
             if (data.success) {
                 closeModal();
@@ -876,16 +1020,16 @@ async function deleteCharacter() {
 }
 
 // ==================== 人际关系表格 ====================
-// 关系类型（直接使用中文，数据库保存中文）
+// 关系类型（从后端 API 动态获取，保持与后端 constants.py 一致）
 // 约定：以本人为基准，描述"对方相对于本人"的角色
-const RELATIONSHIP_TYPES = [
+let RELATIONSHIP_TYPES = [
     '朋友', '恋人', '配偶', '父母', '子女', '兄弟姐妹',
     '师父', '徒弟', '敌人', '对手', '导师', '门生',
     '盟友', '亲属', '君主', '臣子', '其他'
 ];
 
 // 英文→中文映射（兼容 LLM 返回英文或数据库旧数据）
-const RELATIONSHIP_EN_TO_CN = {
+let RELATIONSHIP_EN_TO_CN = {
     'friend': '朋友', 'lover': '恋人', 'spouse': '配偶',
     'parent': '父母', 'child': '子女', 'sibling': '兄弟姐妹',
     'master': '师父', 'apprentice': '徒弟', 'disciple': '徒弟',
@@ -893,6 +1037,23 @@ const RELATIONSHIP_EN_TO_CN = {
     'protégé': '门生', 'protege': '门生', 'partner': '盟友',
     'ally': '盟友', 'family': '亲属', 'other': '其他',
 };
+
+/**
+ * 从后端加载关系类型配置（保持与 constants.py 同步）
+ */
+async function loadRelationshipTypes() {
+    try {
+        const projectId = getProjectIdFromUrl();
+        const data = await api.get(`/api/projects/${projectId}/characters/relationship-types/`);
+        if (data && data.types) {
+            RELATIONSHIP_TYPES = data.types;
+            RELATIONSHIP_EN_TO_CN = data.en_to_cn || RELATIONSHIP_EN_TO_CN;
+        }
+    } catch (e) {
+        // 加载失败时使用默认值（已初始化）
+        console.warn('加载关系类型配置失败，使用默认值', e);
+    }
+}
 
 /**
  * 归一化关系类型：英文→中文，不在白名单中的→'其他'
@@ -1055,7 +1216,7 @@ async function saveCharacter() {
         return;
     }
 
-    setButtonLoading('editSubmitBtn', true, '保存中...');
+    setCharBtnLoading('editSubmitBtn', true, '保存中...');
 
     try {
         // 清理关系数据：只保留后端需要的字段，过滤空目标
@@ -1073,6 +1234,7 @@ async function saveCharacter() {
         bodyData.experiences = currentExperiences;
 
         const data = await api.put(`/api/projects/${currentProjectId}/characters/${id}/`, bodyData);
+        if (!data) return;
 
         if (data.success) {
             showSuccess('角色更新成功');
@@ -1084,7 +1246,7 @@ async function saveCharacter() {
     } catch (error) {
         showError('网络错误');
     } finally {
-        setButtonLoading('editSubmitBtn', false, null, '<i class="fas fa-save"></i> 保存修改');
+        setCharBtnLoading('editSubmitBtn', false, null, '<i class="fas fa-save"></i> 保存修改');
     }
 }
 
@@ -1131,7 +1293,7 @@ async function _doPolishCharacter(formPrefix, btnId) {
         return;
     }
 
-    setButtonLoading(btnId, true, '润色中...');
+    setCharBtnLoading(btnId, true, '润色中...');
 
     showLoading('正在润色角色...');
 
@@ -1165,7 +1327,7 @@ async function _doPolishCharacter(formPrefix, btnId) {
         console.error('AI润色失败:', error);
         showError(error.message || '网络错误');
     } finally {
-        setButtonLoading(btnId, false, null, '<i class="fas fa-star"></i> AI 润色');
+        setCharBtnLoading(btnId, false, null, '<i class="fas fa-star"></i> AI 润色');
     }
 }
 
@@ -1294,209 +1456,7 @@ function addExperience() {
     }
 }
 
-// ==================== AI角色检测 ====================
-
-const CHECK_TYPE_LABELS = {
-    'contradiction': '设定矛盾',
-    'duplicate': '角色重复',
-    'conflict': '关系冲突',
-    'missing': '设定缺失',
-    'unreasonable': '逻辑不合理'
-};
-
-// 当前检测结果的问题列表（供优化使用）
-let currentCheckIssues = [];
-
-async function checkAllCharacters() {
-    if (characters.length === 0) {
-        showError('暂无角色可检测');
-        return;
-    }
-
-    setButtonLoading('checkBtn', true, '检测中...');
-
-    // 隐藏优化按钮并重置文字
-    const optimizeBtn = document.getElementById('optimizeCheckBtn');
-    optimizeBtn.hidden = true;
-    optimizeBtn.innerHTML = '<i class="fas fa-magic"></i> AI优化';
-    optimizeBtn.onclick = optimizeFromCheck;
-    currentCheckIssues = [];
-
-    showLoading('正在检测所有角色...');
-
-    try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/check/`, {
-            method: 'POST',
-            body: JSON.stringify({})
-        });
-
-        hideLoading();
-
-        if (!resultStr) {
-            showError('检测结果为空');
-            return;
-        }
-
-        // resultStr 是 streamRequest 拼接返回的纯文本字符串
-        const result = extractJsonFromString(resultStr) || {};
-        currentCheckIssues = result.issues || [];
-        lockScroll();
-        document.getElementById('checkDialog').classList.add('show');
-        renderCheckResult(result);
-        showSuccess('检测完成');
-    } catch (error) {
-        hideLoading();
-        console.error('角色检测失败:', error);
-        showError('网络错误，请重试');
-    } finally {
-        setButtonLoading('checkBtn', false, null, '<i class="fas fa-search-plus"></i> AI检测');
-    }
-}
-
-function renderCheckResult(result) {
-    const body = document.getElementById('checkResultBody');
-    const issues = result.issues || [];
-
-    if (issues.length === 0) {
-        body.innerHTML = `
-            <div class="check-no-issues">
-                <i class="fas fa-check-circle"></i>
-                <h3 style="margin-bottom: 8px;">所有角色设定良好</h3>
-                <p style="color: #9ca3af;">未发现设定矛盾、角色重复或其他问题</p>
-            </div>`;
-        document.getElementById('optimizeCheckBtn').hidden = true;
-        document.getElementById('checkCloseBtn').textContent = '关闭';
-        return;
-    }
-
-    // 显示优化按钮，关闭按钮改为取消
-    document.getElementById('optimizeCheckBtn').hidden = false;
-    document.getElementById('checkCloseBtn').textContent = '取消';
-
-    // 统计
-    const highCount = issues.filter(i => i.severity === 'high').length;
-    const mediumCount = issues.filter(i => i.severity === 'medium').length;
-    const lowCount = issues.filter(i => i.severity === 'low').length;
-
-    let html = '<div class="check-summary">';
-    html += `<div class="check-summary-item">共 <span>${issues.length}</span> 个问题</div>`;
-    if (highCount > 0) html += `<div class="check-summary-item high">严重 <span>${highCount}</span></div>`;
-    if (mediumCount > 0) html += `<div class="check-summary-item medium">中等 <span>${mediumCount}</span></div>`;
-    if (lowCount > 0) html += `<div class="check-summary-item low">轻微 <span>${lowCount}</span></div>`;
-    html += '</div>';
-
-    // 按严重程度排序
-    const severityOrder = { high: 0, medium: 1, low: 2 };
-    issues.sort((a, b) => (severityOrder[a.severity] || 2) - (severityOrder[b.severity] || 2));
-
-    issues.forEach((issue, index) => {
-        const typeLabel = CHECK_TYPE_LABELS[issue.type] || issue.type;
-        const charNames = (issue.characters || []).map(n => escapeHtml(n)).join('、');
-        html += `
-            <div class="check-result-item" data-issue-index="${index}">
-                <div class="check-result-header">
-                    <span class="check-result-type ${issue.type}">${typeLabel}</span>
-                    <span class="check-result-severity ${issue.severity}">${issue.severity === 'high' ? '严重' : issue.severity === 'medium' ? '中等' : '轻微'}</span>
-                    ${charNames ? `<span class="check-result-chars">${charNames}</span>` : ''}
-                </div>
-                <div class="check-result-desc">${escapeHtml(issue.description)}</div>
-                ${issue.suggestion ? `<div class="check-result-suggestion"><strong>建议：</strong>${escapeHtml(issue.suggestion)}</div>` : ''}
-                <div class="check-result-input">
-                    <input type="text" class="opt-instruction-input" data-index="${index}" placeholder="输入优化指示（留空则自动优化）">
-                </div>
-            </div>`;
-    });
-
-    body.innerHTML = html;
-}
-
-// ==================== AI优化（从检测结果） ====================
-
-let currentOptimizeResult = null;
-
-async function optimizeFromCheck() {
-    if (currentCheckIssues.length === 0) {
-        showError('没有需要优化的问题');
-        return;
-    }
-
-    // 收集每个问题的用户指示
-    const issuesWithInstructions = currentCheckIssues.map((issue, index) => {
-        const input = document.querySelector(`.opt-instruction-input[data-index="${index}"]`);
-        const instruction = input ? input.value.trim() : '';
-        return {
-            type: issue.type,
-            characters: issue.characters || [],
-            description: issue.description || '',
-            instruction: instruction || issue.suggestion || '请自动优化'
-        };
-    });
-
-    showLoading('正在AI优化角色...');
-
-    // 禁用优化按钮防止重复提交
-    const optimizeBtn = document.getElementById('optimizeCheckBtn');
-    const originalHtml = optimizeBtn.innerHTML;
-    optimizeBtn.disabled = true;
-
-    try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/optimize/`, {
-            body: JSON.stringify({ issues: issuesWithInstructions })
-        });
-
-        hideLoading();
-        if (!resultStr) {
-            showError('优化结果为空');
-            return;
-        }
-        // 尝试解析 JSON 数组
-        const trimmed = resultStr.trim();
-        const parsed = extractJsonFromString(trimmed);
-        if (Array.isArray(parsed)) {
-            currentOptimizeResult = parsed;
-        } else if (parsed && typeof parsed === 'object') {
-            currentOptimizeResult = parsed.optimizations || parsed.data || parsed;
-        } else {
-            showError('优化结果解析失败');
-            return;
-        }
-        renderOptimizeResult(currentOptimizeResult);
-        showSuccess('优化完成');
-    } catch (error) {
-        hideLoading();
-        console.error('AI优化失败:', error);
-        showError(error.message || '网络错误，请重试');
-    } finally {
-        optimizeBtn.disabled = false;
-        optimizeBtn.innerHTML = originalHtml;
-    }
-}
-
-// 字段名中文映射
-const FIELD_LABELS = {
-    'personality': '性格特点',
-    'appearance': '外貌特征',
-    'backstory': '背景故事',
-    'motivation': '核心动机',
-    'faction': '势力/阵营',
-    'strengths': '优点',
-    'flaws': '缺点',
-    'obsession': '执念/软肋',
-    'abilities': '能力',
-    'taboos': '禁忌',
-    'secrets': '秘密',
-    'dark_history': '过往黑历史',
-    'development': '成长轨迹',
-    'weaknesses': '弱点代价',
-    'relationships': '人际关系',
-    'experiences': '经历'
-};
-
-const TYPE_LABELS = {
-    'modify': '修改',
-    'add': '新增',
-    'delete': '删除'
-};
+// AI角色检测与优化模块已拆分到 characters-check.js
 
 /**
  * 将 LLM 返回的 relationships 解析为标准对象数组
@@ -1504,13 +1464,25 @@ const TYPE_LABELS = {
  * - 对象数组: [{targetName, relationshipType, description}]
  * - 字符串: "师父-青云门掌门-亦师亦父,兄弟姐妹-李若兰-亲如姐妹"
  * - 混合: [对象, 字符串, ...]
+ * 被创建/编辑/优化流程共用
  */
 function parseRelationshipsFromLLM(rels) {
     if (!rels) return [];
 
-    // 字符串格式：逗号分隔的 "类型-目标名-描述"
+    // 字符串格式：优先匹配 "XXX是我的YYY - 描述"，回退到 "类型-目标名-描述"
     if (typeof rels === 'string') {
         return rels.split(',').map(s => s.trim()).filter(Boolean).map(s => {
+            // 格式1: "XXX是我的YYY" 或 "XXX是我的YYY - 描述"
+            const match = s.match(/(.+?)是我的(.+?)(?:\s*-\s*(.+))?$/);
+            if (match) {
+                return {
+                    targetName: match[1].trim(),
+                    relationshipType: normalizeRelationshipType(match[2].trim()),
+                    description: (match[3] || '').trim(),
+                    createReverse: true
+                };
+            }
+            // 格式2: "类型-目标名-描述"（旧格式兼容）
             const parts = s.split('-');
             if (parts.length >= 2) {
                 return {
@@ -1537,6 +1509,15 @@ function parseRelationshipsFromLLM(rels) {
             }
             // 数组中的字符串元素
             if (typeof r === 'string') {
+                const match = r.match(/(.+?)是我的(.+?)(?:\s*-\s*(.+))?$/);
+                if (match) {
+                    return {
+                        targetName: match[1].trim(),
+                        relationshipType: normalizeRelationshipType(match[2].trim()),
+                        description: (match[3] || '').trim(),
+                        createReverse: true
+                    };
+                }
                 const parts = r.split('-');
                 if (parts.length >= 2) {
                     return {
@@ -1552,199 +1533,4 @@ function parseRelationshipsFromLLM(rels) {
     }
 
     return [];
-}
-
-/**
- * 将关系数据格式化为可读文本
- * 支持格式：
- * - 对象: {targetName, relationshipType, description}
- * - 字符串: "刘禅是我的父母" 或 "父母-刘禅-描述"
- */
-function formatRelForDisplay(r) {
-    if (typeof r === 'object' && r !== null) {
-        const type = r.relationshipType || '其他';
-        const target = r.targetName || '';
-        const desc = r.description ? ` (${r.description})` : '';
-        return `${target} → ${type}${desc}`;
-    }
-    if (typeof r === 'string') {
-        // 尝试解析 "XXX是我的YYY" 格式
-        const match = r.match(/(.+?)是我的(.+?)(?:\s*-\s*(.+))?$/);
-        if (match) {
-            const target = match[1];
-            const type = match[2];
-            const desc = match[3] ? ` (${match[3]})` : '';
-            return `${target} → ${type}${desc}`;
-        }
-        return r;
-    }
-    return String(r);
-}
-
-function renderOptimizeResult(items) {
-    const body = document.getElementById('checkResultBody');
-    const list = Array.isArray(items) ? items : (items.optimizations || []);
-
-    if (list.length === 0) {
-        body.innerHTML = `
-            <div class="check-no-issues">
-                <i class="fas fa-info-circle" style="color: #818cf8;"></i>
-                <h3 style="margin-bottom: 8px; color: #d1d5db;">无需优化</h3>
-                <p style="color: #9ca3af;">AI未找到需要修改的内容</p>
-            </div>`;
-        document.getElementById('optimizeCheckBtn').hidden = true;
-        return;
-    }
-
-    let html = '<div class="check-summary"><div class="check-summary-item">AI优化建议 <span>' + list.length + '</span> 项</div></div>';
-    html += '<p style="font-size: 13px; color: #9ca3af; margin-bottom: 16px;">勾选要应用的优化，点击「保存优化」按钮确认</p>';
-
-    list.forEach((item, index) => {
-        const typeLabel = TYPE_LABELS[item.type] || item.type;
-        const params = item.params || [];
-        const typeIcon = item.type === 'add' ? 'fa-plus-circle' : item.type === 'delete' ? 'fa-minus-circle' : 'fa-pen';
-        const typeColor = item.type === 'add' ? '#22c55e' : item.type === 'delete' ? '#f87171' : '#a5b4fc';
-
-        html += `<div class="check-result-item" data-opt-index="${index}">`;
-        html += `<div class="check-result-header">
-            <label class="opt-item-header">
-                <input type="checkbox" class="opt-checkbox" data-index="${index}" checked>
-                <span class="check-result-chars">${escapeHtml(item.name)}</span>
-                <i class="fas ${typeIcon}" style="color: ${typeColor};"></i>
-                <span style="color: ${typeColor}; font-weight: 600;">${typeLabel}</span>
-            </label>
-        </div>`;
-
-        if (params.length > 0) {
-            html += `<div class="opt-params-container">`;
-            params.forEach(p => {
-                const fieldLabel = FIELD_LABELS[p.param] || p.param;
-                const isRelationships = p.param === 'relationships';
-                if (item.type === 'add') {
-                    if (isRelationships) {
-                        html += `<div class="opt-field-block">
-                            <span class="opt-field-block-label">${fieldLabel}：</span>
-                            <div class="opt-rel-container">`;
-                        const rels = Array.isArray(p.new) ? p.new : (p.new ? [p.new] : []);
-                        rels.forEach(r => {
-                            const rText = formatRelForDisplay(r);
-                            html += `<span class="opt-value-add">${escapeHtml(rText)}</span>`;
-                        });
-                        html += `</div></div>`;
-                    } else {
-                        const displayVal = typeof p.new === 'object' ? JSON.stringify(p.new, null, 2) : String(p.new);
-                        html += `<div class="opt-field-row">
-                            <span class="opt-field-label">${fieldLabel}：</span>
-                            <span class="opt-field-value">${escapeHtml(displayVal)}</span>
-                        </div>`;
-                    }
-                } else {
-                    if (isRelationships) {
-                        html += `<div class="opt-field-block">
-                            <span class="opt-field-block-label">${fieldLabel}：</span>
-                            <div style="margin-top: 4px;">`;
-                        const origRels = Array.isArray(p.origin) ? p.origin : (p.origin ? [p.origin] : []);
-                        const newRels = Array.isArray(p.new) ? p.new : (p.new ? [p.new] : []);
-                        if (origRels.length > 0) {
-                            html += `<div class="opt-field-sublabel">原值：</div>`;
-                            origRels.forEach(r => {
-                                const rText = formatRelForDisplay(r);
-                                html += `<div class="opt-value-old">${escapeHtml(rText)}</div>`;
-                            });
-                        }
-                        if (newRels.length > 0) {
-                            html += `<div class="opt-field-sublabel-top">新值：</div>`;
-                            newRels.forEach(r => {
-                                const rText = formatRelForDisplay(r);
-                                html += `<div class="opt-value-new">${escapeHtml(rText)}</div>`;
-                            });
-                        }
-                        html += `</div></div>`;
-                    } else {
-                        const origVal = typeof p.origin === 'object' ? JSON.stringify(p.origin, null, 2) : String(p.origin || '');
-                        const newVal = typeof p.new === 'object' ? JSON.stringify(p.new, null, 2) : String(p.new);
-                        html += `<div class="opt-field-block">
-                            <span class="opt-field-block-label">${fieldLabel}：</span>
-                            <div class="opt-change-row">
-                                <span class="opt-value-old">${escapeHtml(origVal)}</span>
-                                <i class="fas fa-arrow-right opt-change-arrow"></i>
-                                <span class="opt-value-new">${escapeHtml(newVal)}</span>
-                            </div>
-                        </div>`;
-                    }
-                }
-            });
-            html += `</div>`;
-        } else if (item.type === 'delete') {
-            html += `<div class="opt-delete-notice">该角色将被删除</div>`;
-        }
-
-        html += `</div>`;
-    });
-
-    body.innerHTML = html;
-
-    // 切换按钮为保存
-    const optimizeBtn = document.getElementById('optimizeCheckBtn');
-    optimizeBtn.innerHTML = '<i class="fas fa-save"></i> 保存优化';
-    optimizeBtn.onclick = saveOptimizeResult;
-}
-
-async function saveOptimizeResult() {
-    if (!currentOptimizeResult) {
-        showError('优化结果已失效，请重新优化');
-        return;
-    }
-
-    const list = Array.isArray(currentOptimizeResult) ? currentOptimizeResult : (currentOptimizeResult.optimizations || []);
-    const checkboxes = document.querySelectorAll('.opt-checkbox');
-    const saveItems = [];
-
-    checkboxes.forEach(cb => {
-        if (!cb.checked) return;
-        const index = parseInt(cb.dataset.index);
-        const item = list[index];
-        if (!item) return;
-        saveItems.push(item);
-    });
-
-    if (saveItems.length === 0) {
-        showError('请至少选择一项优化');
-        return;
-    }
-
-    setButtonLoading('optimizeCheckBtn', true, '保存中...');
-
-    try {
-        const data = await api.post(`/api/projects/${currentProjectId}/characters/optimize/save/`, {
-            optimizations: saveItems
-        });
-
-        if (data.success) {
-            showSuccess(`已保存 ${data.saved_count} 个角色的优化`);
-            closeCheckDialog();
-            loadCharacters();
-        } else {
-            showError(data.error || '保存失败');
-        }
-    } catch (error) {
-        console.error('保存优化失败:', error);
-        showError('网络错误');
-    } finally {
-        setButtonLoading('optimizeCheckBtn', false, null, '<i class="fas fa-save"></i> 保存优化');
-    }
-}
-
-function closeCheckDialog(e) {
-    if (e) e.stopPropagation();
-    document.getElementById('checkDialog').classList.remove('show');
-    unlockScroll();
-    // 重置优化按钮
-    const optimizeBtn = document.getElementById('optimizeCheckBtn');
-    optimizeBtn.innerHTML = '<i class="fas fa-magic"></i> AI优化';
-    optimizeBtn.onclick = optimizeFromCheck;
-    optimizeBtn.hidden = true;
-    document.getElementById('checkCloseBtn').textContent = '关闭';
-    currentCheckIssues = [];
-    currentOptimizeResult = null;
 }

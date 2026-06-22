@@ -24,6 +24,7 @@
                 <div class="search-box">
                     <i class="fas fa-search"></i>
                     <input type="text" id="searchInput" placeholder="搜索角色...">
+                    <button class="search-clear-btn" id="searchClearBtn" style="display:none;" type="button" title="清除搜索"></button>
                 </div>
                 <select id="roleFilter">
                     <option value="">全部角色</option>
@@ -73,10 +74,10 @@
                             class="fas fa-users"></i> 批量创建</button>
                 </div>
                 <!-- 手动创建 -->
-                <div id="manualCreateTab" class="tab-content active">
+                <div id="manualCreateTab" class="tab-content active scrollbar-dark">
                     <div class="form-row">
                         <div class="form-group"><label>角色名称 *</label><input type="text" id="createName"
-                                placeholder="输入角色名称"></div>
+                                placeholder="输入角色名称" maxlength="100"><span class="char-count-inline" id="createNameCount"></span></div>
                         <div class="form-group"><label>角色定位</label>
                             <select id="createRole">
                                 <option value="配角" selected>配角</option>
@@ -100,6 +101,7 @@
                     </div>
                     <div class="form-group full-width"><label>身份</label><input type="text" id="createIdentity"
                             placeholder="如：青云门弟子、魔教少主"></div>
+                    <div class="form-section-header"><i class="fas fa-face-smile"></i> 性格外貌</div>
                     <div class="form-row">
                         <div class="form-group"><label>性格特征</label><textarea id="createPersonality"
                                 placeholder="性格特征"></textarea></div>
@@ -108,6 +110,7 @@
                     </div>
                     <div class="form-group full-width"><label>势力/阵营</label><input type="text" id="createFaction"
                             placeholder="势力/阵营（如：青云门、魔教等）"></div>
+                    <div class="form-section-header"><i class="fas fa-bolt"></i> 能力特质</div>
                     <div class="form-row">
                         <div class="form-group"><label>优点</label><textarea id="createStrengths"
                                 placeholder="如：武艺高强、足智多谋"></textarea></div>
@@ -126,6 +129,7 @@
                         <div class="form-group"><label>禁忌</label><textarea id="createTaboos"
                                 placeholder="如：不可动情"></textarea></div>
                     </div>
+                    <div class="form-section-header"><i class="fas fa-book-open"></i> 背景秘密</div>
                     <div class="form-row">
                         <div class="form-group"><label>秘密</label><textarea id="createSecrets"
                                 placeholder="如：身怀上古血脉"></textarea></div>
@@ -138,13 +142,14 @@
                             class="textarea-md"></textarea></div>
                     <div class="form-group full-width"><label>弱点代价</label><textarea id="createWeaknesses"
                             placeholder="弱点与代价"></textarea></div>
+                    <div class="form-section-header"><i class="fas fa-tags"></i> 标签与关系</div>
                     <div class="form-group full-width"><label>标签</label><input type="text" id="createTags"
                             placeholder="标签（逗号分隔，如：正派,剑客,高冷）"></div>
                     <div class="form-group full-width"><label>人际关系</label><textarea id="createRelationships"
                             placeholder="如：师父-青云门掌门-亦师亦父,挚友-天魔教少主-生死之交"></textarea></div>
                 </div>
                 <!-- AI生成 -->
-                <div id="aiCreateTab" class="tab-content">
+                <div id="aiCreateTab" class="tab-content scrollbar-dark">
                     <div class="dialog-section">
                         <div class="dialog-section-title"><i class="fas fa-magic"></i> 角色描述</div>
                         <div class="form-group">
@@ -157,7 +162,7 @@
                         <div class="ai-generated-title"><i class="fas fa-check-circle"></i> 生成结果（可编辑确认）</div>
                         <div class="form-row">
                             <div class="form-group"><label>角色名称 *</label><input type="text" id="aiGeneratedName"
-                                    placeholder="输入角色名称"></div>
+                                    placeholder="输入角色名称" maxlength="100"><span class="char-count-inline" id="aiGeneratedNameCount"></span></div>
                             <div class="form-group"><label>角色定位</label>
                                 <select id="aiGeneratedRole">
                                     <option value="配角" selected>配角</option>
@@ -176,7 +181,7 @@
                                     <option value="女">女</option>
                                 </select>
                             </div>
-                            <div class="form-group"><label>年龄</label><input type="text" id="aiGeneratedAge"
+                            <div class="form-group"><label>年龄</label><input type="number" id="aiGeneratedAge"
                                     placeholder="如：25" min="0" max="9999"></div>
                         </div>
                         <div class="form-group full-width"><label>身份</label><input type="text" id="aiGeneratedIdentity"
@@ -224,7 +229,7 @@
                     </div>
                 </div>
                 <!-- 批量创建 -->
-                <div id="batchCreateTab" class="tab-content">
+                <div id="batchCreateTab" class="tab-content scrollbar-dark">
                     <div class="dialog-section">
                         <div class="dialog-section-title"><i class="fas fa-users"></i> 批量角色描述</div>
                         <div class="form-group">
@@ -255,8 +260,8 @@
     </div>
 
     <!-- AI检测结果弹窗 -->
-    <div id="checkDialog" class="dialog-overlay" onclick="closeCheckDialog(event)">
-        <div class="dialog check-modal" onclick="event.stopPropagation()">
+    <div id="checkDialog" class="dialog-overlay">
+        <div class="dialog">
             <div class="dialog-header">
                 <h5>AI 角色检测结果</h5><button class="btn-close" onclick="closeCheckDialog(event)"><i
                         class="fas fa-times"></i></button>
@@ -282,6 +287,10 @@
                         class="fas fa-times"></i></button>
             </div>
             <div class="dialog-body">
+                <div class="dialog-loading-overlay" id="editDialogLoading" style="display:none;">
+                    <div class="loading-spinner"><div class="loading-spinner-outer"></div><div class="loading-spinner-inner"></div></div>
+                    <p>加载角色数据...</p>
+                </div>
                 <div class="edit-tabs">
                     <button class="edit-tab active" data-tab="basic" onclick="switchEditTab('basic')"><i
                             class="fas fa-user"></i> 基础信息</button>
@@ -290,16 +299,16 @@
                     <button class="edit-tab" data-tab="ability" onclick="switchEditTab('ability')"><i
                             class="fas fa-magic"></i> 能力秘密</button>
                     <button class="edit-tab" data-tab="experience" onclick="switchEditTab('experience')"><i
-                            class="fas fa-book"></i> 经历</button>
+                            class="fas fa-book"></i> 角色经历</button>
                     <button class="edit-tab" data-tab="other" onclick="switchEditTab('other')"><i
                             class="fas fa-ellipsis-h"></i> 其他</button>
                 </div>
                 <input type="hidden" id="editCharacterId">
 
                 <!-- 基础信息 Tab -->
-                <div id="editBasicTab" class="tab-content active">
+                <div id="editBasicTab" class="tab-content active scrollbar-dark">
                     <div class="form-row">
-                        <div class="form-group"><label>角色名称 *</label><input type="text" id="editName"></div>
+                        <div class="form-group"><label>角色名称 *</label><input type="text" id="editName" maxlength="100"><span class="char-count-inline" id="editNameCount"></span></div>
                         <div class="form-group">
                             <label>角色定位</label>
                             <select id="editRole">
@@ -332,11 +341,11 @@
                 </div>
 
                 <!-- 人际关系 Tab -->
-                <div id="editSocialTab" class="tab-content">
+                <div id="editSocialTab" class="tab-content scrollbar-dark">
                     <!-- 人际关系表格 -->
                     <div class="relationships-section">
-                        <h4 class="section-title" style="margin-bottom: 16px; font-size: 15px; font-weight: 600;">人物关系
-                        </h4>
+                        <!-- <h4 class="section-title" style="margin-bottom: 16px; font-size: 15px; font-weight: 600;">人物关系
+                        </h4> -->
                         <div class="relationships-table-container">
                             <table class="relationships-table">
                                 <thead>
@@ -359,7 +368,7 @@
                 </div>
 
                 <!-- 能力秘密 Tab -->
-                <div id="editAbilityTab" class="tab-content">
+                <div id="editAbilityTab" class="tab-content scrollbar-dark">
                     <div class="form-row">
                         <div class="form-group"><label>优点</label><textarea id="editStrengths"
                                 placeholder="如：武艺高强、足智多谋"></textarea></div>
@@ -381,10 +390,10 @@
                 </div>
 
                 <!-- 经历 Tab -->
-                <div id="editExperienceTab" class="tab-content">
+                <div id="editExperienceTab" class="tab-content scrollbar-dark">
                     <div class="experience-section">
-                        <h4 class="section-title" style="margin-bottom: 16px; font-size: 15px; font-weight: 600;">角色经历
-                        </h4>
+                        <!-- <h4 class="section-title" style="margin-bottom: 16px; font-size: 15px; font-weight: 600;">角色经历
+                        </h4> -->
                         <div class="experience-table-container">
                             <table class="experience-table">
                                 <thead>
@@ -405,7 +414,7 @@
                 </div>
 
                 <!-- 其他 Tab -->
-                <div id="editOtherTab" class="tab-content">
+                <div id="editOtherTab" class="tab-content scrollbar-dark">
                     <div class="form-group full-width"><label>背景故事</label><textarea id="editBackground"
                             class="textarea-xl"></textarea></div>
                     <div class="form-row">
@@ -455,6 +464,7 @@
 
     <script src="/static/js/common.js"></script>
     <script src="/static/js/characters.js"></script>
+    <script src="/static/js/characters-check.js"></script>
 </body>
 
 </html>

@@ -30,7 +30,7 @@ class RedisFallbackCache(RedisCache):
         try:
             super().__init__(server, params)
             # 启动时做一次连通性检测
-            self.client.ping()
+            self.client.get_client().ping()
             RedisFallbackCache._redis_available = True
             logger.info("Redis 连接成功，使用 Redis 缓存")
         except Exception:
@@ -52,7 +52,7 @@ class RedisFallbackCache(RedisCache):
             RedisFallbackCache._last_check_time = now
 
         try:
-            self.client.ping()
+            self.client.get_client().ping()
             RedisFallbackCache._redis_available = True
             logger.info("Redis 已恢复，切回 Redis 缓存")
             return True

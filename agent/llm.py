@@ -372,7 +372,7 @@ def get_llm(user=None, scene=None, **kwargs) -> ChatOpenAI:
     final_params['stream_usage'] = True
 
     llm_instance = ChatOpenAI(**final_params)
-    logger.info(f"get_llm: stream_usage={llm_instance.stream_usage}, model={llm_instance.model_name}, base_url={llm_instance.openai_api_base}")
+    # logger.info(f"get_llm: stream_usage={llm_instance.stream_usage}, model={llm_instance.model_name}, base_url={llm_instance.openai_api_base}")
     return llm_instance
 
 

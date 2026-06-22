@@ -1,9 +1,9 @@
 """
 Embedding 工厂
 
-支持两种 provider:
-- deepseek: 调用 DeepSeek Embedding API（复用现有 LLM 配置）
-- local: 使用本地 sentence-transformers 模型或独立的 Embedding 服务
+两种模式:
+- docker: 连接本地 Docker Embedding 服务（primary）
+- api:    调用智谱 BigModel API（fallback，使用 embedding-2）
 """
 import os
 from loguru import logger
@@ -13,66 +13,68 @@ class BaseEmbedder:
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError
 
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """批量获取 embedding，默认逐条调用（子类可覆盖为批量 API）"""
+        return [self.embed(t) for t in texts]
+
+
+class DockerEmbedder(BaseEmbedder):
+    """连接本地 Docker Embedding 服务（sentence-transformers）"""
+
+    def __init__(self):
+        import requests
+        self._url = os.getenv("EMBEDDING_DOCKER_URL", "http://localhost:8080/embed")
+        self._timeout = int(os.getenv("EMBEDDING_DOCKER_TIMEOUT", "30"))
+        resp = requests.get(self._url.rsplit("/", 1)[0] + "/health", timeout=5)
+        resp.raise_for_status()
+        info = resp.json()
+        logger.info(f"Docker Embedding 服务已连接: {self._url} (model={info.get('model', 'unknown')})")
+
+    def embed(self, text: str) -> list[float]:
+        import requests
+        resp = requests.post(
+            self._url,
+            json={"texts": [text]},
+            timeout=self._timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["embeddings"][0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """批量获取 embedding"""
+        if not texts:
+            return []
+        import requests
+        resp = requests.post(
+            self._url,
+            json={"texts": texts},
+            timeout=self._timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["embeddings"]
+
 
 class DeepSeekEmbedder(BaseEmbedder):
-    """使用 DeepSeek API 做 embedding"""
+    """调用 OpenAI 兼容 Embedding API（fallback，默认智谱 BigModel embedding-2）"""
 
     def __init__(self):
-        from langchain_openai import OpenAIEmbeddings
-        self._client = OpenAIEmbeddings(
-            model=os.getenv("EMBEDDING_MODEL", "deepseek-embedding"),
-            openai_api_key=os.getenv("LLM_API_KEY", ""),
-            openai_api_base=os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),
-        )
+        from openai import OpenAI
+        api_key = os.getenv("EMBEDDING_API_KEY", "")
+        base_url = os.getenv("EMBEDDING_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/")
+        self._model = os.getenv("EMBEDDING_MODEL", "embedding-2")
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        logger.info(f"Embedding API 已初始化: model={self._model}, base_url={base_url}")
 
     def embed(self, text: str) -> list[float]:
-        return self._client.embed_query(text)
+        response = self._client.embeddings.create(input=text, model=self._model)
+        return response.data[0].embedding
 
-
-class LocalEmbedder(BaseEmbedder):
-    """
-    本地 Embedding
-    - 如果配置了 LOCAL_EMBEDDING_URL, 调用独立的 Embedding HTTP 服务
-    - 否则直接加载 sentence-transformers 模型
-    """
-
-    def __init__(self):
-        self._base_url = os.getenv("LOCAL_EMBEDDING_URL", "")
-        self._local_model = None
-
-        if self._base_url:
-            logger.info(f"使用远程 Embedding 服务: {self._base_url}")
-        else:
-            # 直接加载本地模型
-            model_name = os.getenv("LOCAL_EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
-            device = os.getenv("LOCAL_EMBEDDING_DEVICE", "cpu")
-            try:
-                from sentence_transformers import SentenceTransformer
-                self._local_model = SentenceTransformer(model_name, device=device)
-                logger.info(f"本地 Embedding 模型已加载: {model_name} (device={device})")
-            except ImportError:
-                logger.error("sentence-transformers 未安装, 请执行: pip install sentence-transformers")
-                raise
-            except Exception as e:
-                logger.error(f"加载本地 Embedding 模型失败: {e}")
-                raise
-
-    def embed(self, text: str) -> list[float]:
-        if self._local_model:
-            import numpy as np
-            result = self._local_model.encode([text], normalize_embeddings=True)
-            if isinstance(result, np.ndarray):
-                return result[0].tolist()
-            return list(result[0])
-        else:
-            import requests
-            resp = requests.post(
-                self._base_url,
-                json={"texts": [text]},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()["embeddings"][0]
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """批量获取 embedding，一次 API 调用处理多个文本"""
+        if not texts:
+            return []
+        response = self._client.embeddings.create(input=texts, model=self._model)
+        return [d.embedding for d in response.data]
 
 
 class EmbedderFactory:
@@ -80,11 +82,11 @@ class EmbedderFactory:
 
     @classmethod
     def create(cls) -> BaseEmbedder:
-        """单例模式创建 Embedder"""
+        """单例模式创建 Embedder：优先 Docker，失败则 fallback Embedding API"""
         if cls._instance is None:
-            provider = os.getenv("EMBEDDING_PROVIDER", "deepseek")
-            if provider == "local":
-                cls._instance = LocalEmbedder()
-            else:
+            try:
+                cls._instance = DockerEmbedder()
+            except Exception as e:
+                logger.warning(f"Docker Embedding 服务不可用 ({e})，fallback 到 Embedding API")
                 cls._instance = DeepSeekEmbedder()
         return cls._instance

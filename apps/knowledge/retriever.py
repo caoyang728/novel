@@ -11,7 +11,7 @@
 支持 include / exclude 过滤, 以及 Milvus 不可用时的降级策略
 """
 from loguru import logger
-from .client import get_collection, get_collection_available
+from .client import get_client, get_collection_name
 from .embedder import EmbedderFactory
 
 # 每种 doc_type 的默认 top_k
@@ -30,7 +30,8 @@ class KnowledgeRetriever:
     """知识库检索器"""
 
     def __init__(self):
-        self.collection = get_collection()
+        self.client = get_client()
+        self.coll_name = get_collection_name()
         self.embedder = EmbedderFactory.create()
 
     def retrieve(
@@ -64,7 +65,7 @@ class KnowledgeRetriever:
         doc_types = self._resolve_doc_types(include, exclude)
 
         # 尝试从 Milvus 检索
-        if self.collection:
+        if self.client:
             try:
                 return self._vector_retrieve(project_id, doc_types, query_text, top_k)
             except Exception as e:
@@ -123,25 +124,25 @@ class KnowledgeRetriever:
 
     def _search_by_type(self, project_id, doc_type, query_embedding, limit):
         """按向量相似度搜索"""
-        if not self.collection:
+        if not self.client:
             return []
         try:
-            search_params = {"metric_type": "COSINE", "params": {"nprobe": 16}}
             expr = f'project_id == "{project_id}" && doc_type == "{doc_type}"'
-            results = self.collection.search(
+            results = self.client.search(
+                collection_name=self.coll_name,
                 data=[query_embedding],
                 anns_field="embedding",
-                param=search_params,
                 limit=limit,
-                expr=expr,
+                filter=expr,
                 output_fields=["content", "metadata"],
+                search_params={"metric_type": "COSINE", "params": {"nprobe": 16}},
             )
             docs = []
             for hits in results:
                 for hit in hits:
                     docs.append({
-                        "content": hit.entity.get("content", ""),
-                        "metadata": hit.entity.get("metadata", {}),
+                        "content": hit.get("entity", {}).get("content", ""),
+                        "metadata": hit.get("entity", {}).get("metadata", {}),
                     })
             return docs
         except Exception as e:
@@ -150,12 +151,13 @@ class KnowledgeRetriever:
 
     def _query_by_type(self, project_id, doc_type, limit):
         """按类型查询（不按语义排序）"""
-        if not self.collection:
+        if not self.client:
             return []
         try:
             expr = f'project_id == "{project_id}" && doc_type == "{doc_type}"'
-            results = self.collection.query(
-                expr=expr,
+            results = self.client.query(
+                collection_name=self.coll_name,
+                filter=expr,
                 output_fields=["content", "metadata"],
                 limit=limit,
             )

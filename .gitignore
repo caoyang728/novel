@@ -7,3 +7,4 @@ chroma_db
 .CLAUDE.md
 **/__pycache__/
 *.pyc
+milvus_demo.db

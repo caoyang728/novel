@@ -84,13 +84,13 @@ DATABASES = {
 
 CACHES = {
     'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
+        'BACKEND': 'novel_agent.cache_backend.RedisFallbackCache',
         'LOCATION': f"redis://:{os.getenv('REDIS_DB_PASSWORD', '')}@{os.getenv('REDIS_DB_HOST', 'localhost')}:{os.getenv('REDIS_DB_PORT', '6379')}/{os.getenv('REDIS_DB_DB', '0')}",
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'SOCKET_CONNECT_TIMEOUT': 5,  # 连接超时（秒），避免 Redis 不可达时长时间阻塞
+            'SOCKET_CONNECT_TIMEOUT': 5,  # 连接超时（秒）
             'SOCKET_TIMEOUT': 5,          # 读写超时（秒）
-        }
+        },
     }
 }
 

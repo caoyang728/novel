@@ -221,8 +221,7 @@ async function saveProjectEdit() {
 // ============ 世界观管理 ============
 
 async function openWorldWorkspace() {
-    const projectName = document.getElementById('project-title').textContent;
-    window.location.href = `worldview.html?project_id=${projectId}&project_name=${encodeURIComponent(projectName)}`;
+    window.location.href = `worldview.html?project_id=${projectId}`;
 }
 
 // ============ 人物管理 ============

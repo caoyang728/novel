@@ -22,7 +22,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     // 立即显示 loading，避免页面空白等待
     if (projectId) showLoading('加载世界观数据...');
 
-    checkAuth();
+    const authOk = await checkAuth();
+    if (!authOk) {
+        hideLoading();
+        return;
+    }
     if (!projectId) {
         hideLoading();
         return;
@@ -41,13 +45,11 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     try {
         await loadProjectInfo(projectId);
-        await loadExistingWorldview();
-        if (worldviewId) {
-            await initChatQuestion();
-        }
+        // 并行发起两个请求：Markdown 快速渲染，LLM 引导问题异步更新气泡
+        fetchWorldviewMarkdown();
+        fetchInitQuestions();
     } catch(e) {
         console.error('初始化失败:', e);
-    } finally {
         hideLoading();
     }
 });
@@ -56,45 +58,103 @@ document.addEventListener('DOMContentLoaded', async function() {
 // 使用 common.js 的 initBackToProjectButton，无需自定义 goBack()
 
 
-// ==================== 世界观加载（仅内容，不含聊天记录）====================
-async function loadExistingWorldview() {
-    if (!projectId) return;
+// ==================== 世界观 Markdown 加载（快速，毫秒级）====================
+async function fetchWorldviewMarkdown() {
+    if (!projectId) {
+        hideLoading();
+        return;
+    }
     try {
-        const d = await api.get(`/api/projects/${projectId}/worldviews/`);
-        if (d.success && d.data) {
-            worldviewId = d.data.worldview_id;
-        }
+        await _loadAndRenderMarkdown();
     } catch(e) {
-        console.error('加载世界观失败:', e);
+        console.error('加载世界观Markdown失败:', e);
+    } finally {
+        hideLoading();
     }
 }
 
-// ==================== 初始引导（合并：Markdown + 空缺分析引导问题）====================
-async function initChatQuestion() {
-    if (!worldviewId) return;
+async function refreshWorldviewMarkdown() {
+    if (!projectId) return;
     try {
-        const d = await api.post(`/api/projects/${projectId}/worldviews/${worldviewId}/chat/open/`, {});
-        if (!d.success || !d.data) return;
+        await _loadAndRenderMarkdown();
+    } catch(e) {
+        console.error('刷新世界观Markdown失败:', e);
+    }
+}
 
-        // 渲染 Markdown
-        const markdown = d.data.markdown || '';
+async function _loadAndRenderMarkdown() {
+    const d = await api.get(`/api/projects/${projectId}/worldviews/export/markdown/`);
+    if (!d || !d.success || !d.data) return;
+    worldviewId = d.data.worldview_id;
+    const markdown = d.data.markdown || '';
+    if (markdown && markdown.trim()) {
+        currentWorldview = markdown;
+        renderWorldview(markdown);
+    } else {
+        renderWorldviewEmptyHint();
+    }
+}
+
+// ==================== LLM 引导问题（慢速，AI 调用 ~17秒）====================
+async function fetchInitQuestions() {
+    if (!projectId) return;
+    isGenerating = true;
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.classList.add('generating');
+    }
+    showWelcomeLoading();
+    try {
+        const d = await api.post(`/api/projects/${projectId}/worldviews/chat/open/`, {});
+        if (!d || !d.success || !d.data) {
+            showWelcomeDefault();
+            return;
+        }
+
+        // 如果 markdown 请求还没返回 worldviewId，这里兜底
+        if (!worldviewId && d.data.worldview_id) {
+            worldviewId = d.data.worldview_id;
+        }
+
         const hasContent = d.data.has_content !== false;
-
-        if (hasContent && markdown) {
-            // 有数据：渲染 Markdown
-            currentWorldview = markdown;
-            renderWorldview(markdown);
-
-            // 渲染 LLM 生成的问题
+        if (hasContent) {
             const { question, options } = d.data;
-            if (question) updateWelcomeBubble(question, options);
+            if (question && worldviewId) {
+                updateWelcomeBubble(question, options);
+            } else {
+                showWelcomeDefault();
+            }
         } else {
-            // 无数据：显示引导提示，保留欢迎消息
-            renderWorldviewEmptyHint();
+            showWelcomeDefault();
         }
     } catch(e) {
-        console.error('初始化数据加载失败:', e);
+        console.error('加载引导问题失败:', e);
+        showWelcomeDefault();
+    } finally {
+        isGenerating = false;
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.classList.remove('generating');
+        }
     }
+}
+
+function showWelcomeLoading() {
+    const bubble = _getWelcomeBubble();
+    if (!bubble) return;
+    bubble.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在分析世界观空缺，生成引导问题...';
+}
+
+function showWelcomeDefault() {
+    const bubble = _getWelcomeBubble();
+    if (!bubble) return;
+    bubble.innerHTML = '你好！我是你的世界观构建助手。<br><br>告诉我你想创作什么类型的故事（玄幻、科幻、都市、末世、古风等），以及大致的世界背景构想，我会一步步帮你搭建完整的世界观体系。';
+}
+
+function _getWelcomeBubble() {
+    const firstMsg = document.querySelector('#chat-messages .chat-message.assistant');
+    return firstMsg ? firstMsg.querySelector('.chat-bubble-assistant') : null;
 }
 
 function updateWelcomeBubble(question, options) {
@@ -250,13 +310,10 @@ function updateCategoryBadge(category) {
 // ==================== 发送消息 ====================
 async function sendMessage() {
     if (isGenerating) return;
+    if (!projectId) return;
     const input = document.getElementById('chat-input');
     const message = input.value.trim();
     if (!message) return;
-    if (!worldviewId) {
-        showError('世界观未加载，请刷新页面');
-        return;
-    }
 
     isGenerating = true;
     // 每次发送前重置流式状态变量
@@ -310,7 +367,7 @@ async function sendMessage() {
     const contextMessages = ctxCount >= messages.length ? messages : messages.slice(messages.length - ctxCount * 2);
 
     try {
-        await api.streamRequestRaw(`/api/projects/${projectId}/worldviews/${worldviewId}/chat/stream/`, {
+        await api.streamRequestRaw(`/api/projects/${projectId}/worldviews/chat/stream/`, {
             body: JSON.stringify({
                 message: message,
                 messages: contextMessages
@@ -398,6 +455,9 @@ async function sendMessage() {
             `;
             chatMessages.appendChild(failDiv);
         }
+
+        // 从后端重新获取最终 Markdown（比流式拼装更可靠）
+        await refreshWorldviewMarkdown();
 
     } catch(error) {
         console.error(error);

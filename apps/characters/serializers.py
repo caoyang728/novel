@@ -1,6 +1,25 @@
+import re
+
 from rest_framework import serializers
 from apps.characters.models import Character
 from apps.characters.constants import normalize_relationship_type
+
+# 角色名称安全过滤：只允许中文、英文字母、数字、空格、常用分隔符
+_NAME_SAFE_PATTERN = re.compile(r'[^一-鿿㐀-䶿a-zA-Z0-9\s·\-_—]+')
+# 名称最大长度（与模型 max_length 一致）
+_NAME_MAX_LENGTH = 100
+
+
+def sanitize_character_name(name):
+    """过滤角色名称中的危险字符（< > 等 HTML/XSS 相关）并限制长度"""
+    if not name:
+        return name
+    # 去除 HTML 标签
+    name = re.sub(r'<[^>]*>', '', name)
+    # 去除危险特殊字符，保留中文、英文、数字、空格和常用名称符号
+    name = _NAME_SAFE_PATTERN.sub('', name)
+    # 限制长度
+    return name[:_NAME_MAX_LENGTH].strip()
 
 
 class CharacterListSerializer(serializers.ModelSerializer):
@@ -44,24 +63,31 @@ class _BaseCharacterSerializer(serializers.ModelSerializer):
     relationships = serializers.JSONField(required=False, default=list)
     experiences = serializers.JSONField(required=False, default=list)
 
+    # 文本字段最大长度限制（超出则截断，防止超大数据提交）
+    MAX_TEXT_FIELD_LENGTH = 5000
+
     class Meta:
         model = Character
         fields = COMMON_CHARACTER_FIELDS
 
     def to_internal_value(self, data):
-        """预处理：age 空字符串或非数字值转为 None，避免 IntegerField 校验失败"""
-        if isinstance(data, dict) and 'age' in data:
-            age_val = data['age']
-            if age_val == '' or age_val is None:
-                data = data.copy()
-                data['age'] = None
-            elif not isinstance(age_val, (int, float)):
-                # 非数字值（如"青年"）直接转为 None，不报错
-                try:
-                    int(age_val)
-                except (ValueError, TypeError):
-                    data = data.copy()
+        """预处理：age 空字符串或非数字值转为 None，避免 IntegerField 校验失败；文本字段超长截断"""
+        if isinstance(data, dict):
+            data = data.copy()
+            # age 预处理
+            if 'age' in data:
+                age_val = data['age']
+                if age_val == '' or age_val is None:
                     data['age'] = None
+                elif not isinstance(age_val, (int, float)):
+                    try:
+                        int(age_val)
+                    except (ValueError, TypeError):
+                        data['age'] = None
+            # 文本字段超长截断
+            for key, value in data.items():
+                if isinstance(value, str) and len(value) > self.MAX_TEXT_FIELD_LENGTH:
+                    data[key] = value[:self.MAX_TEXT_FIELD_LENGTH]
         return super().to_internal_value(data)
 
     def validate_relationships(self, value):
@@ -97,14 +123,14 @@ class CharacterCreateSerializer(_BaseCharacterSerializer):
 
     def validate_name(self, value):
         """验证角色名称（创建时全项目唯一）"""
-        value = value.strip()
+        value = sanitize_character_name(value)
         if not value:
             raise serializers.ValidationError('角色名称不能为空')
 
         project = self.context.get('project')
         if project:
             if Character.objects.filter(project=project, name=value, is_deleted=False).exists():
-                raise serializers.ValidationError('DUPLICATE_NAME')
+                raise serializers.ValidationError('该角色名称已存在', code='DUPLICATE_NAME')
 
         return value
 
@@ -118,7 +144,7 @@ class CharacterUpdateSerializer(_BaseCharacterSerializer):
 
     def validate_name(self, value):
         """验证角色名称（更新时排除自身）"""
-        value = value.strip()
+        value = sanitize_character_name(value)
         if not value:
             raise serializers.ValidationError('角色名称不能为空')
 
@@ -140,7 +166,7 @@ class CharacterPolishSerializer(serializers.Serializer):
     """角色润色序列化器 - 校验AI润色请求数据"""
     name = serializers.CharField(required=True, max_length=100)
     gender = serializers.CharField(required=False, allow_blank=True, default='')
-    role = serializers.CharField(required=False, allow_blank=True, default='')
+    role_type = serializers.CharField(required=False, allow_blank=True, default='')
     age = serializers.CharField(required=False, allow_blank=True, default='')
     identity = serializers.CharField(required=False, allow_blank=True, default='')
     personality = serializers.CharField(required=False, allow_blank=True, default='')
@@ -161,7 +187,7 @@ class CharacterPolishSerializer(serializers.Serializer):
     tagline = serializers.CharField(required=False, allow_blank=True, default='')
 
     def validate_name(self, value):
-        value = value.strip()
+        value = sanitize_character_name(value)
         if not value:
             raise serializers.ValidationError('角色名称不能为空')
         return value

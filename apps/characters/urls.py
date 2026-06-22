@@ -7,6 +7,7 @@ from .views import (
     ApiCharacterCheckView,
     ApiCharacterOptimizeView,
     ApiCharacterOptimizeSaveView,
+    ApiCharacterRelationshipTypesView,
 )
 
 urlpatterns = [
@@ -17,4 +18,5 @@ urlpatterns = [
     path('projects/<int:pk>/characters/check/', ApiCharacterCheckView.as_view(), name='api_character_check'),
     path('projects/<int:pk>/characters/optimize/', ApiCharacterOptimizeView.as_view(), name='api_character_optimize'),
     path('projects/<int:pk>/characters/optimize/save/', ApiCharacterOptimizeSaveView.as_view(), name='api_character_optimize_save'),
+    path('projects/<int:pk>/characters/relationship-types/', ApiCharacterRelationshipTypesView.as_view(), name='api_character_relationship_types'),
 ]

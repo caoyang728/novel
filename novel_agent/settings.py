@@ -88,6 +88,8 @@ CACHES = {
         'LOCATION': f"redis://:{os.getenv('REDIS_DB_PASSWORD', '')}@{os.getenv('REDIS_DB_HOST', 'localhost')}:{os.getenv('REDIS_DB_PORT', '6379')}/{os.getenv('REDIS_DB_DB', '0')}",
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'SOCKET_CONNECT_TIMEOUT': 5,  # 连接超时（秒），避免 Redis 不可达时长时间阻塞
+            'SOCKET_TIMEOUT': 5,          # 读写超时（秒）
         }
     }
 }
@@ -143,19 +145,17 @@ SIMPLE_JWT = {
 }
 
 # ========== Milvus 向量库配置 ==========
-MILVUS_MODE = os.getenv('MILVUS_MODE', 'local')  # local | docker
+MILVUS_MODE = os.getenv('MILVUS_MODE', 'docker')  # docker | local
 MILVUS_HOST = os.getenv('MILVUS_HOST', 'localhost')
 MILVUS_PORT = os.getenv('MILVUS_PORT', '19530')
 MILVUS_COLLECTION_NAME = os.getenv('MILVUS_COLLECTION_NAME', 'novel_knowledge')
 MILVUS_LOCAL_DB = os.getenv('MILVUS_LOCAL_DB', str(BASE_DIR / 'milvus_demo.db'))
 
 # ========== Embedding 配置 ==========
-EMBEDDING_PROVIDER = os.getenv('EMBEDDING_PROVIDER', 'deepseek')  # deepseek | local
-EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'deepseek-embedding')
+EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'deepseek-v4-flash')
 EMBEDDING_DIM = int(os.getenv('EMBEDDING_DIM', '1024'))
-LOCAL_EMBEDDING_MODEL = os.getenv('LOCAL_EMBEDDING_MODEL', 'BAAI/bge-large-zh-v1.5')
-LOCAL_EMBEDDING_DEVICE = os.getenv('LOCAL_EMBEDDING_DEVICE', 'cpu')
-LOCAL_EMBEDDING_URL = os.getenv('LOCAL_EMBEDDING_URL', '')
+EMBEDDING_DOCKER_URL = os.getenv('EMBEDDING_DOCKER_URL', 'http://localhost:8080/embed')
+EMBEDDING_DOCKER_TIMEOUT = int(os.getenv('EMBEDDING_DOCKER_TIMEOUT', '30'))
 
 import rest_framework_simplejwt
 
@@ -170,4 +170,12 @@ REST_FRAMEWORK = {
     ],
     # 接口统一返回401，不跳转
     "EXCEPTION_HANDLER": "utils.exceptions.custom_exception_handler",
+    # 限流配置
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "user": "60/minute",        # 默认：每用户每分钟60次
+        "ai_gen": "10/minute",      # AI 生成/润色/检测/优化：每分钟10次
+    },
 }

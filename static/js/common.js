@@ -502,7 +502,9 @@ function executeModalAction() {
 
 /** 需要 LLM 服务商配置的 API 路径特征（URL 包含以下任一字符串时拦截） */
 const _LLM_PATH_MARKERS = ['/worldviews/', '/outline/', '/chapter/',
-    '/timeline/', '/note/', '/volume/'];
+    '/timeline/', '/note/', '/volume/',
+    '/characters/generate/', '/characters/polish/',
+    '/characters/check/', '/characters/optimize/'];
 
 function _isLLMRequired(url, method) {
     if (method === 'GET' || method === 'DELETE') return false;
@@ -585,9 +587,51 @@ function _updateLLMConfigStatus(userData) {
     }
 }
 
+// Token 静默刷新：防止并发刷新请求
+let _refreshPromise = null;
+
 const api = {
     // 获取 access token
     getToken: getToken,
+
+    // 使用 refresh_token 静默刷新 access_token，返回新 token 或 null
+    async refreshAccessToken() {
+        if (_refreshPromise) return _refreshPromise;
+        const refreshToken = localStorage.getItem('refresh_token');
+        if (!refreshToken) return null;
+
+        _refreshPromise = (async () => {
+            try {
+                const response = await fetch('/api/auth/refresh/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                    body: JSON.stringify({ refresh: refreshToken }),
+                });
+
+                if (!response.ok) return null;
+
+                const data = await response.json();
+                if (data.success && data.access) {
+                    localStorage.setItem('access_token', data.access);
+                    if (data.refresh) {
+                        localStorage.setItem('refresh_token', data.refresh);
+                    }
+                    return data.access;
+                }
+                return null;
+            } catch (error) {
+                console.error('Token 刷新失败:', error);
+                return null;
+            } finally {
+                _refreshPromise = null;
+            }
+        })();
+
+        return _refreshPromise;
+    },
 
     // 获取用户信息
     getUser: getUser,
@@ -639,6 +683,13 @@ const api = {
 
         try {
             const response = await fetch(url, config);
+
+            if (response.status === 401 && !options._isRefreshRetry) {
+                const newToken = await this.refreshAccessToken();
+                if (newToken) {
+                    return this.request(url, { ...options, _isRefreshRetry: true });
+                }
+            }
 
             if (response.status === 401) {
                 api.forceReLogin(() => {
@@ -750,6 +801,13 @@ const api = {
                 body,
             });
 
+            if (response.status === 401 && !options._isRefreshRetry) {
+                const newToken = await this.refreshAccessToken();
+                if (newToken) {
+                    return this.streamRequest(url, { ...options, _isRefreshRetry: true });
+                }
+            }
+
             if (response.status === 401) {
                 this.forceReLogin();
                 return null;
@@ -797,8 +855,8 @@ const api = {
                         }
                         throw new Error(errMsg);
                     }
-                    if (parsed.type === 'chunk' && parsed.data) {
-                        result += parsed.data;
+                    if (parsed.type === 'chunk') {
+                        result += (parsed.content || parsed.data || '');
                         continue;
                     }
 
@@ -854,6 +912,13 @@ const api = {
                 headers,
                 body,
             });
+
+            if (response.status === 401 && !options._isRefreshRetry) {
+                const newToken = await this.refreshAccessToken();
+                if (newToken) {
+                    return this.streamRequestRaw(url, { ...options, _isRefreshRetry: true }, onChunk);
+                }
+            }
 
             if (response.status === 401) {
                 this.forceReLogin();

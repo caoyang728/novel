@@ -21,6 +21,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - static_volume:/app/staticfiles
     restart: always
@@ -43,14 +45,23 @@ services:
       retries: 5
     restart: always
 
+  redis:
+    image: redis:7-alpine
+    container_name: novel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: always
+
   # 本地 Embedding 服务
   embedding:
     build:
       context: ./docker/embedding
     container_name: novel-embedding
     environment:
-      - MODEL_NAME=${LOCAL_EMBEDDING_MODEL:-BAAI/bge-large-zh-v1.5}
-      - DEVICE=${LOCAL_EMBEDDING_DEVICE:-cpu}
+      - MODEL_NAME=BAAI/bge-large-zh-v1.5
+      - DEVICE=cpu
     ports:
       - "8080:8000"
     volumes:
@@ -99,6 +110,7 @@ services:
 
 volumes:
   mysql_data:
+  redis_data:
   static_volume:
   etcd_data:
   minio_data:

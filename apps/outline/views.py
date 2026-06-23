@@ -137,13 +137,13 @@ class ApiChatOutlineView(BaseOutlineAPIView):
                 return {
                     'project_id': project.id,
                     'version_number': version_number,
-                    'content': final_content,
+                    'content_length': len(final_content),
                     'question': final_question,
                 }
             except Exception as e:
                 logger.error(f"大纲保存异常: {e}")
                 return {
-                    'content': final_content,
+                    'content_length': len(final_content) if final_content else 0,
                     'question': final_question,
                     'save_error': str(e),
                 }

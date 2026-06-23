@@ -1,5 +1,26 @@
 /* ==================== Outline 页面特有样式 ==================== */
 
+/* 模式切换按钮 */
+.outline-mode-toggle .btn {
+    height: 32px;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.outline-mode-toggle .btn:not(.active):hover {
+    transform: translateY(-1px);
+}
+
+.outline-mode-toggle #btn-edit.active,
+.outline-mode-toggle #btn-preview.active {
+    cursor: default;
+    pointer-events: none;
+}
+
 .middle-panel {
     flex: 1;
     min-width: 0;
@@ -98,13 +119,13 @@
 }
 
 /* Modal 页面特有覆盖样式 */
-.dialog-sm .dialog-header {
+/* .dialog-sm .dialog-header {
     padding: 1rem 1.25rem;
 }
 
 .dialog-sm .dialog-footer {
     padding: 0.75rem 1.25rem;
-}
+} */
 
 /* 保存按钮尺寸覆盖 */
 .header-actions .btn-success {

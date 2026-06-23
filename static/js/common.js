@@ -388,13 +388,13 @@ function showWarning(message, duration = null) {
 // ==================== 加载动画相关 ====================
 
 // 显示加载动画
-function showLoading(message = '加载中...', opacity = 0.6) {
+function showLoading(message = '加载中...', opacity = 0.6, blur = 4) {
     let loadingEl = document.getElementById('global-loading');
     if (!loadingEl) {
         loadingEl = document.createElement('div');
         loadingEl.id = 'global-loading';
         loadingEl.innerHTML = `
-            <div class="loading-overlay active" style="background-color: rgba(15, 23, 42, ${opacity})">
+            <div class="loading-overlay active" style="background-color: rgba(15, 23, 42, ${opacity}); backdrop-filter: blur(${blur}px); -webkit-backdrop-filter: blur(${blur}px)">
                 <div class="loading-content">
                     <div class="loading-spinner">
                         <div class="loading-spinner-outer"></div>
@@ -413,6 +413,8 @@ function showLoading(message = '加载中...', opacity = 0.6) {
     const overlay = loadingEl.querySelector('.loading-overlay');
     if (overlay) {
         overlay.style.backgroundColor = `rgba(15, 23, 42, ${opacity})`;
+        overlay.style.backdropFilter = `blur(${blur}px)`;
+        overlay.style.webkitBackdropFilter = `blur(${blur}px)`;
     }
 }
 

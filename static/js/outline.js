@@ -12,6 +12,23 @@ const MAX_OUTLINE_LENGTH = 200000;
 // 大纲基线：与数据库一致的内容，用于 diff 对比和未保存检测
 let savedOutlineBaseline = '';
 
+// 恢复下拉框选项的原始文本
+function restoreVersionOptionTexts(select) {
+    Array.from(select.options).forEach(option => {
+        if (option.dataset.originalText) {
+            option.text = option.dataset.originalText;
+        }
+    });
+}
+
+// 给当前选中的选项添加"当前版本"前缀
+function setCurrentVersionLabel(select) {
+    const selectedOption = select.options[select.selectedIndex];
+    if (selectedOption && selectedOption.dataset.originalText) {
+        selectedOption.text = `当前版本 ${selectedOption.dataset.originalText}`;
+    }
+}
+
 function getBaselineKey() {
     return projectId ? `outline_baseline_${projectId}_${currentVersionId || 'new'}` : '';
 }
@@ -71,19 +88,35 @@ document.addEventListener('DOMContentLoaded', function() {
 
     initBackToProjectButton('.back-btn');
 
-    // 页面离开前检测未保存修改
+    // 页面离开前检测未保存修改 / 生成中
     window.addEventListener('beforeunload', function(e) {
+        if (isSending || isTyping) {
+            e.preventDefault();
+            e.returnValue = 'AI 正在生成内容，离开页面将丢失生成结果。确定要离开吗？';
+            return;
+        }
         if (hasUnsavedChanges()) {
             e.preventDefault();
             e.returnValue = '';
         }
     });
 
-    // 返回按钮拦截未保存修改
+    // 返回按钮拦截未保存修改 / 生成中
     const backBtn = document.querySelector('.back-btn');
     if (backBtn) {
         const originalOnclick = backBtn.onclick;
         backBtn.onclick = function(e) {
+            if (isSending || isTyping) {
+                e.preventDefault();
+                showModal('正在生成内容', 'AI 正在生成大纲内容，离开页面将丢失生成结果。确定要离开吗？', function() {
+                    if (originalOnclick) {
+                        originalOnclick.call(backBtn);
+                    } else {
+                        window.history.back();
+                    }
+                });
+                return;
+            }
             if (hasUnsavedChanges()) {
                 e.preventDefault();
                 showModal('未保存的修改', '当前大纲有未保存的修改，离开页面将丢失这些修改。确定要离开吗？', function() {
@@ -104,18 +137,24 @@ document.addEventListener('DOMContentLoaded', function() {
     let ignoreNextBlur = false;
 
     versionSelect.addEventListener('focus', function() {
-        Array.from(this.options).forEach(option => {
-            if (option.dataset.originalText) {
-                option.text = option.dataset.originalText;
-            }
-        });
+        restoreVersionOptionTexts(this);
+    });
+
+    versionSelect.addEventListener('mousedown', function() {
+        restoreVersionOptionTexts(this);
     });
 
     versionSelect.addEventListener('change', function() {
         const versionId = this.value;
         if (versionId) {
+            if (isSending || isTyping) {
+                showWarning('AI 正在生成内容，请等待生成完成后再切换版本');
+                this.value = currentVersionId || '';
+                return;
+            }
             if (hasUnsavedChanges()) {
                 showModal('未保存的修改', '当前大纲有未保存的修改，切换版本将丢失这些修改。确定要切换吗？', function() {
+                    closeModal();
                     loadOutlineVersion(versionId);
                 });
                 // 重置下拉框回到当前版本
@@ -132,10 +171,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ignoreNextBlur = false;
             return;
         }
-        const selectedOption = this.options[this.selectedIndex];
-        if (selectedOption && selectedOption.dataset.originalText) {
-            selectedOption.text = `当前版本 ${selectedOption.dataset.originalText}`;
-        }
+        setCurrentVersionLabel(this);
     });
 });
 
@@ -173,26 +209,16 @@ async function loadOutlineVersions() {
 
             if (currentVersionId) {
                 select.value = currentVersionId;
-                const option = select.querySelector(`option[value="${currentVersionId}"]`);
-                if (option) {
-                    option.text = `当前版本 ${option.dataset.originalText}`;
-                }
-                loadOutlineVersion(currentVersionId);
+                setCurrentVersionLabel(select);
+                await loadOutlineVersion(currentVersionId);
             } else if (latestVersion) {
                 select.value = latestVersion.id;
-                const option = select.querySelector(`option[value="${latestVersion.id}"]`);
-                if (option) {
-                    option.text = `当前版本 ${option.dataset.originalText}`;
-                }
-                // console.log('Loading from latestVersion:', latestVersion.id);
-                loadOutlineVersion(latestVersion.id);
+                setCurrentVersionLabel(select);
+                await loadOutlineVersion(latestVersion.id);
             } else if (finalizedVersion) {
                 select.value = finalizedVersion.id;
-                const option = select.querySelector(`option[value="${finalizedVersion.id}"]`);
-                if (option) {
-                    option.text = `当前版本 ${option.dataset.originalText}`;
-                }
-                loadOutlineVersion(finalizedVersion.id);
+                setCurrentVersionLabel(select);
+                await loadOutlineVersion(finalizedVersion.id);
             }
         }
     } catch (error) {
@@ -202,7 +228,8 @@ async function loadOutlineVersions() {
 
 async function loadOutlineVersion(versionId) {
     currentVersionId = versionId;
-    // console.log('Loading outline version:', versionId);
+
+    showLoading('加载中...', 0.01, 0.01);
 
     // 淡出预览区
     const previewEl = document.getElementById('outline-preview');
@@ -227,14 +254,12 @@ async function loadOutlineVersion(versionId) {
             }
 
             const select = document.getElementById('version-select');
-            const selectedOption = select.querySelector(`option[value="${versionId}"]`);
-            if (selectedOption) {
-                selectedOption.text = `当前版本 v${data.version_number}${data.is_finalized ? ' (锁定)' : ''}`;
-            }
+            select.value = versionId;
+            setCurrentVersionLabel(select);
 
             // 更新锁定状态
             isVersionLocked = data.is_finalized || false;
-            
+
             // 聊天记录仅在前端维护，切换版本时清空
             messages = [];
             const chatMessages = document.getElementById('chat-messages');
@@ -261,6 +286,8 @@ async function loadOutlineVersion(versionId) {
         console.error('Failed to load outline version:', error);
         previewEl.classList.remove('fade-out');
     }
+
+    hideLoading();
 }
 
 function renderChatHistory() {
@@ -332,11 +359,12 @@ function updateDeleteButton() {
 function updateButtons() {
     const content = document.getElementById('outline-content').value;
     const hasContent = content.trim() !== '';
-    document.getElementById('save-btn').disabled = !hasContent || isVersionLocked;
-    document.getElementById('save-as-btn').disabled = !hasContent;
+    const generating = isSending || isTyping;
+    document.getElementById('save-btn').disabled = !hasContent || isVersionLocked || generating;
+    document.getElementById('save-as-btn').disabled = !hasContent || generating;
     document.getElementById('lock-btn').disabled = !hasContent || isVersionLocked;
     document.getElementById('delete-version-btn').disabled = !currentVersionId || isVersionLocked;
-    
+
     // 更新字数统计
     const wordCount = content.length;
     document.getElementById('outline-word-count').textContent = `${wordCount} 字`;
@@ -345,8 +373,15 @@ function updateButtons() {
 function showEditMode() {
     document.getElementById('outline-content').classList.remove('d-none');
     document.getElementById('outline-preview').classList.add('d-none');
-    document.getElementById('btn-edit').classList.add('active');
-    document.getElementById('btn-preview').classList.remove('active');
+    // 编辑模式：btn-edit 激活（btn-save），btn-preview 非激活（btn-cancel）
+    const btnEdit = document.getElementById('btn-edit');
+    const btnPreview = document.getElementById('btn-preview');
+    btnEdit.classList.add('active');
+    btnEdit.classList.remove('btn-cancel');
+    btnEdit.classList.add('btn-save');
+    btnPreview.classList.remove('active');
+    btnPreview.classList.remove('btn-save');
+    btnPreview.classList.add('btn-cancel');
 }
 
 function showPreviewMode() {
@@ -359,8 +394,15 @@ function showPreviewMode() {
     }
     document.getElementById('outline-content').classList.add('d-none');
     document.getElementById('outline-preview').classList.remove('d-none');
-    document.getElementById('btn-preview').classList.add('active');
-    document.getElementById('btn-edit').classList.remove('active');
+    // 预览模式：btn-preview 激活（btn-save），btn-edit 非激活（btn-cancel）
+    const btnEdit = document.getElementById('btn-edit');
+    const btnPreview = document.getElementById('btn-preview');
+    btnPreview.classList.add('active');
+    btnPreview.classList.remove('btn-cancel');
+    btnPreview.classList.add('btn-save');
+    btnEdit.classList.remove('active');
+    btnEdit.classList.remove('btn-save');
+    btnEdit.classList.add('btn-cancel');
 }
 
 function diffHighlight(oldContent, newContent) {
@@ -429,6 +471,7 @@ async function sendMessage() {
 
     input.disabled = true;
     document.getElementById('send-message').disabled = true;
+    updateButtons();
 
     const chatMessages = document.getElementById('chat-messages');
     const userDiv = document.createElement('div');
@@ -454,7 +497,7 @@ async function sendMessage() {
     input.value = '';
     input.style.height = 'auto';
 
-    showLoading('AI 正在思考...', 0.3);
+    showLoading('AI 正在思考...', 0.01);
 
     const contextCount = document.getElementById('context-count-dropdown').value;
     let historyMessages = messages.slice(0, -1);
@@ -472,6 +515,7 @@ async function sendMessage() {
         let rawTextBuffer = '';
         let parsedOutline = '';
         let parsedQuestion = '';
+        let completeData = null; // 后端 complete 事件返回的数据
 
         let inOutlineSection = false;
         let inQuestionSection = false;
@@ -614,6 +658,12 @@ async function sendMessage() {
                 return;
             }
 
+            // 捕获 complete 事件，保存后端数据用于校验
+            if (parsed && parsed.type === 'complete') {
+                completeData = parsed.data;
+                return;
+            }
+
             if (chunk.content) {
                 rawTextBuffer += chunk.content;
 
@@ -627,6 +677,32 @@ async function sendMessage() {
 
         // 确保loading最终被隐藏
         hideLoadingOnce();
+
+        // 优先使用后端 complete 事件中解析的 question
+        if (completeData && completeData.question) {
+            parsedQuestion = completeData.question;
+        }
+
+        // 内容长度校验：对比后端实际保存的内容长度与前端解析的长度
+        if (completeData && completeData.content_length !== undefined && parsedOutline) {
+            const backendLen = completeData.content_length;
+            const frontendLen = parsedOutline.length;
+            const tolerance = 50; // Python/JS 字符计算方式可能有微小差异
+
+            if (Math.abs(backendLen - frontendLen) > tolerance) {
+                // 内容不一致，前端解析可能有遗漏，从后端重新加载
+                console.warn(`内容长度不一致: 后端=${backendLen}, 前端=${frontendLen}`);
+                showWarning('检测到内容可能不完整，正在重新加载...');
+                try {
+                    const reloadData = await api.get(`/api/projects/${projectId}/outline/versions/${streamVersionId || currentVersionId}/`);
+                    if (reloadData.success && reloadData.content) {
+                        parsedOutline = reloadData.content;
+                    }
+                } catch (e) {
+                    console.error('重新加载大纲内容失败:', e);
+                }
+            }
+        }
 
         if (parsedQuestion) {
             messages.push({ role: 'assistant', content: parsedQuestion });
@@ -648,6 +724,9 @@ async function sendMessage() {
         }
 
         if (parsedOutline && !versionChanged) {
+            // 停止可能正在进行的打字机效果
+            stopTyping();
+
             document.getElementById('outline-content').value = parsedOutline;
             updateButtons();
 
@@ -669,12 +748,18 @@ async function sendMessage() {
     document.getElementById('send-message').disabled = false;
     isSending = false;
     streamVersionId = null;
+    updateButtons();
 }
 
 // 打字机效果：逐字显示大纲内容到 textarea
+let typewriterFullText = null;
+let typewriterCallback = null;
+
 function typeWriter(element, text, callback) {
     stopTyping();
     isTyping = true;
+    typewriterFullText = text;
+    typewriterCallback = callback;
     let index = 0;
     element.value = '';
 
@@ -687,10 +772,14 @@ function typeWriter(element, text, callback) {
         } else {
             isTyping = false;
             currentTypingTimeout = null;
+            typewriterFullText = null;
+            typewriterCallback = null;
             if (callback) callback();
+            updateButtons();
         }
     }
     type();
+    updateButtons();
 }
 
 function stopTyping() {
@@ -698,6 +787,16 @@ function stopTyping() {
     if (currentTypingTimeout) {
         clearTimeout(currentTypingTimeout);
         currentTypingTimeout = null;
+    }
+    // 如果打字机被中断，立即显示完整文本并执行回调
+    if (typewriterFullText !== null) {
+        const textarea = document.getElementById('outline-content');
+        textarea.value = typewriterFullText;
+        const cb = typewriterCallback;
+        typewriterFullText = null;
+        typewriterCallback = null;
+        if (cb) cb();
+        updateButtons();
     }
 }
 
@@ -726,20 +825,49 @@ async function doSaveVersion(isNewVersion) {
         return;
     }
 
+    // 先关闭确认弹窗，进入 loading 状态
+    closeModal();
+    showLoading('正在保存...', 0.01);
+
     try {
         const data = await api.post(`/api/projects/${projectId}/outline/versions/save/`, `content=${encodeURIComponent(content)}${currentVersionId ? `&version_id=${currentVersionId}` : ''}` + (isNewVersion ? '&new_version=true' : ''), { contentType: 'application/x-www-form-urlencoded' });
+        hideLoading();
         if (data.success) {
-            closeModal();
             // 保存成功后更新基线，与数据库保持一致
             saveBaseline(content);
             showSuccess(`保存成功！版本号：v${data.version_number}`);
-            loadOutlineVersions();
+
+            if (isNewVersion) {
+                // 另存为新版本：自动切换到新版本
+                // 清除 currentVersionId，让 loadOutlineVersions 自动选择最新版本（即刚创建的新版本）
+                const savedVersionNumber = data.version_number;
+                currentVersionId = null;
+                await loadOutlineVersions();
+                // loadOutlineVersions 内部已调用 loadOutlineVersion 加载了最新版本
+                // 但为了确保是新版本，校验一下 version_number
+                if (currentVersionNumber !== savedVersionNumber) {
+                    // 从下拉框中找到新版本并加载
+                    const select = document.getElementById('version-select');
+                    const options = select.options;
+                    let newVersionId = null;
+                    for (let i = 0; i < options.length; i++) {
+                        if (options[i].dataset.originalText && options[i].dataset.originalText.startsWith(`v${savedVersionNumber}`)) {
+                            newVersionId = options[i].value;
+                            break;
+                        }
+                    }
+                    if (newVersionId) {
+                        await loadOutlineVersion(newVersionId);
+                    }
+                }
+            } else {
+                loadOutlineVersions();
+            }
         } else {
-            closeModal();
             showError(data.message || '保存失败');
         }
     } catch (error) {
-        closeModal();
+        hideLoading();
         showError('网络错误，请重试');
     }
 }
@@ -751,18 +879,19 @@ function confirmLock() {
 }
 
 async function lockOutline() {
+    closeModal();
+    showLoading('正在锁定...', 0.01);
     try {
         const data = await api.post(`/api/projects/${projectId}/outline/lock/`, `version_id=${currentVersionId}`, { contentType: 'application/x-www-form-urlencoded' });
+        hideLoading();
         if (data.success) {
-            closeModal();
             showSuccess('版本已锁定！');
             loadOutlineVersions();
         } else {
-            closeModal();
             showError(data.message || '锁定失败');
         }
     } catch (error) {
-        closeModal();
+        hideLoading();
         showError('网络错误，请重试');
     }
 }
@@ -781,19 +910,20 @@ function confirmDeleteVersion() {
 }
 
 async function doDeleteVersion() {
+    closeModal();
+    showLoading('正在删除...', 0.01);
     try {
         const data = await api.post(`/api/projects/${projectId}/outline/delete/`, `version_id=${currentVersionId}`, { contentType: 'application/x-www-form-urlencoded' });
+        hideLoading();
         if (data.success) {
-            closeModal();
             currentVersionId = null;
             showSuccess('版本已删除');
             loadOutlineVersions();
         } else {
-            closeModal();
             showError(data.message || data.error || '删除失败');
         }
     } catch (error) {
-        closeModal();
+        hideLoading();
         showError('网络错误，请重试');
     }
 }

@@ -757,7 +757,7 @@ class ApiTimelineCheckOptimizeView(BaseTimelineAPIView):
                 "events_section": events_section,
                 "user_solution": user_solution
             },
-            scene="timeline_check_optimize",
+            scene="timeline_check",
             project=project,
             task_type='timeline_check_optimize',
         )

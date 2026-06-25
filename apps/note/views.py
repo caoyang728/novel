@@ -159,7 +159,7 @@ class ApiNotePolishView(BaseAPIView):
                         {'role': 'user', 'content': user_prompt}
                     ]
                     
-                    stream_response = call_llm_with_retry(messages, stream=True, user=request.user, scene="default", project=project, task_type='note_polish')
+                    stream_response = call_llm_with_retry(messages, stream=True, user=request.user, scene="note_polish", project=project, task_type='note_polish')
                     
                     for chunk in stream_response:
                         chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)

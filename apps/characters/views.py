@@ -25,7 +25,7 @@ from apps.characters.serializers import (
 class AIGenerationRateThrottle(UserRateThrottle):
     """AI 生成类接口专用限流，比普通接口更严格"""
     scope = 'ai_gen'
-from agent.llm import get_llm, stream_llm_response
+from agent.llm import get_llm, collect_llm_response
 from apps.characters.constants import (
     RELATIONSHIP_REVERSE,
     VALID_RELATIONSHIP_TYPES,
@@ -76,13 +76,10 @@ class BaseCharacterAPIView(BaseAPIView):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     def _get_worldview_str(self, project):
-        """获取项目世界观描述字符串（优先使用知识库完整上下文）"""
-        try:
-            worldview_text, _, _ = self.get_knowledge_context(project)
-            if worldview_text and '暂无' not in worldview_text:
-                return worldview_text
-        except Exception:
-            pass
+        """获取项目世界观描述字符串（不使用向量库，直接格式化）"""
+        worldview_text = self.get_worldview_context(project)
+        if worldview_text and '暂无' not in worldview_text:
+            return worldview_text
 
         # 回退：直接从世界观模型读取
         worldview_str = '暂无世界观设定'
@@ -650,7 +647,7 @@ class ApiCharacterGenerateView(BaseCharacterAPIView):
             "extra_requirements": extra_requirements
         }
 
-        return stream_llm_response(
+        result = collect_llm_response(
             CHARACTER_GENERATE_SYSTEM_PROMPT,
             CHARACTER_GENERATE_USER_PROMPT,
             prompt_vars,
@@ -660,10 +657,13 @@ class ApiCharacterGenerateView(BaseCharacterAPIView):
             project=project,
             task_type='character_generate',
         )
+        if result['error']:
+            return Response({'success': False, 'error': result['error']}, status=500)
+        return Response({'success': True, 'data': result['content']})
 
 
 class ApiCharacterPolishView(BaseCharacterAPIView):
-    """AI角色润色API - 流式返回"""
+    """AI角色润色API - 同步返回"""
 
     def post(self, request, pk):
         project = self.get_project(request, pk)
@@ -674,17 +674,68 @@ class ApiCharacterPolishView(BaseCharacterAPIView):
 
         character_data = serializer.validated_data
         character_json = json.dumps(character_data, ensure_ascii=False)
+        
+        # 获取世界观和已有角色
+        worldview_str = self._get_worldview_str(project)
+        characters = project.characters.filter(is_deleted=False).exclude(name=character_data.get('name', ''))
+        existing_str = self._format_character_data(characters) if characters.exists() else "暂无其他角色"
 
-        return stream_llm_response(
+        result = collect_llm_response(
             CHARACTER_POLISH_SYSTEM_PROMPT,
             CHARACTER_POLISH_USER_PROMPT,
-            {"character_data": character_json},
+            {
+                "character_data": character_json,
+                "worldview": worldview_str,
+                "existing_characters": existing_str
+            },
             request.user,
             scene="character_polish",
             error_msg='角色润色失败，请重试',
             project=project,
             task_type='character_polish',
         )
+        if result['error']:
+            return Response({'success': False, 'error': result['error']}, status=500)
+        return Response({'success': True, 'data': result['content']})
+
+    def get(self, request, pk):
+        from django.core.cache import cache
+
+        project = self.get_project(request, pk)
+
+        task_id = request.query_params.get('task_id')
+        if not task_id:
+            return Response({
+                'success': False,
+                'error': '缺少 task_id 参数',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        cache_key = f"polish_result:{task_id}"
+        cached_data = cache.get(cache_key)
+
+        if not cached_data:
+            return Response({
+                'success': False,
+                'error': '结果不存在或已过期',
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        if cached_data.get('status') == 'error':
+            return Response({
+                'success': False,
+                'error': cached_data.get('error', '任务执行失败'),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if cached_data.get('status') == 'completed':
+            return Response({
+                'success': True,
+                'data': cached_data.get('parsed_data'),
+                'full_content': cached_data.get('full_content'),
+            })
+
+        return Response({
+            'success': False,
+            'error': '未知状态',
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ApiCharacterCheckView(BaseCharacterAPIView):
@@ -705,7 +756,7 @@ class ApiCharacterCheckView(BaseCharacterAPIView):
         # 获取世界观
         worldview_str = self._get_worldview_str(project)
 
-        return stream_llm_response(
+        result = collect_llm_response(
             CHARACTER_CHECK_SYSTEM_PROMPT,
             CHARACTER_CHECK_USER_PROMPT,
             {"worldview": worldview_str, "characters_data": characters_data},
@@ -715,6 +766,9 @@ class ApiCharacterCheckView(BaseCharacterAPIView):
             project=project,
             task_type='character_check',
         )
+        if result['error']:
+            return Response({'success': False, 'error': result['error']}, status=500)
+        return Response({'success': True, 'data': result['content']})
 
 
 class ApiCharacterOptimizeView(BaseCharacterAPIView):
@@ -768,7 +822,7 @@ class ApiCharacterOptimizeView(BaseCharacterAPIView):
         issues_with_instructions = '\n\n'.join(issues_parts)
         worldview_str = self._get_worldview_str(project)
 
-        return stream_llm_response(
+        result = collect_llm_response(
             CHARACTER_OPTIMIZE_SYSTEM_PROMPT,
             CHARACTER_OPTIMIZE_USER_PROMPT,
             {
@@ -783,6 +837,9 @@ class ApiCharacterOptimizeView(BaseCharacterAPIView):
             project=project,
             task_type='character_optimize',
         )
+        if result['error']:
+            return Response({'success': False, 'error': result['error']}, status=500)
+        return Response({'success': True, 'data': result['content']})
 
 
 class ApiCharacterRelationshipTypesView(BaseCharacterAPIView):

@@ -507,31 +507,39 @@ function switchCreateTab(tab) {
     if (tab === 'manual') {
         document.querySelector('.create-tab[data-tab="manual"]').classList.add('active');
         document.getElementById('manualCreateTab').classList.add('active');
+        aiActionBtn.style.display = '';
         aiActionBtn.innerHTML = '<i class="fas fa-star"></i> AI 润色';
         aiActionBtn.dataset.action = 'polish';
+        saveCreateBtn.style.display = '';
         saveCreateBtn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
         validateManualCreateButtons();
     } else if (tab === 'ai') {
         document.querySelector('.create-tab[data-tab="ai"]').classList.add('active');
         document.getElementById('aiCreateTab').classList.add('active');
         if (currentAiGenerated && Object.keys(currentAiGenerated).length > 0) {
-            aiActionBtn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
+            aiActionBtn.style.display = 'none';
+            saveCreateBtn.style.display = '';
+            saveCreateBtn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
         } else {
+            aiActionBtn.style.display = '';
             aiActionBtn.innerHTML = '<i class="fas fa-magic"></i> AI 生成';
+            saveCreateBtn.style.display = 'none';
         }
         aiActionBtn.dataset.action = 'generate';
-        saveCreateBtn.innerHTML = '<i class="fas fa-save"></i> 保存角色';
         validateAiGenerateButtons();
     } else if (tab === 'batch') {
         document.querySelector('.create-tab[data-tab="batch"]').classList.add('active');
         document.getElementById('batchCreateTab').classList.add('active');
         if (currentBatchGenerated && currentBatchGenerated.length > 0) {
-            aiActionBtn.innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
+            aiActionBtn.style.display = 'none';
+            saveCreateBtn.style.display = '';
+            saveCreateBtn.innerHTML = '<i class="fas fa-save"></i> 批量保存';
         } else {
+            aiActionBtn.style.display = '';
             aiActionBtn.innerHTML = '<i class="fas fa-magic"></i> 批量生成';
+            saveCreateBtn.style.display = 'none';
         }
         aiActionBtn.dataset.action = 'batch';
-        saveCreateBtn.innerHTML = '<i class="fas fa-save"></i> 批量保存';
         validateBatchCreateButtons();
     }
 }
@@ -646,23 +654,27 @@ async function generateCharacterPreview() {
     showLoading('正在生成角色...');
 
     try {
-        const streamResult = await api.streamRequest(`/api/projects/${currentProjectId}/characters/generate/`, {
-            body: JSON.stringify({
-                requirement: description
-            })
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/generate/`, {
+            requirement: description
         });
 
-        const resultStr = streamResult.content || streamResult.toString();
-
         hideLoading();
+        if (!data || !data.success) {
+            showError(data?.error || '生成失败');
+            return;
+        }
+
+        const resultStr = data.data;
         let result = extractJsonFromString(resultStr);
         if (Array.isArray(result) && result.length > 0) {
             result = result[0];
         }
         currentAiGenerated = result;
         displayAiGeneratedCharacter(currentAiGenerated);
-        document.getElementById('aiActionBtn').innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
-        document.getElementById('saveCreateBtn').disabled = false;
+        document.getElementById('aiActionBtn').style.display = 'none';
+        const saveCreateBtn = document.getElementById('saveCreateBtn');
+        saveCreateBtn.style.display = '';
+        saveCreateBtn.disabled = false;
         showSuccess('角色生成完成，请确认后保存');
     } catch (error) {
         hideLoading();
@@ -787,16 +799,18 @@ async function generateBatchCharacters() {
     currentBatchGenerated = [];
 
     try {
-        const streamResult = await api.streamRequest(`/api/projects/${currentProjectId}/characters/generate/`, {
-            body: JSON.stringify({
-                requirement: description,
-                is_batch: true
-            })
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/generate/`, {
+            requirement: description,
+            is_batch: true
         });
 
-        const resultStr = streamResult.content || streamResult.toString();
-
         hideLoading();
+        if (!data || !data.success) {
+            showError(data?.error || '生成失败');
+            return;
+        }
+
+        const resultStr = data.data;
         let results = extractJsonFromString(resultStr);
         if (Array.isArray(results)) {
             currentBatchGenerated = results.map((char, index) => {
@@ -813,7 +827,8 @@ async function generateBatchCharacters() {
             renderBatchCharacters();
             document.getElementById('batchDescriptionSection').style.display = 'none';
             document.getElementById('batchGeneratedContent').style.display = 'block';
-            document.getElementById('aiActionBtn').innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
+            document.getElementById('aiActionBtn').style.display = 'none';
+            document.getElementById('saveCreateBtn').style.display = '';
             validateBatchCreateButtons();
             showSuccess(`成功生成 ${currentBatchGenerated.length} 个角色`);
         } else {
@@ -1351,52 +1366,21 @@ async function _doPolishCharacter(formPrefix, btnId) {
     }
 
     try {
-        const streamResult = await api.streamRequest(`/api/projects/${currentProjectId}/characters/polish/`, {
-            body: JSON.stringify(bodyData)
-        });
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/polish/`, bodyData);
 
         hideLoading();
 
-        if (!streamResult) {
-            showError('润色失败，请重试');
+        if (!data || !data.success) {
+            showError(data?.error || '润色失败，请重试');
             return;
         }
 
-        let fullContent;
-        let taskId;
-
-        if (typeof streamResult === 'object' && streamResult.content !== undefined) {
-            fullContent = streamResult.content;
-            taskId = streamResult.taskId;
-        } else {
-            fullContent = String(streamResult);
-            taskId = null;
-        }
-
+        const fullContent = data.data;
         let result = extractJsonFromString(fullContent);
         if (result && typeof result === 'object') {
             applyPolishResult(formPrefix, result);
             showSuccess('AI润色完成');
             return;
-        }
-
-        if (taskId) {
-            showLoading('解析失败，正在尝试获取服务器解析结果...');
-            try {
-                const fallbackData = await api.get(`/api/projects/${currentProjectId}/characters/polish/?task_id=${taskId}`);
-                hideLoading();
-                if (fallbackData && fallbackData.success && fallbackData.data) {
-                    const fallbackResult = extractJsonFromString(fallbackData.data);
-                    if (fallbackResult && typeof fallbackResult === 'object') {
-                        applyPolishResult(formPrefix, fallbackResult);
-                        showSuccess('AI润色完成（服务器解析）');
-                        return;
-                    }
-                }
-            } catch (fallbackError) {
-                hideLoading();
-                console.error('获取服务器解析结果失败:', fallbackError);
-            }
         }
 
         showError('润色结果解析失败，请重试');

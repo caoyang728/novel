@@ -397,7 +397,9 @@ function openCreateDialog() {
     // 清空AI生成相关字段
     document.getElementById('aiDescription').value = '';
     document.getElementById('batchDescription').value = '';
+    document.getElementById('aiDescriptionSection').style.display = '';
     document.getElementById('aiGeneratedContent').style.display = 'none';
+    document.getElementById('batchDescriptionSection').style.display = '';
     document.getElementById('batchGeneratedContent').style.display = 'none';
     currentAiGenerated = null;
     currentBatchGenerated = [];
@@ -483,10 +485,12 @@ function closeCreateDialog(e) {
     unlockScroll();
     // 清空AI生成的内容
     document.getElementById('aiDescription').value = '';
+    document.getElementById('aiDescriptionSection').style.display = '';
     document.getElementById('aiGeneratedContent').style.display = 'none';
     currentAiGenerated = null;
     // 清空批量创建的内容
     document.getElementById('batchDescription').value = '';
+    document.getElementById('batchDescriptionSection').style.display = '';
     document.getElementById('batchGeneratedContent').style.display = 'none';
     currentBatchGenerated = [];
     // 切换回手动创建标签
@@ -634,18 +638,21 @@ async function generateCharacterPreview() {
     setCharBtnLoading('aiActionBtn', true, '生成中...');
     document.getElementById('saveCreateBtn').disabled = true;
 
-    // 显示生成内容区域并清空
+    // 显示生成内容区域并清空，隐藏描述输入区
+    document.getElementById('aiDescriptionSection').style.display = 'none';
     document.getElementById('aiGeneratedContent').style.display = 'block';
     clearAiGeneratedFields();
 
     showLoading('正在生成角色...');
 
     try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/generate/`, {
+        const streamResult = await api.streamRequest(`/api/projects/${currentProjectId}/characters/generate/`, {
             body: JSON.stringify({
                 requirement: description
             })
         });
+
+        const resultStr = streamResult.content || streamResult.toString();
 
         hideLoading();
         let result = extractJsonFromString(resultStr);
@@ -673,13 +680,38 @@ function clearAiGeneratedFields() {
     clearFormFields('aiGenerated');
 }
 
+/**
+ * 归一化 role_type 值，确保匹配 select 选项
+ */
+function normalizeRoleType(val) {
+    if (!val) return '配角';
+    const trimmed = String(val).trim();
+    const ROLE_MAP = {
+        '主角': '主角', '主人公': '主角', '男主': '主角', '女主': '主角',
+        'protagonist': '主角', 'main': '主角', 'hero': '主角', 'heroine': '主角',
+        '反派': '反派', '恶人': '反派', '对手': '反派',
+        'villain': '反派', 'antagonist': '反派', 'enemy': '反派',
+        '配角': '配角', 'supporting': '配角', 'side': '配角',
+        '路人': '路人', '龙套': '路人', 'npc': '路人', 'extra': '路人',
+    };
+    return ROLE_MAP[trimmed] || ROLE_MAP[trimmed.toLowerCase()] || '配角';
+}
+
 function displayAiGeneratedCharacter(charData) {
     document.getElementById('aiGeneratedContent').style.display = 'block';
 
-    // 兼容旧 prompt 返回 role/background/tags 的情况
-    if (charData.role && !charData.role_type) charData.role_type = charData.role;
-    if (charData.background && !charData.backstory) charData.backstory = charData.background;
-    if (charData.tags && !charData.tagline) charData.tagline = charData.tags;
+    // 兼容 shim：AI 返回 tags，模型字段名为 tagline
+    if (charData.tags !== undefined && charData.tagline === undefined) {
+        charData.tagline = charData.tags;
+    }
+    // 兼容 shim：AI 可能返回 role 而不是 role_type
+    if (charData.role !== undefined && !charData.role_type) {
+        charData.role_type = charData.role;
+    }
+    // 归一化 role_type 值
+    if (charData.role_type) {
+        charData.role_type = normalizeRoleType(charData.role_type);
+    }
 
     // 构造统一值对象
     const values = {};
@@ -755,22 +787,31 @@ async function generateBatchCharacters() {
     currentBatchGenerated = [];
 
     try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/generate/`, {
+        const streamResult = await api.streamRequest(`/api/projects/${currentProjectId}/characters/generate/`, {
             body: JSON.stringify({
                 requirement: description,
                 is_batch: true
             })
         });
 
+        const resultStr = streamResult.content || streamResult.toString();
+
         hideLoading();
         let results = extractJsonFromString(resultStr);
         if (Array.isArray(results)) {
-            currentBatchGenerated = results.map((char, index) => ({
-                ...char,
-                selected: true,
-                index: index
-            }));
+            currentBatchGenerated = results.map((char, index) => {
+                // 兼容 shim：AI 返回 tags/role 而非 tagline/role_type
+                if (char.tags !== undefined && char.tagline === undefined) char.tagline = char.tags;
+                if (char.role !== undefined && !char.role_type) char.role_type = char.role;
+                if (char.role_type) char.role_type = normalizeRoleType(char.role_type);
+                return {
+                    ...char,
+                    selected: true,
+                    index: index
+                };
+            });
             renderBatchCharacters();
+            document.getElementById('batchDescriptionSection').style.display = 'none';
             document.getElementById('batchGeneratedContent').style.display = 'block';
             document.getElementById('aiActionBtn').innerHTML = '<i class="fas fa-redo"></i> AI 重新生成';
             validateBatchCreateButtons();
@@ -803,7 +844,7 @@ function renderBatchCharacters() {
             <div class="batch-character-content">
                 <div class="batch-character-header">
                     <span class="batch-character-name">${escapeHtml(char.name || '未命名')}</span>
-                    <span class="batch-character-role">${escapeHtml(char.role_type || char.role || '配角')}</span>
+                    <span class="batch-character-role">${escapeHtml(char.role_type || '配角')}</span>
                 </div>
                 <div class="batch-character-info">
                     ${char.age != null && char.age !== '' ? `<span class="info-item">年龄: ${escapeHtml(char.age)}</span>` : ''}
@@ -811,8 +852,8 @@ function renderBatchCharacters() {
                     ${char.faction ? `<span class="info-item">势力: ${escapeHtml(char.faction)}</span>` : ''}
                 </div>
                 <div class="batch-character-description">
-                    ${char.personality ? `<p><strong>性格:</strong> ${escapeHtml(char.personality)}</p>` : ''}
-                    ${char.background || char.backstory ? `<p><strong>背景:</strong> ${escapeHtml((char.background || char.backstory).substring(0, 100))}${(char.background || char.backstory).length > 100 ? '...' : ''}</p>` : ''}
+                    ${char.personality ? `<div class="batch-desc-block"><strong>性格</strong><span>${escapeHtml(char.personality)}</span></div>` : ''}
+                    ${char.backstory ? `<div class="batch-desc-block"><strong>背景</strong><span>${escapeHtml(char.backstory.substring(0, 100))}${char.backstory.length > 100 ? '...' : ''}</span></div>` : ''}
                 </div>
             </div>
         </div>
@@ -834,12 +875,12 @@ async function saveCharacterToApi(char) {
         const result = await api.post(`/api/projects/${currentProjectId}/characters/`, {
             name: charName,
             gender: char.gender || '未知',
-            role_type: char.role_type || char.role || '配角',
+            role_type: char.role_type || '配角',
             personality: char.personality || '',
-            backstory: char.background || char.backstory || '',
+            backstory: char.backstory || '',
             appearance: char.appearance || '',
             motivation: char.motivation || '',
-            tagline: char.tags || '',
+            tagline: char.tagline || '',
             faction: normalizeFactionInput(char.faction || ''),
             age: char.age || '',
             identity: char.identity || '',
@@ -1310,18 +1351,55 @@ async function _doPolishCharacter(formPrefix, btnId) {
     }
 
     try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/polish/`, {
+        const streamResult = await api.streamRequest(`/api/projects/${currentProjectId}/characters/polish/`, {
             body: JSON.stringify(bodyData)
         });
 
         hideLoading();
-        const result = extractJsonFromString(resultStr);
+
+        if (!streamResult) {
+            showError('润色失败，请重试');
+            return;
+        }
+
+        let fullContent;
+        let taskId;
+
+        if (typeof streamResult === 'object' && streamResult.content !== undefined) {
+            fullContent = streamResult.content;
+            taskId = streamResult.taskId;
+        } else {
+            fullContent = String(streamResult);
+            taskId = null;
+        }
+
+        let result = extractJsonFromString(fullContent);
         if (result && typeof result === 'object') {
             applyPolishResult(formPrefix, result);
             showSuccess('AI润色完成');
-        } else {
-            showError('润色结果解析失败，请重试');
+            return;
         }
+
+        if (taskId) {
+            showLoading('解析失败，正在尝试获取服务器解析结果...');
+            try {
+                const fallbackData = await api.get(`/api/projects/${currentProjectId}/characters/polish/?task_id=${taskId}`);
+                hideLoading();
+                if (fallbackData && fallbackData.success && fallbackData.data) {
+                    const fallbackResult = extractJsonFromString(fallbackData.data);
+                    if (fallbackResult && typeof fallbackResult === 'object') {
+                        applyPolishResult(formPrefix, fallbackResult);
+                        showSuccess('AI润色完成（服务器解析）');
+                        return;
+                    }
+                }
+            } catch (fallbackError) {
+                hideLoading();
+                console.error('获取服务器解析结果失败:', fallbackError);
+            }
+        }
+
+        showError('润色结果解析失败，请重试');
     } catch (error) {
         hideLoading();
         console.error('AI润色失败:', error);

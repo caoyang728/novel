@@ -1865,7 +1865,7 @@ async function optimizeCheckIssues() {
         const userSolution = solutions.filter(s => s).join('\n');
 
         // 5. 发送请求
-        const rawText = await api.streamRequest(
+        const streamResult = await api.streamRequest(
             `/api/projects/${projectId}/timeline/check/optimize/`,
             {
                 method: 'POST',
@@ -1879,6 +1879,8 @@ async function optimizeCheckIssues() {
                 }
             }
         );
+
+        const rawText = streamResult.content || streamResult.toString();
 
         // 6. 解析返回结果
         const ITEM_START = '════ITEM_START════';

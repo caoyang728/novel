@@ -37,10 +37,12 @@ async function checkAllCharacters() {
     showLoading('正在检测所有角色...');
 
     try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/check/`, {
+        const streamResult = await api.streamRequest(`/api/projects/${currentProjectId}/characters/check/`, {
             method: 'POST',
             body: JSON.stringify({})
         });
+
+        const resultStr = streamResult.content || streamResult.toString();
 
         hideLoading();
 
@@ -151,9 +153,11 @@ async function optimizeFromCheck() {
     optimizeBtn.disabled = true;
 
     try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/optimize/`, {
+        const streamResult = await api.streamRequest(`/api/projects/${currentProjectId}/characters/optimize/`, {
             body: JSON.stringify({ issues: issuesWithInstructions })
         });
+
+        const resultStr = streamResult.content || streamResult.toString();
 
         hideLoading();
         if (!resultStr) {
@@ -244,8 +248,7 @@ function renderOptimizeResult(items) {
             <label class="opt-item-header">
                 <input type="checkbox" class="opt-checkbox" data-index="${index}" checked>
                 <span class="check-result-chars">${escapeHtml(item.name)}</span>
-                <i class="fas ${typeIcon}" style="color: ${typeColor};"></i>
-                <span style="color: ${typeColor}; font-weight: 600;">${typeLabel}</span>
+                <span>${typeLabel}</span>
             </label>
         </div>`;
 

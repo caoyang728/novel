@@ -388,13 +388,13 @@ function showWarning(message, duration = null) {
 // ==================== 加载动画相关 ====================
 
 // 显示加载动画
-function showLoading(message = '加载中...', opacity = 0.6, blur = 4) {
+function showLoading(message = '加载中...', opacity = 0.6) {
     let loadingEl = document.getElementById('global-loading');
     if (!loadingEl) {
         loadingEl = document.createElement('div');
         loadingEl.id = 'global-loading';
         loadingEl.innerHTML = `
-            <div class="loading-overlay active" style="background-color: rgba(15, 23, 42, ${opacity}); backdrop-filter: blur(${blur}px); -webkit-backdrop-filter: blur(${blur}px)">
+            <div class="loading-overlay active" style="background-color: rgba(15, 23, 42, ${opacity})">
                 <div class="loading-content">
                     <div class="loading-spinner">
                         <div class="loading-spinner-outer"></div>
@@ -413,8 +413,6 @@ function showLoading(message = '加载中...', opacity = 0.6, blur = 4) {
     const overlay = loadingEl.querySelector('.loading-overlay');
     if (overlay) {
         overlay.style.backgroundColor = `rgba(15, 23, 42, ${opacity})`;
-        overlay.style.backdropFilter = `blur(${blur}px)`;
-        overlay.style.webkitBackdropFilter = `blur(${blur}px)`;
     }
 }
 
@@ -822,8 +820,9 @@ const api = {
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            let result = '';
+            const chunks = [];
             let buffer = '';
+            let taskId = null;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -836,7 +835,12 @@ const api = {
                 for (const line of lines) {
                     if (!line.startsWith('data: ')) continue;
                     const data = line.slice(6);
-                    if (data === '[DONE]') return result;
+                    if (data === '[DONE]') {
+                        const result = chunks.join('');
+                        const ret = { content: result, taskId: taskId, data: result };
+                        ret.toString = () => result;
+                        return ret;
+                    }
 
                     let parsed;
                     try {
@@ -845,9 +849,20 @@ const api = {
                         continue;  // 非 JSON 数据跳过
                     }
 
-                    // 格式1: type: chunk|complete|error
+                    if (parsed.type === 'task_id') {
+                        taskId = parsed.data;
+                        continue;
+                    }
+
                     if (parsed.type === 'complete') {
-                        return parsed.data !== undefined ? parsed.data : result;
+                        const result = chunks.join('');
+                        const ret = {
+                            content: result,
+                            taskId: taskId,
+                            data: parsed.data !== undefined ? parsed.data : result,
+                        };
+                        ret.toString = () => result;
+                        return ret;
                     }
                     if (parsed.type === 'error') {
                         const errMsg = parsed.message || '操作失败';
@@ -858,17 +873,19 @@ const api = {
                         throw new Error(errMsg);
                     }
                     if (parsed.type === 'chunk') {
-                        result += (parsed.content || parsed.data || '');
+                        chunks.push(parsed.content || parsed.data || '');
                         continue;
                     }
 
-                    // 格式2: 旧格式兼容 {content: "..."} 或 {data: "..."}
                     const chunkContent = parsed.content || parsed.data || '';
-                    if (chunkContent) result += chunkContent;
+                    if (chunkContent) chunks.push(chunkContent);
                 }
             }
 
-            return result;
+            const result = chunks.join('');
+            const ret = { content: result, taskId: taskId, data: result };
+            ret.toString = () => result;
+            return ret;
         } catch (error) {
             if (options.onError) {
                 options.onError(error);

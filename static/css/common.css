@@ -995,8 +995,6 @@ textarea:-webkit-autofill:focus {
     position: fixed;
     inset: 0;
     background-color: rgba(30, 41, 59, 0.6);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;

@@ -256,7 +256,7 @@
     overflow-y: scroll;
     display: flex;
     flex-direction: column;
-    padding: 1rem 1.5rem;
+    padding: 0.5rem 1.5rem;
 }
 
 /* 确认弹窗 - 复用 common.js 的通用确认弹窗 */
@@ -428,8 +428,6 @@
     font-size: 12px;
 }
 
-/* .tab-content 和 .tab-content.active 已在 common.css 中定义 */
-
 /* tab 切换淡入动画 */
 #createDialog .tab-content.active,
 #editDialog .tab-content.active {
@@ -457,8 +455,7 @@
 
 /* AI生成内容 */
 .ai-generated-content {
-    margin-top: 20px;
-    padding: 20px;
+    padding: 10px;
     background: var(--char-surface);
     border: 1px solid rgba(99, 102, 241, 0.3);
     border-radius: 12px;
@@ -468,7 +465,7 @@
     font-size: 16px;
     font-weight: 600;
     color: var(--primary);
-    margin-bottom: 20px;
+    margin-bottom: 10px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -793,6 +790,10 @@
     border: 1px solid rgba(129, 140, 248, 0.2);
     border-radius: 6px;
     font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -870,6 +871,8 @@
     align-items: center;
     gap: 8px;
     cursor: pointer;
+    overflow: hidden;
+    min-width: 0;
 }
 
 .opt-checkbox {
@@ -998,8 +1001,8 @@
 
 /* ===== 批量创建角色样式 ===== */
 .batch-generated-content {
-    margin-top: 20px;
-    padding: 20px;
+    /* margin-top: 20px; */
+    padding: 10px;
     background: var(--char-surface);
     border: 1px solid rgba(99, 102, 241, 0.3);
     border-radius: 12px;
@@ -1082,15 +1085,25 @@
     font-size: 13px;
     color: var(--text-secondary);
     line-height: 1.5;
+    text-align: left;
 }
 
-.batch-character-description p {
-    margin: 0 0 4px;
+.batch-desc-block {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 4px;
 }
 
-.batch-character-description strong {
+.batch-desc-block strong {
     color: var(--text-primary);
     font-weight: 500;
+    flex-shrink: 0;
+}
+
+.batch-desc-block span {
+    color: var(--text-secondary);
+    word-break: break-word;
 }
 
 /* ===== 提取的内联样式 ===== */

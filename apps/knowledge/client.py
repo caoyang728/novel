@@ -53,6 +53,10 @@ def _connect_milvus(mode, embedding_dim, coll_name):
     else:
         logger.info(f"Milvus Collection '{coll_name}' 已存在")
 
+    # 确保 collection 处于加载状态
+    client.load(coll_name)
+    logger.info(f"Milvus Collection '{coll_name}' 加载完成")
+
     return client
 
 

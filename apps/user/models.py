@@ -12,6 +12,7 @@ class LLMConfig(models.Model):
         ('azure', 'Azure OpenAI'),
         ('claude', 'Claude'),
         ('deepseek', 'DeepSeek'),
+        ('bigmodel', 'BigModel'),
         ('qwen', '通义千问'),
         ('ollama', 'Ollama'),
         ('custom', '自定义'),

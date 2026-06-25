@@ -122,10 +122,20 @@ class KnowledgeRetriever:
 
         return result
 
+    def _ensure_collection_loaded(self):
+        """确保 Milvus Collection 已加载，必要时重新加载"""
+        if not self.client:
+            return
+        try:
+            self.client.load(self.coll_name)
+        except Exception as e:
+            logger.warning(f"Collection '{self.coll_name}' 加载失败: {e}")
+
     def _search_by_type(self, project_id, doc_type, query_embedding, limit):
         """按向量相似度搜索"""
         if not self.client:
             return []
+        self._ensure_collection_loaded()
         try:
             expr = f'project_id == "{project_id}" && doc_type == "{doc_type}"'
             results = self.client.search(
@@ -153,6 +163,7 @@ class KnowledgeRetriever:
         """按类型查询（不按语义排序）"""
         if not self.client:
             return []
+        self._ensure_collection_loaded()
         try:
             expr = f'project_id == "{project_id}" && doc_type == "{doc_type}"'
             results = self.client.query(

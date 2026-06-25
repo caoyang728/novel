@@ -207,7 +207,7 @@ class ApiVolumeVersionListView(BaseVolumeAPIView):
                 # ===== 第一阶段：分析大纲，提取卷结构规划 =====
                 yield self.sse_event('progress', {'message': '正在分析大纲...'})
 
-                llm = get_llm(user=request.user, scene="volume_generate")
+                llm = get_llm(user=request.user, scene="volume_batch_generate")
                 analysis_prompt = ChatPromptTemplate.from_messages([
                     ("system", VOLUME_ANALYSIS_SYSTEM_PROMPT),
                     ("human", VOLUME_ANALYSIS_USER_PROMPT),
@@ -540,7 +540,7 @@ class ApiVolumeVersionOptimizeView(BaseVolumeAPIView):
                     'volume_plan': [{'volume_number': v['volume_number'], 'chapter_count': v['chapter_count']} for v in current_volumes]
                 })
 
-                llm = get_llm(user=request.user, scene="volume_optimize")
+                llm = get_llm(user=request.user, scene="volume_single_optimize")
                 generate_prompt = ChatPromptTemplate.from_messages([
                     ("system", VOLUME_OPTIMIZE_SYSTEM_PROMPT),
                     ("human", VOLUME_OPTIMIZE_USER_PROMPT),
@@ -931,7 +931,7 @@ class ApiVolumeOptimizeView(BaseVolumeAPIView):
         # 获取项目上下文（世界观、人物、时间线）
         worldview_context, characters_context, timeline_context = self.get_project_context(project)
 
-        llm = get_llm(user=request.user, scene="volume_optimize")
+        llm = get_llm(user=request.user, scene="volume_single_optimize")
         prompt = ChatPromptTemplate.from_messages([
             ("system", VOLUME_SINGLE_OPTIMIZE_SYSTEM_PROMPT),
             ("human", VOLUME_SINGLE_OPTIMIZE_USER_PROMPT),
@@ -1018,7 +1018,7 @@ class ApiVolumeGenerateView(BaseVolumeAPIView):
             MAX_RETRIES = 2
 
             try:
-                llm = get_llm(user=request.user, scene="volume_generate")
+                llm = get_llm(user=request.user, scene="volume_single_generate")
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", VOLUME_GENERATION_SYSTEM_PROMPT),
                     ("human", VOLUME_GENERATION_USER_PROMPT),

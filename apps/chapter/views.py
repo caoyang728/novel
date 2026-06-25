@@ -120,7 +120,7 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                 # ========== 阶段1：生成标题+概述 ==========
                 yield self.sse_event('progress', {'message': '思考中...', 'phase': 'outline'})
 
-                llm = get_llm(user=request.user, scene="chapter_generate")
+                llm = get_llm(user=request.user, scene="chapter_batch_generate")
 
                 outline_input_vars = {
                     "volume_outline": volume.content or volume.summary or "",
@@ -369,7 +369,7 @@ class ApiChapterContentView(BaseChapterAPIView):
         if reference_content:
             reference_context = f"上一章节的内容（作为写作参考，保持风格和情节连续性）:\n{reference_content}\n\n"
 
-        llm = get_llm(user=user, scene="content_generate")
+        llm = get_llm(user=user, scene="default")
 
         input_vars = {
             "volume_outline": volume_outline,
@@ -390,7 +390,7 @@ class ApiChapterContentView(BaseChapterAPIView):
         ])
         chain = prompt | llm
 
-        for chunk in call_llm_with_retry(chain, input_vars=input_vars, stream=True, user=user, scene="content_generate", project=project, task_type='chapter_content'):
+        for chunk in call_llm_with_retry(chain, input_vars=input_vars, stream=True, user=user, scene="default", project=project, task_type='chapter_content'):
             if chunk:
                 yield chunk
 
@@ -466,7 +466,7 @@ class ApiChapterVerifyView(BaseChapterAPIView):
             "chapter_content": chapter_content,
         }
 
-        llm = get_llm(user=user, scene="default")
+        llm = get_llm(user=user, scene="chapter_verify")
         prompt = ChatPromptTemplate.from_messages([
             ("system", CHAPTER_VERIFY_SYSTEM_PROMPT),
             ("human", CHAPTER_VERIFY_USER_PROMPT),
@@ -474,9 +474,9 @@ class ApiChapterVerifyView(BaseChapterAPIView):
         chain = prompt | llm
 
         if stream:
-            return call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="default", project=project, task_type='chapter_verify', stream=True)
+            return call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="chapter_verify", project=project, task_type='chapter_verify', stream=True)
         else:
-            response = call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="default", project=project, task_type='chapter_verify')
+            response = call_llm_with_retry(chain, input_vars=input_vars, user=user, scene="chapter_verify", project=project, task_type='chapter_verify')
             return response
 
     def post(self, request, project_id):
@@ -550,7 +550,7 @@ class ApiChapterVerifyFixView(BaseChapterAPIView):
             "issues_text": issues_text,
         }
 
-        llm = get_llm(user=request.user, scene="default")
+        llm = get_llm(user=request.user, scene="chapter_verify")
         prompt = ChatPromptTemplate.from_messages([
             ("system", CHAPTER_VERIFY_FIX_SYSTEM_PROMPT),
             ("human", CHAPTER_VERIFY_FIX_USER_PROMPT),
@@ -559,7 +559,7 @@ class ApiChapterVerifyFixView(BaseChapterAPIView):
 
         result_generator = call_llm_with_retry(
             chain, input_vars=input_vars,
-            user=request.user, scene="default",
+            user=request.user, scene="chapter_verify",
             project=volume.volume_version.project,
             task_type='chapter_verify_fix', stream=True
         )
@@ -608,7 +608,7 @@ class ApiChapterSplitView(BaseChapterAPIView):
             "next_chapter_number": chapter.chapter_number + 1,
         }
 
-        llm = get_llm(user=request.user, scene="chapter_generate")
+        llm = get_llm(user=request.user, scene="chapter_split")
 
         if split_mode == 'plot':
             prompt = ChatPromptTemplate.from_messages([
@@ -997,7 +997,7 @@ class ApiChapterChatView(BaseChapterAPIView):
             "user_message": user_message,
         }
 
-        llm = get_llm(user=request.user, scene="content_generate")
+        llm = get_llm(user=request.user, scene="default")
         chat_prompt = ChatPromptTemplate.from_messages([
             ("system", CHAPTER_CHAT_WRITE_SYSTEM_PROMPT),
             ("human", CHAPTER_CHAT_WRITE_USER_PROMPT),

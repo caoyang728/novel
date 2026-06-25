@@ -607,7 +607,7 @@ def call_llm_with_retry(chain_or_messages, input_vars=None, stream=False, timeou
     raise Exception(f"LLM调用失败，已重试 {max_retries} 次")
 
 
-def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, timeout=None, error_msg='操作失败，请重试', post_process=None, project=None, task_type=None):
+def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, timeout=None, error_msg='操作失败，请重试', post_process=None, project=None, task_type=None, enable_cache=False):
     """通用 LLM 流式调用，返回 StreamingHttpResponse
 
     使用 LCEL (LangChain Expression Language) 构建 chain，system/user 分开定义提示词，
@@ -624,6 +624,7 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
         post_process: 可选后处理函数，接收 full_content，返回最终 data 值
         project: 项目对象，用于 token 日志记录
         task_type: 任务类型标识，用于 token 日志记录（默认使用 scene）
+        enable_cache: 是否启用结果缓存（用于前端解析失败时回退）
 
     Returns:
         StreamingHttpResponse: SSE 流式响应
@@ -632,6 +633,10 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
 
     max_retries = getattr(settings, 'LLM_RETRY', 3)
     retry_interval = getattr(settings, 'LLM_RETRY_INTERVAL', 2)
+
+    import uuid
+    from django.core.cache import cache
+    task_id = str(uuid.uuid4()) if enable_cache else None
 
     def generate():
         try:
@@ -645,6 +650,10 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
             full_content = ""
             last_chunk = None
             usage_chunk = None
+
+            if task_id:
+                yield f"data: {json.dumps({'type': 'task_id', 'data': task_id}, ensure_ascii=False)}\n\n"
+
             for retry_count in range(max_retries):
                 try:
                     for chunk in chain.stream(prompt_vars):
@@ -676,13 +685,87 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
             else:
                 data_value = full_content
 
-            yield f"data: {json.dumps({'type': 'complete', 'data': data_value}, ensure_ascii=False)}\n\n"
+            if task_id:
+                cache_key = f"polish_result:{task_id}"
+                cache_data = {
+                    'full_content': full_content,
+                    'parsed_data': data_value,
+                    'status': 'completed',
+                }
+                cache.set(cache_key, cache_data, timeout=300)
+                logger.info(f"Polish result cached: task_id={task_id}")
+
+            yield f"data: {json.dumps({'type': 'complete', 'data': ''}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             logger.error(f"LLM流式调用异常(scene={scene}): {e}")
+            if task_id:
+                cache_key = f"polish_result:{task_id}"
+                cache.set(cache_key, {'status': 'error', 'error': str(e)}, timeout=300)
             yield f"data: {json.dumps({'type': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
 
     response = StreamingHttpResponse(generate(), content_type='text/event-stream')
     response['Cache-Control'] = 'no-cache'
     response['X-Accel-Buffering'] = 'no'
     return response
+
+
+def collect_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, timeout=None,
+                  error_msg='操作失败，请重试', post_process=None, project=None, task_type=None):
+    """通用 LLM 收集调用，内部流式读取 LLM，一次性返回完整结果
+    
+    Args:
+        与 stream_llm_response 相同，但不支持 enable_cache
+        
+    Returns:
+        dict: {'content': str, 'error': str|None}
+    """
+    from langchain_core.prompts import ChatPromptTemplate
+    
+    max_retries = getattr(settings, 'LLM_RETRY', 3)
+    retry_interval = getattr(settings, 'LLM_RETRY_INTERVAL', 2)
+
+    try:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("user", user_prompt),
+        ])
+        llm = get_llm(user=user, scene=scene, timeout=timeout)
+        chain = prompt | llm
+
+        full_content = ""
+        last_chunk = None
+        usage_chunk = None
+
+        for retry_count in range(max_retries):
+            try:
+                for chunk in chain.stream(prompt_vars):
+                    last_chunk = chunk
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        usage_chunk = chunk
+                    chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                    full_content += chunk_content
+                break
+            except Exception as e:
+                err = str(e)
+                logger.error(f"LLM调用失败(scene={scene}): {err}, 重试 {retry_count + 1}/{max_retries}")
+                if "timeout" in err.lower() or "timed out" in err.lower():
+                    retry_interval_current = retry_interval * (2 ** retry_count)
+                else:
+                    retry_interval_current = retry_interval
+                if retry_count < max_retries - 1:
+                    time.sleep(retry_interval_current)
+                else:
+                    return {'content': '', 'error': error_msg}
+
+        # 记录 token 使用量
+        log_task = task_type or scene
+        log_token_usage(log_task, result=last_chunk, usage_result=usage_chunk, user=user, project=project)
+
+        data_value = post_process(full_content) if post_process else full_content
+
+        return {'content': data_value, 'error': None}
+
+    except Exception as e:
+        logger.error(f"LLM同步调用异常(scene={scene}): {e}")
+        return {'content': '', 'error': error_msg}

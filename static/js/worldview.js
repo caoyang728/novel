@@ -1502,7 +1502,7 @@ async function aiPolishLayer(layerName) {
     showLoading(`AI正在润色${config.sectionName}...`);
 
     try {
-        const fullContent = await api.streamRequest(
+        const streamResult = await api.streamRequest(
             `/api/projects/${currentProjectId}/worldviews/${worldviewId}/optimize/${layerName}/`,
             {
                 method: 'POST',
@@ -1514,6 +1514,7 @@ async function aiPolishLayer(layerName) {
             }
         );
 
+        const fullContent = streamResult.content || streamResult.toString();
         _handleOptimizeResponse(layerName, config, fullContent);
     } catch (error) {
         console.error(`Polish ${layerName} failed:`, error);

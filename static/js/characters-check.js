@@ -37,13 +37,16 @@ async function checkAllCharacters() {
     showLoading('正在检测所有角色...');
 
     try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/check/`, {
-            method: 'POST',
-            body: JSON.stringify({})
-        });
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/check/`, {});
 
         hideLoading();
 
+        if (!data || !data.success) {
+            showError(data?.error || '检测失败');
+            return;
+        }
+
+        const resultStr = data.data;
         if (!resultStr) {
             showError('检测结果为空');
             return;
@@ -151,11 +154,15 @@ async function optimizeFromCheck() {
     optimizeBtn.disabled = true;
 
     try {
-        const resultStr = await api.streamRequest(`/api/projects/${currentProjectId}/characters/optimize/`, {
-            body: JSON.stringify({ issues: issuesWithInstructions })
-        });
+        const data = await api.post(`/api/projects/${currentProjectId}/characters/optimize/`, { issues: issuesWithInstructions });
 
         hideLoading();
+        if (!data || !data.success) {
+            showError(data?.error || '优化失败');
+            return;
+        }
+
+        const resultStr = data.data;
         if (!resultStr) {
             showError('优化结果为空');
             return;
@@ -244,8 +251,7 @@ function renderOptimizeResult(items) {
             <label class="opt-item-header">
                 <input type="checkbox" class="opt-checkbox" data-index="${index}" checked>
                 <span class="check-result-chars">${escapeHtml(item.name)}</span>
-                <i class="fas ${typeIcon}" style="color: ${typeColor};"></i>
-                <span style="color: ${typeColor}; font-weight: 600;">${typeLabel}</span>
+                <span>${typeLabel}</span>
             </label>
         </div>`;
 

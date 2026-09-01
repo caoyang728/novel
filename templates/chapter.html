@@ -21,18 +21,22 @@
                 <p class="header-subtitle" id="project-title">请选择项目</p>
             </div>
             <div class="header-actions">
-                <div class="d-flex gap-2 align-items-center select-form">
+                <div class="d-flex gap-2 align-items-center">
                     <label class="select-label" for="volume-version-select">卷版本</label>
-                    <select class="form-select" id="volume-version-select" style="width: 180px;">
+                    <select class="form-select" id="volume-version-select" style="width: 140px;">
                         <option value="">请选择卷版本</option>
                     </select>
                     <label class="select-label" for="volume-select">卷</label>
-                    <select class="form-select" id="volume-select" style="width: 180px;" disabled>
+                    <select class="form-select" id="volume-select" style="width: 140px;" disabled>
                         <option value="">请选择卷</option>
                     </select>
-                    <button class="btn generate-chapters-btn" id="generate-chapters-btn" onclick="generateChapterSummaries()" disabled>
+                    <button class="btn-save" id="generate-chapters-btn" onclick="generateChapterSummaries()" disabled>
                         <i class="fas fa-wand-magic-sparkles"></i>
                         <span>AI 生成章节</span>
+                    </button>
+                    <button class="btn-ai" id="batch-check-btn" onclick="openBatchCheckRangeModal()" disabled>
+                        <i class="fas fa-magnifying-glass-chart"></i>
+                        <span>AI校验</span>
                     </button>
                 </div>
             </div>
@@ -300,6 +304,67 @@
                 <button class="btn btn-outline-secondary" onclick="closeModalById('deleted-warning-modal')">取消</button>
                 <button class="btn btn-ai" id="deleted-warning-go-restore-btn">去恢复</button>
                 <button class="btn btn-ai" id="deleted-warning-confirm-btn">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI校验范围选择弹窗 -->
+    <div class="dialog-overlay" id="batch-check-range-modal">
+        <div class="dialog dialog-auto">
+            <div class="dialog-header">
+                <h5><i class="fas fa-magnifying-glass-chart me-2"></i> AI校验 - 选择范围</h5>
+                <button class="btn-close" onclick="closeModalById('batch-check-range-modal')"></button>
+            </div>
+            <div class="dialog-body">
+                <p class="text-muted mb-3">每10章为一个批次，前后各扩展3章作为上下文参考（前3章只读，后3章可修改）。</p>
+                <div class="batch-range-form">
+                    <div class="batch-range-row">
+                        <label>起始章节</label>
+                        <select class="form-select" id="batch-range-start" onchange="onBatchRangeChange()">
+                            <option value="">请选择</option>
+                        </select>
+                    </div>
+                    <div class="batch-range-row">
+                        <label>结束章节</label>
+                        <select class="form-select" id="batch-range-end" onchange="onBatchRangeChange()">
+                            <option value="">请选择</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="batch-range-preview" id="batch-range-preview" style="display:none;">
+                    <div class="batch-range-preview-title">校验范围预览</div>
+                    <div class="batch-range-legend">
+                        <span class="batch-legend-item"><span class="batch-legend-dot context-before"></span> 上下文（只读）</span>
+                        <span class="batch-legend-item"><span class="batch-legend-dot main"></span> 主要校验（可修改）</span>
+                        <span class="batch-legend-item"><span class="batch-legend-dot context-after"></span> 上下文（可修改）</span>
+                    </div>
+                    <div class="batch-range-chapters" id="batch-range-chapters"></div>
+                </div>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn-outline-secondary" onclick="closeModalById('batch-check-range-modal')">取消</button>
+                <button class="btn btn-ai" id="btn-batch-check-start" onclick="startBatchCheck()" disabled>
+                    <i class="fas fa-search-plus"></i> 开始校验
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI校验结果弹窗 -->
+    <div class="dialog-overlay" id="batch-check-result-modal">
+        <div class="dialog dialog-xl">
+            <div class="dialog-header">
+                <h5><i class="fas fa-clipboard-check me-2"></i> AI校验结果</h5>
+                <button class="btn-close" onclick="closeBatchCheckResult()"></button>
+            </div>
+            <div class="dialog-body" id="batch-check-result-body">
+                <p class="text-muted text-center"><i class="fas fa-spinner fa-spin"></i> 校验中...</p>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn-outline-secondary" onclick="closeBatchCheckResult()">关闭</button>
+                <button class="btn btn-ai" id="btn-batch-check-fix" onclick="fixBatchCheckIssues()" style="display:none;">
+                    <i class="fas fa-wand-magic-sparkles"></i> AI修复选中的问题
+                </button>
             </div>
         </div>
     </div>

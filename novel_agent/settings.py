@@ -1,16 +1,17 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import timedelta
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-@k13^z+7z7z7z7z7z7z7z7z7z7z7z7z7z7z7z7z7z7'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-change-me')
 
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',') if h.strip()]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -21,6 +22,9 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
+    'pgvector.django',      # PostgreSQL + pgvector
+    'django_celery_results',
+    'django_celery_beat',
     'apps.project.apps.ProjectConfig',
     'apps.outline.apps.OutlineConfig',
     'apps.volume.apps.VolumeConfig',
@@ -68,19 +72,34 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'novel_agent.wsgi.application'
 
+# ============ 数据库：PostgreSQL + pgvector（一库两用：业务 + 向量） ============
+def _build_pg_location():
+    host = os.getenv('PG_DB_HOST', 'localhost')
+    port = os.getenv('PG_DB_PORT', '5432')
+    user = os.getenv('PG_DB_USER', 'novel_agent')
+    password = os.getenv('PG_DB_PASSWORD', '')
+    database = os.getenv('PG_DB_DATABASE', 'novel_agent')
+    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.getenv('MYSQL_DB_DATABASE', 'novel_agent'),
-        'USER': os.getenv('MYSQL_DB_USER', 'root'),
-        'PASSWORD': os.getenv('MYSQL_DB_PASSWORD', ''),
-        'HOST': os.getenv('MYSQL_DB_HOST', 'localhost'),
-        'PORT': os.getenv('MYSQL_DB_PORT', '3306'),
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('PG_DB_DATABASE', 'novel_agent'),
+        'USER': os.getenv('PG_DB_USER', 'novel_agent'),
+        'PASSWORD': os.getenv('PG_DB_PASSWORD', ''),
+        'HOST': os.getenv('PG_DB_HOST', 'localhost'),
+        'PORT': os.getenv('PG_DB_PORT', '5432'),
         'OPTIONS': {
-            'charset': 'utf8mb4',
+            'sslmode': os.getenv('PG_SSL_MODE', 'prefer'),
         },
+        'CONN_MAX_AGE': int(os.getenv('PG_CONN_MAX_AGE', '600')),
+        'CONN_HEALTH_CHECKS': True,
     }
 }
+
+# 方便其他地方（比如直连、pgloader）复用
+DATABASE_URL = _build_pg_location()
 
 CACHES = {
     'default': {
@@ -110,11 +129,8 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = 'zh-hans'
-
 TIME_ZONE = 'Asia/Shanghai'
-
 USE_I18N = True
-
 USE_TZ = True
 
 STATIC_URL = 'static/'
@@ -136,7 +152,6 @@ LLM_RETRY = int(os.getenv('LLM_RETRY', '3'))
 LLM_RETRY_INTERVAL = int(os.getenv('LLM_RETRY_INTERVAL', '5'))
 
 # JWT Settings
-from datetime import timedelta
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
@@ -144,21 +159,44 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# ========== Milvus 向量库配置 ==========
-MILVUS_MODE = os.getenv('MILVUS_MODE', 'docker')  # docker | local
-MILVUS_HOST = os.getenv('MILVUS_HOST', 'localhost')
-MILVUS_PORT = os.getenv('MILVUS_PORT', '19530')
-MILVUS_COLLECTION_NAME = os.getenv('MILVUS_COLLECTION_NAME', 'novel_knowledge')
-MILVUS_LOCAL_DB = os.getenv('MILVUS_LOCAL_DB', str(BASE_DIR / 'milvus_demo.db'))
-
-# ========== Embedding 配置 ==========
-EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'deepseek-v4-flash')
+# ============ Embedding 配置 ============
+# 向量维度固定与 knowledge_vector.embedding 列对齐；修改维度需要 ALTER TABLE 重建列
 EMBEDDING_DIM = int(os.getenv('EMBEDDING_DIM', '1024'))
-EMBEDDING_DOCKER_URL = os.getenv('EMBEDDING_DOCKER_URL', 'http://localhost:8080/embed')
+EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'deepseek-v4-flash')
+EMBEDDING_API_KEY = os.getenv('EMBEDDING_API_KEY', LLM_API_KEY)
+EMBEDDING_BASE_URL = os.getenv('EMBEDDING_BASE_URL', LLM_BASE_URL)
+# Docker Embedding 服务地址（docker-compose 内部: http://embedding:8000/embed）
+EMBEDDING_DOCKER_URL = os.getenv('EMBEDDING_DOCKER_URL', 'http://embedding:8000/embed')
 EMBEDDING_DOCKER_TIMEOUT = int(os.getenv('EMBEDDING_DOCKER_TIMEOUT', '30'))
 
-import rest_framework_simplejwt
+# ============ Celery（Broker 复用 Redis；Result Backend 用 Django DB） ============
+def _build_redis_url():
+    password = os.getenv('REDIS_DB_PASSWORD', '')
+    host = os.getenv('REDIS_DB_HOST', 'localhost')
+    port = os.getenv('REDIS_DB_PORT', '6379')
+    db = int(os.getenv('REDIS_DB_DB', '0')) + 1  # 用 DB 1 放 Celery，跟 Django cache 的 DB 0 隔离
+    auth = f":{password}@" if password else ""
+    return f"redis://{auth}{host}:{port}/{db}"
 
+
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', _build_redis_url())
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_RESULT_EXTENDED = True
+CELERY_CACHE_BACKEND = 'default'
+
+CELERY_ACCEPT_CONTENT = ['json', 'pickle']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = int(os.getenv('CELERY_TASK_TIME_LIMIT', '3600'))  # 单任务最长1小时
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '3500'))
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # 长任务场景：公平调度优先
+
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+CELERY_BEAT_SYNC_EVERY = int(os.getenv('CELERY_BEAT_SYNC_EVERY', '60'))
+
+# ============ Django REST Framework ============
 REST_FRAMEWORK = {
     # DRF 全局 JWT 认证（用于 API 请求）
     "DEFAULT_AUTHENTICATION_CLASSES": [

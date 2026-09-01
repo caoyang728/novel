@@ -352,6 +352,12 @@ textarea:-webkit-autofill:focus {
     color: var(--text-primary);
 }
 
+.form-select:disabled {
+    background-color: var(--surface-dark);
+    color: var(--text-muted);
+    opacity: 1;
+}
+
 .form-select-sm {
     border-radius: 10px;
     border-color: var(--border);

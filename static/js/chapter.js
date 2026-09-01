@@ -20,6 +20,7 @@ function initDomCache() {
     dom.volumeVersionSelect = document.getElementById('volume-version-select');
     dom.volumeSelect = document.getElementById('volume-select');
     dom.generateChaptersBtn = document.getElementById('generate-chapters-btn');
+    dom.batchCheckBtn = document.getElementById('batch-check-btn');
     dom.chapterList = document.getElementById('chapter-list');
     dom.totalChaptersCount = document.getElementById('total-chapters-count');
     dom.editorEmptyState = document.getElementById('editor-empty-state');
@@ -120,6 +121,7 @@ document.addEventListener('DOMContentLoaded', function() {
         currentVolumeId = this.value;
         // console.log('currentVolumeId after change:', currentVolumeId);
         document.getElementById('generate-chapters-btn').disabled = !currentVolumeId;
+        updateBatchCheckButtonState();
         if (currentVolumeId) {
             loadChaptersByVolume(currentVolumeId);
         } else {
@@ -208,6 +210,7 @@ async function loadVolumes(versionId, silent = false) {
                 currentVolumeId = volumes[0].id;
                 // console.log('currentVolumeId after auto-select:', currentVolumeId);
                 document.getElementById('generate-chapters-btn').disabled = false;
+                updateBatchCheckButtonState();
                 await loadChaptersByVolume(currentVolumeId, silent);
             }
         }
@@ -238,6 +241,20 @@ async function loadChaptersByVolume(volumeId, silent = false) {
     } finally {
         if (!silent) hideLoading();
     }
+    updateBatchCheckButtonState();
+}
+
+/**
+ * 检查当前卷是否选择了卷，控制校验按钮状态
+ */
+function updateBatchCheckButtonState() {
+    const btn = document.getElementById('batch-check-btn');
+    if (!currentVolumeId || !allChapters || allChapters.length === 0) {
+        btn.disabled = true;
+        return;
+    }
+    // 只要有卷且有章节就可以校验
+    btn.disabled = false;
 }
 
 function renderChapterList() {
@@ -667,17 +684,20 @@ async function generateChapterSummaries() {
 
     const btn = document.getElementById('generate-chapters-btn');
     const originalHTML = btn.innerHTML;
-    btn.innerHTML = '<span class="loading-spinner"></span> 生成中...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
     btn.disabled = true;
 
-    // 清空章节列表和编辑器
-    allChapters = [];
-    currentChapterId = null;
-    renderChapterList();
-    document.getElementById('chapter-title-input').value = '';
-    document.getElementById('chapter-content-input').value = '';
-    document.getElementById('chapter-summary-input').value = '';
-    document.getElementById('current-chapter-label').textContent = '思考中...';
+    // 如果没有已有章节（首次生成），清空列表准备接收 Phase 1 的 outline 事件
+    // 如果已有章节（续生成），保留列表，Phase 2 的 chapter 事件会直接更新
+    if (allChapters.length === 0) {
+        allChapters = [];
+        currentChapterId = null;
+        renderChapterList();
+        document.getElementById('chapter-title-input').value = '';
+        document.getElementById('chapter-content-input').value = '';
+        document.getElementById('chapter-summary-input').value = '';
+        document.getElementById('current-chapter-label').textContent = '思考中...';
+    }
 
     // 显示生成遮罩
     showLoading('思考中...', 0.1);
@@ -849,10 +869,11 @@ async function saveChapter() {
 
         const data = await api.post(`/api/projects/${projectId}/chapters/save/`, { chapter_id: currentChapterId, title, content, summary });
         if (data && data.success) {
-            updateLocalChapter(currentChapterId, { title, content, summary, word_count: data.chapter.word_count });
+            updateLocalChapter(currentChapterId, { title, content, summary, word_count: data.chapter.word_count, status: data.chapter.status });
             isDirty = false;
             takeSnapshot();
             updateEditorButtons();
+            updateEmptyContentPlaceholder();
             showToast('保存成功！', 'success');
             try {
                 refreshSingleChapterItem(currentChapterId);
@@ -2351,4 +2372,426 @@ async function doGenerateSingleChapterContent(chapter) {
         showToast('生成失败: ' + e.message, 'error');
         hideLoading();
     }
+}
+
+
+// ========== AI批量校验 ==========
+
+let batchCheckIssues = [];        // 当前校验结果的问题列表
+let batchCheckData = null;       // 原始校验数据
+
+const BATCH_CHECK_TYPE_LABELS = {
+    'continuity': '衔接性',
+    'logic': '逻辑性',
+    'character': '角色一致性',
+    'plot': '情节合理性',
+    'language': '语言质量',
+    'dialogue': '对话质量',
+    'word_count': '字数合规',
+};
+
+/**
+ * 打开AI校验范围选择弹窗
+ */
+function openBatchCheckRangeModal() {
+    if (!currentVolumeId) {
+        showToast('请先选择卷', 'warning');
+        return;
+    }
+    if (!allChapters || allChapters.length === 0) {
+        showToast('当前卷下没有章节', 'warning');
+        return;
+    }
+
+    // 获取章节号范围
+    const chapterNumbers = allChapters.map(c => c.chapter_number).sort((a, b) => a - b);
+    const minCh = Math.min(...chapterNumbers);
+    const maxCh = Math.max(...chapterNumbers);
+
+    // 填充下拉框
+    const startSelect = document.getElementById('batch-range-start');
+    const endSelect = document.getElementById('batch-range-end');
+    startSelect.innerHTML = '<option value="">请选择</option>';
+    endSelect.innerHTML = '<option value="">请选择</option>';
+
+    chapterNumbers.forEach(cn => {
+        const opt = `<option value="${cn}">第${cn}章</option>`;
+        startSelect.innerHTML += opt;
+        endSelect.innerHTML += opt;
+    });
+
+    // 默认选中当前章节所在批次
+    if (currentChapterId) {
+        const currentChap = allChapters.find(c => c.id === currentChapterId);
+        if (currentChap) {
+            const cn = currentChap.chapter_number;
+            // 计算该章节所在的10章批次
+            const batchStart = Math.floor((cn - 1) / 10) * 10 + 1;
+            const batchEnd = Math.min(batchStart + 9, maxCh);
+            startSelect.value = batchStart;
+            endSelect.value = batchEnd;
+            onBatchRangeChange();
+        }
+    }
+
+    document.getElementById('batch-range-preview').style.display = 'none';
+    document.getElementById('btn-batch-check-start').disabled = true;
+    openModal('batch-check-range-modal');
+}
+
+/**
+ * 范围选择变化时更新预览
+ */
+function onBatchRangeChange() {
+    const startVal = document.getElementById('batch-range-start').value;
+    const endVal = document.getElementById('batch-range-end').value;
+    const previewDiv = document.getElementById('batch-range-preview');
+    const chaptersDiv = document.getElementById('batch-range-chapters');
+    const startBtn = document.getElementById('btn-batch-check-start');
+
+    if (!startVal || !endVal) {
+        previewDiv.style.display = 'none';
+        startBtn.disabled = true;
+        return;
+    }
+
+    const start = parseInt(startVal);
+    const end = parseInt(endVal);
+
+    if (start > end) {
+        previewDiv.style.display = 'none';
+        startBtn.disabled = true;
+        return;
+    }
+
+    const chapterNumbers = allChapters.map(c => c.chapter_number).sort((a, b) => a - b);
+    const minCh = Math.min(...chapterNumbers);
+    const maxCh = Math.max(...chapterNumbers);
+
+    // 扩展前后3章
+    const ctxStart = Math.max(minCh, start - 3);
+    const ctxEnd = Math.min(maxCh, end + 3);
+
+    let chips = '';
+    for (let cn = ctxStart; cn <= ctxEnd; cn++) {
+        let cls = '';
+        let label = '';
+        if (cn < start) {
+            cls = 'context-before';
+            label = '只读';
+        } else if (cn > end) {
+            cls = 'context-after';
+            label = '可修改';
+        } else {
+            cls = 'main';
+            label = '可修改';
+        }
+        const exists = chapterNumbers.includes(cn);
+        chips += `<span class="batch-chip ${cls}" title="第${cn}章 ${label}${exists ? '' : '(不存在)'}" style="${exists ? '' : 'opacity:0.3;text-decoration:line-through;'}">${cn}</span>`;
+    }
+
+    chaptersDiv.innerHTML = chips;
+    previewDiv.style.display = '';
+    startBtn.disabled = false;
+}
+
+/**
+ * 开始批量校验
+ */
+async function startBatchCheck() {
+    const startVal = document.getElementById('batch-range-start').value;
+    const endVal = document.getElementById('batch-range-end').value;
+
+    if (!startVal || !endVal) return;
+
+    closeModalById('batch-check-range-modal');
+
+    // 重置状态
+    batchCheckIssues = [];
+    batchCheckData = null;
+
+    // 显示结果弹窗
+    const resultBody = document.getElementById('batch-check-result-body');
+    resultBody.innerHTML = '<p class="text-muted text-center"><i class="fas fa-spinner fa-spin"></i> 校验中...</p>';
+    document.getElementById('btn-batch-check-fix').style.display = 'none';
+    openModal('batch-check-result-modal');
+
+    const projectId = new URLSearchParams(window.location.search).get('project_id');
+
+    try {
+        await api.streamRequestRaw(
+            `/api/projects/${projectId}/chapters/batch-check/`,
+            {
+                body: {
+                    volume_id: parseInt(currentVolumeId),
+                    start_chapter: parseInt(startVal),
+                    end_chapter: parseInt(endVal),
+                },
+            },
+            (event) => {
+                if (event.done) return;
+                const data = event.data;
+                if (!data) return;
+
+                if (data.type === 'check_result') {
+                    batchCheckData = data.data;
+                    renderBatchCheckResult(data.data, data.main_range);
+                } else if (data.type === 'complete') {
+                    showToast('校验完成', 'success');
+                } else if (data.type === 'error') {
+                    resultBody.innerHTML = `<div class="alert alert-danger">校验失败: ${data.message}</div>`;
+                    showToast('校验失败: ' + data.message, 'error');
+                }
+            }
+        );
+    } catch (e) {
+        console.error('批量校验失败:', e);
+        resultBody.innerHTML = `<div class="alert alert-danger">网络错误: ${e.message}</div>`;
+        showToast('校验失败: ' + e.message, 'error');
+    }
+}
+
+/**
+ * 渲染批量校验结果
+ */
+function renderBatchCheckResult(data, mainRange) {
+    const resultBody = document.getElementById('batch-check-result-body');
+    const fixBtn = document.getElementById('btn-batch-check-fix');
+    const allIssues = data.issues || [];
+    const crossIssues = data.cross_chapter_issues || [];
+
+    // 过滤仅主校验范围内的单章问题
+    const filteredIssues = allIssues.filter(issue => {
+        const cn = issue.chapter_number;
+        return cn && cn >= mainRange[0] && cn <= mainRange[1];
+    });
+
+    batchCheckIssues = [...filteredIssues, ...crossIssues];
+
+    if (batchCheckIssues.length === 0) {
+        resultBody.innerHTML = `
+            <div class="check-empty" style="display:block;">
+                <i class="fa-solid fa-circle-check"></i>
+                <p>校验完成，未发现问题</p>
+            </div>`;
+        fixBtn.style.display = 'none';
+        return;
+    }
+
+    fixBtn.style.display = 'inline-block';
+
+    const severityOrder = { high: 0, medium: 1, low: 2 };
+    batchCheckIssues.sort((a, b) => (severityOrder[a.severity] || 2) - (severityOrder[b.severity] || 2));
+
+    const highCount = batchCheckIssues.filter(i => i.severity === 'high').length;
+    const mediumCount = batchCheckIssues.filter(i => i.severity === 'medium').length;
+    const lowCount = batchCheckIssues.filter(i => i.severity === 'low').length;
+
+    let html = '';
+    // 整体评价
+    if (data.overall_assessment) {
+        html += `<div class="batch-check-overall">${escapeHtml(data.overall_assessment)}</div>`;
+    }
+
+    // 统计
+    html += '<div class="check-summary">';
+    html += `<div class="check-summary-item">共 <span>${batchCheckIssues.length}</span> 个问题</div>`;
+    if (highCount > 0) html += `<div class="check-summary-item high">严重 <span>${highCount}</span></div>`;
+    if (mediumCount > 0) html += `<div class="check-summary-item medium">中等 <span>${mediumCount}</span></div>`;
+    if (lowCount > 0) html += `<div class="check-summary-item low">轻微 <span>${lowCount}</span></div>`;
+    html += '</div>';
+
+    // 问题列表
+    html += '<div class="batch-check-issues-container">';
+
+    batchCheckIssues.forEach((issue, idx) => {
+        const typeLabel = BATCH_CHECK_TYPE_LABELS[issue.type] || issue.type;
+        const cn = issue.chapter_number || (issue.chapters ? issue.chapters.join(',') : '?');
+        const isCross = !!issue.chapters;
+        const severityLabel = issue.severity === 'high' ? '严重' : issue.severity === 'medium' ? '中等' : '轻微';
+
+        html += `
+            <div class="check-issue batch-check-issue" data-issue-idx="${idx}">
+                <div class="check-issue-type-row">
+                    <label class="check-issue-checkbox-label">
+                        <input type="checkbox" class="check-issue-checkbox" data-issue-idx="${idx}" checked>
+                        <span class="batch-check-chapter-badge">第${cn}章</span>
+                        ${isCross ? '<span class="batch-check-cross-badge">跨章</span>' : ''}
+                        <span class="check-issue-type-badge check-type-${issue.type}">${typeLabel}</span>
+                        <span class="check-issue-severity-badge severity-${issue.severity}">${severityLabel}</span>
+                    </label>
+                </div>
+                <div class="check-issue-desc-row">
+                    <span class="check-issue-desc-label">问题</span>
+                    <span class="check-issue-desc-text">${escapeHtml(issue.description || '')}</span>
+                </div>
+                ${issue.original_text ? `
+                <div class="check-issue-original-row">
+                    <span class="check-issue-original-label">原文</span>
+                    <span class="check-issue-original-text">${escapeHtml(issue.original_text)}</span>
+                </div>` : ''}
+                ${issue.suggestion ? `
+                <div class="check-issue-suggestion-row">
+                    <span class="check-issue-suggestion-label">建议</span>
+                    <span class="check-issue-suggestion-text">${escapeHtml(issue.suggestion)}</span>
+                </div>` : ''}
+                <div class="check-issue-input-row">
+                    <div class="check-issue-input-cell">
+                        <textarea placeholder="输入修改意见（选填，留空则按AI建议修复）..." class="check-issue-user-input"></textarea>
+                    </div>
+                </div>
+            </div>`;
+    });
+
+    html += '</div>';
+    resultBody.innerHTML = html;
+}
+
+/**
+ * 关闭校验结果弹窗
+ */
+function closeBatchCheckResult() {
+    closeModalById('batch-check-result-modal');
+    batchCheckIssues = [];
+    batchCheckData = null;
+    document.getElementById('btn-batch-check-fix').style.display = 'none';
+}
+
+/**
+ * AI修复选中的校验问题
+ */
+async function fixBatchCheckIssues() {
+    const issueCards = document.querySelectorAll('#batch-check-result-body .batch-check-issue');
+    const selectedIssues = [];
+
+    issueCards.forEach((card) => {
+        const checkbox = card.querySelector('.check-issue-checkbox');
+        if (checkbox && checkbox.checked) {
+            const idx = parseInt(checkbox.dataset.issueIdx);
+            const issue = batchCheckIssues[idx];
+            if (!issue) return;
+
+            const userInput = card.querySelector('.check-issue-user-input');
+            const userComment = userInput ? userInput.value.trim() : '';
+
+            selectedIssues.push({
+                chapter_number: issue.chapter_number,
+                chapters: issue.chapters || null,
+                type: issue.type,
+                severity: issue.severity,
+                description: issue.description,
+                suggestion: issue.suggestion || '',
+                user_comment: userComment || issue.suggestion || '',
+            });
+        }
+    });
+
+    if (selectedIssues.length === 0) {
+        showToast('请至少选择一个需要修复的问题', 'warning');
+        return;
+    }
+
+    closeModalById('batch-check-result-modal');
+    showLoading('AI修复中...', 0.3);
+
+    const projectId = new URLSearchParams(window.location.search).get('project_id');
+
+    try {
+        let fixResult = null;
+        await api.streamRequestRaw(
+            `/api/projects/${projectId}/chapters/batch-fix/`,
+            {
+                body: {
+                    volume_id: parseInt(currentVolumeId),
+                    issues: selectedIssues,
+                },
+            },
+            (event) => {
+                if (event.done) return;
+                const data = event.data;
+                if (!data) return;
+
+                if (data.type === 'fix_complete') {
+                    fixResult = data;
+                } else if (data.type === 'complete') {
+                    hideLoading();
+                    if (fixResult && fixResult.compare_data && fixResult.compare_data.length > 0) {
+                        openBatchFixCompareModal(fixResult.compare_data);
+                        showToast(`修复完成，共${fixResult.fixed_count}章`, 'success');
+                    } else {
+                        showToast('AI未产出修改内容', 'warning');
+                    }
+                } else if (data.type === 'error') {
+                    hideLoading();
+                    showToast('修复失败: ' + data.message, 'error');
+                }
+            }
+        );
+    } catch (e) {
+        console.error('批量修复失败:', e);
+        hideLoading();
+        showToast('修复失败: ' + e.message, 'error');
+    }
+}
+
+/**
+ * 打开批量修复对比弹窗（复用chat-compare-modal）
+ */
+function openBatchFixCompareModal(compareData) {
+    // 重置 compareSession
+    compareSession.modifications = {};
+    compareSession.currentChapterNumber = null;
+    compareSession.chatHistory = [];
+    compareSession.isSaving = false;
+    compareSession.isSending = false;
+
+    compareData.forEach(item => {
+        compareSession.modifications[item.chapter_number] = {
+            chapter_id: item.chapter_id,
+            original: {
+                title: item.original_title,
+                content: item.original_content,
+            },
+            modified: {
+                title: item.modified_title,
+                content: item.modified_content,
+            },
+        };
+    });
+
+    // 渲染章节列表
+    const sortedKeys = Object.keys(compareSession.modifications).sort((a, b) => parseInt(a) - parseInt(b));
+    const listBody = document.getElementById('compare-chapter-list-body');
+    if (listBody) {
+        let listHtml = '';
+        sortedKeys.forEach(cn => {
+            const mod = compareSession.modifications[cn];
+            const titleChanged = mod.original.title !== mod.modified.title;
+            listHtml += `
+                <div class="compare-chapter-item" data-chapter-number="${cn}" onclick="selectCompareChapter(${cn})">
+                    <span>第${cn}章</span>
+                    ${titleChanged ? '<span class="compare-modified-dot" title="标题已修改"></span>' : ''}
+                </div>`;
+        });
+        listBody.innerHTML = listHtml;
+    }
+
+    // 更新状态徽章
+    document.getElementById('compare-status-badge').textContent = `已修改 ${compareData.length} 章`;
+
+    // 重置对比弹窗的聊天记录
+    const chatMessages = document.getElementById('compare-chat-messages');
+    if (chatMessages) {
+        chatMessages.innerHTML = '';
+    }
+    // 重置聊天输入框
+    const chatInput = document.getElementById('compare-chat-input');
+    if (chatInput) chatInput.value = '';
+
+    // 自动选择第一个章节
+    if (sortedKeys && sortedKeys.length > 0) {
+        selectCompareChapter(parseInt(sortedKeys[0]));
+    }
+
+    openModal('chat-compare-modal');
 }

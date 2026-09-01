@@ -12,6 +12,9 @@ from .views import (
     ApiChapterChatView,
     ApiChapterHardDeleteView,
     ApiChapterReorderView,
+    ApiReaderReviewView,
+    ApiChapterBatchCheckView,
+    ApiChapterBatchFixView,
 )
 
 urlpatterns = [
@@ -27,4 +30,7 @@ urlpatterns = [
     path('api/projects/<int:project_id>/chapters/volume/<int:volume_id>/load/', ApiChapterLoadView.as_view(), name='api_chapter_load'),
     path('api/projects/<int:project_id>/chapters/<int:chapter_id>/', ApiChapterDetailView.as_view(), name='api_chapter_detail'),
     path('api/projects/<int:project_id>/chapters/chat/', ApiChapterChatView.as_view(), name='api_chapter_chat'),
+    path('api/projects/<int:project_id>/chapters/reader-review/', ApiReaderReviewView.as_view(), name='api_reader_review'),
+    path('api/projects/<int:project_id>/chapters/batch-check/', ApiChapterBatchCheckView.as_view(), name='api_chapter_batch_check'),
+    path('api/projects/<int:project_id>/chapters/batch-fix/', ApiChapterBatchFixView.as_view(), name='api_chapter_batch_fix'),
 ]

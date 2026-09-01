@@ -225,6 +225,7 @@ function closeEditProjectModal() {
 async function saveProjectEdit() {
     const title = document.getElementById('edit-project-title').value.trim();
     const description = document.getElementById('edit-project-description').value.trim();
+    const minWords = parseInt(document.getElementById('edit-project-min-words').value) || 3000;
 
     if (!title) {
         showError('请输入项目名称');
@@ -232,7 +233,7 @@ async function saveProjectEdit() {
     }
 
     try {
-        const data = await api.put(`/api/projects/${editingProjectId}/`, { title, description });
+        const data = await api.put(`/api/projects/${editingProjectId}/`, { title, description, min_words_per_chapter: minWords });
         if (data.success) {
             closeEditProjectModal();
             loadProjects();
@@ -337,6 +338,7 @@ function editProject(projectId) {
         editingProjectData = project;
         document.getElementById('edit-project-title').value = project.title;
         document.getElementById('edit-project-description').value = project.description || '';
+        document.getElementById('edit-project-min-words').value = project.min_words_per_chapter || 3000;
         document.getElementById('editProjectModal').classList.add('show');
     }
 }

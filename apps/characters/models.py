@@ -32,6 +32,10 @@ class Character(models.Model):
     dark_history = models.TextField(blank=True, default='', verbose_name='过往黑历史')
     weaknesses = models.TextField(blank=True, default='', verbose_name='弱点/代价')
 
+    # 动态状态：记录角色在生成过程中的状态变化（当前所在位置、情绪状态、人际关系变化、能力进展等）
+    # 格式：{"current_location": "京城", "emotional_state": "愤怒", "relationship_changes": {...}, "ability_progress": {...}}
+    dynamic_states = models.JSONField(default=dict, blank=True, verbose_name='动态状态')
+
     is_deleted = models.BooleanField(default=False, verbose_name='是否删除')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')

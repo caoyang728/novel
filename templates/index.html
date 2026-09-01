@@ -53,6 +53,10 @@
                     <label class="form-label">项目简介</label>
                     <textarea id="edit-project-description" class="form-control" style="flex: 1; min-height: 60px; resize: none;" placeholder="输入项目简介"></textarea>
                 </div>
+                <div class="mb-3" style="flex-shrink: 0;">
+                    <label class="form-label">单章最少字数</label>
+                    <input type="number" id="edit-project-min-words" class="form-control" placeholder="3000" min="500" max="50000" step="100">
+                </div>
             </div>
             <div class="dialog-footer">
                 <button class="btn-ai" id="ai-enhance-edit-btn" onclick="aiEnhanceEditProject()">

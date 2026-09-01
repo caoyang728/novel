@@ -23,7 +23,7 @@ class DockerEmbedder(BaseEmbedder):
 
     def __init__(self):
         import requests
-        self._url = os.getenv("EMBEDDING_DOCKER_URL", "http://localhost:8080/embed")
+        self._url = os.getenv("EMBEDDING_DOCKER_URL", "http://embedding:8000/embed")
         self._timeout = int(os.getenv("EMBEDDING_DOCKER_TIMEOUT", "30"))
         resp = requests.get(self._url.rsplit("/", 1)[0] + "/health", timeout=5)
         resp.raise_for_status()

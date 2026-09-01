@@ -2,6 +2,10 @@
 Embedding 服务 - 加载本地模型并通过 HTTP 提供 embedding 接口
 """
 import os
+
+# 设置 HuggingFace 镜像（必须在 SentenceTransformer 导入之前）
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer

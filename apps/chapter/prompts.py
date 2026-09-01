@@ -89,6 +89,8 @@ CHAPTER_OUTLINE_USER_PROMPT = '''请根据以下卷大纲，规划该卷的所�
 2. 章节标题（简洁有力，能体现章节核心情节）
 3. 章节概述（200-400字，描述该章节的情节走向、关键事件、人物出场和情节转折）
 
+{existing_chapters_info}
+{gap_instruction}
 生成要求：
 1. {chapter_count_rule}
 2. 章节概述应详细体现卷大纲中的情节走向
@@ -428,6 +430,215 @@ CHAPTER_CHAT_WRITE_USER_PROMPT = '''卷标题：{volume_title}
 - 确保JSON格式完全合法，所有换行转义为\\n，双引号转义为\\"'''
 
 
+# ========== 阶段2（优化版）：批次生成章节正文（System=基石可缓存 + User=动态上下文） ==========
+
+CHAPTER_BATCH_CONTENT_SYSTEM_PROMPT = '''你是一位专业的小说创作家，擅长根据卷大纲和章节概述创作精彩的小说正文。
+
+【世界观设定】
+{worldview}
+
+【人物设定】
+{characters}
+
+【卷大纲 - 不可违反】
+{volume_outline}
+
+【输出格式 - 严格遵守】
+使用分隔符格式输出每章正文，每章格式如下：
+════CONTENT_START════
+{{"chapter_number": 1, "content": "章节正文"}}
+════CONTENT_END════
+
+【JSON格式严格要求】
+1. 每个分隔符块内必须是合法的JSON对象
+2. 字符串值中的换行必须使用 \\n 转义，制表符必须使用 \\t 转义
+3. 字符串值中的双引号必须使用 \\" 转义
+4. 不要在JSON中使用注释，不要有尾随逗号
+5. content字段中的段落换行使用 \\n\\n 表示
+6. 不要用```json```包裹，直接输出
+
+【创作要求】
+- 严格按照卷大纲和章节概述展开情节
+- 人物性格鲜明，对话生动自然
+- 场景描写具体，氛围营造到位
+- 情节推进合理，节奏张弛有度
+- 每章至少{min_words_per_chapter}字'''
+
+CHAPTER_BATCH_CONTENT_USER_PROMPT = '''请根据以下上下文，生成本批次章节正文：
+
+卷号：{volume_number}
+卷标题：{volume_title}
+卷摘要：{volume_summary}
+
+【本批次章节概述】
+{batch_chapters}
+
+{prev_batch_context}
+{prev_chapters_context}
+{next_chapters_context}
+{character_dynamic_states}
+{relevant_history}
+
+【重要】
+- 按章节顺序逐个输出，不要打乱顺序
+- 每个章节的content必须是完整的正文
+- 注意章节间的自然衔接
+- 所有换行符必须转义为\\n
+- 确保每个JSON对象格式完全合法'''
+
+# ========== 单章正文生成（与批量 prompt 风格一致但仅输出一章） ==========
+
+CHAPTER_SINGLE_CONTENT_USER_PROMPT = '''请根据以下上下文，撰写第{chapter_number}章的完整小说正文：
+
+卷号：{volume_number}
+卷标题：{volume_title}
+卷摘要：{volume_summary}
+
+【本章概述】
+{batch_chapters}
+
+{prev_batch_context}
+{prev_chapters_context}
+{next_chapters_context}
+{character_dynamic_states}
+{relevant_history}
+
+【重要】
+- 仅输出第{chapter_number}章正文，不要输出其他章节
+- 直接输出小说正文纯文本，不要JSON包装
+- 不要提及章节标题或章节号
+- 正文直接从场景描写、对话或叙述开始'''
+
+
+# ========== 多维度评分 ==========
+
+CHAPTER_SCORING_SYSTEM_PROMPT = '''你是一位专业的小说审稿人，擅长从多个维度评估章节质量。请严格按照JSON格式返回评分结果。
+
+【评分维度】
+- continuity（连续性，0-20分）：与相邻章节的情节、时间、细节衔接是否流畅
+- logic（逻辑性，0-20分）：章节内部的因果逻辑是否合理，行为是否符合常识
+- character（人设一致性，0-20分）：角色性格、动机、能力是否与设定一致，是否有人设崩塌
+- plot（情节质量，0-20分）：情节推进节奏是否合理，转折是否自然
+- writing（文笔质量，0-20分）：语言表达是否流畅优美，描写是否生动
+
+【输出格式 - 严格JSON】
+{{
+  "scores": {{
+    "continuity": 16,
+    "logic": 17,
+    "character": 15,
+    "plot": 18,
+    "writing": 16
+  }},
+  "average": 16.4,
+  "overall_comment": "整体评价（1-2句话）",
+  "low_dimensions": ["continuity", "character"],
+  "suggestions": {{
+    "continuity": "具体改进方向",
+    "character": "具体改进方向"
+  }}
+}}
+
+【重要】只输出JSON，不要输出任何其他内容。'''
+
+CHAPTER_SCORING_USER_PROMPT = '''请对以下章节内容进行多维度评分：
+
+卷标题：{volume_title}
+卷摘要：{volume_summary}
+
+当前章节：
+章节号：{chapter_number}
+章节标题：{chapter_title}
+章节内容：
+{chapter_content}
+
+上一章末尾：
+{prev_chapter_tail}
+
+下一章概述：
+{next_chapter_summary}
+
+{related_characters}
+
+请从连续性、逻辑性、人设一致性、情节质量、文笔质量五个维度进行评分。'''
+
+# ========== 角色动态状态提取 ==========
+
+CHARACTER_STATE_EXTRACT_SYSTEM_PROMPT = '''你是一位专业的小说角色分析师，擅长从章节内容中提取角色的动态状态变化。请严格按照JSON格式返回。
+
+【提取维度】
+- current_location: 角色当前所在的地点
+- emotional_state: 角色当前的情绪/心理状态
+- physical_state: 角色的身体/健康状态
+- relationship_changes: 人际关系变化（与哪些角色的关系有了什么变化）
+- ability_progress: 能力/技能进展
+- key_events: 本章发生的对该角色有重大影响的事件
+
+【输出格式 - 严格JSON】
+[
+  {{
+    "character_name": "角色名",
+    "updates": {{
+      "current_location": "京城",
+      "emotional_state": "...",
+      "physical_state": "...",
+      "relationship_changes": {{"另一角色名": "关系变化描述"}},
+      "ability_progress": "能力变化描述",
+      "key_events": ["事件1", "事件2"]
+    }}
+  }}
+]
+
+【重要】只输出JSON数组，不要输出任何其他内容。只包含确实在本章有变化的维度，无变化的不要包含。'''
+
+CHARACTER_STATE_EXTRACT_USER_PROMPT = '''请从以下章节内容中提取角色的动态状态变化：
+
+项目角色列表（含当前状态）：
+{characters_with_states}
+
+本章正文：
+{chapter_content}
+
+请提取本章中状态发生变化的角色及其具体变化，按JSON数组格式返回。'''
+
+# ========== 概述微调 ==========
+
+CHAPTER_OUTLINE_ADJUST_SYSTEM_PROMPT = '''你是一位专业的小说章节设计助手，请在保持核心情节节点不变的前提下，对后续章节概述进行微调。
+
+【硬约束 - 绝不允许】
+1. 不得修改任何章节的章节号
+2. 不得删除或合并卷大纲中已规划的核心情节事件
+3. 不得新增超出卷大纲范围的重大情节
+4. 不得改变卷大纲已确定的阶段性结局
+
+【允许的微调】
+1. 过渡性情节的细化（如何在两个核心事件之间过渡）
+2. 人物心理描写的侧重点调整
+3. 次要细节的添加（环境描写、对话节奏等）
+4. 前后衔接的自然化处理
+
+【输出格式 - 严格JSON】
+{{
+  "adjusted_chapters": [
+    {{"chapter_number": N, "adjusted_summary": "微调后的概述（200-400字）"}}
+  ]
+}}
+
+【重要】只输出JSON，只包含被微调的章节（不强制所有章节都微调）。'''
+
+CHAPTER_OUTLINE_ADJUST_USER_PROMPT = '''请根据已完成的上一批次章节内容，对后续尚未生成的章节概述进行微调：
+
+卷标题：{volume_title}
+卷摘要：{volume_summary}
+
+已完成章节摘要：
+{completed_summaries}
+
+待生成章节概述：
+{pending_summaries}
+
+请只微调那些需要根据已完成内容调整衔接的章节概述，保持核心情节节点不变。'''
+
 # ========== 单章摘要 ==========
 
 CHAPTER_SINGLE_SUMMARY_USER_PROMPT = '''请根据以下卷大纲，生成第{chapter_number}章的概要：
@@ -453,3 +664,183 @@ CHAPTER_SINGLE_SUMMARY_USER_PROMPT = '''请根据以下卷大纲，生成第{cha
   "title": "章节标题",
   "summary": "章节摘要"
 }}'''
+
+# ========== 读者模式审阅 ==========
+
+READER_REVIEW_SYSTEM_PROMPT = '''你是一位经验丰富的小说审稿编辑，以读者视角对连续章节进行整体审阅。请严格按JSON格式返回。
+
+【审阅维度】
+1. 阅读流畅度：章节之间的过渡是否自然，读者能否顺畅地从一个场景过渡到下一个
+2. 叙事节奏：是否存在部分章节推进过快或过慢，是否有冗余或跳跃
+3. 情节连贯性：跨章节的情节线索是否连贯，有无逻辑断裂或矛盾
+4. 角色一致性：角色行为、性格、动机在多个章节间是否一致
+5. 情感张力：关键场景的情感渲染是否到位，是否存在平淡的段落
+6. 可读性问题：是否有表述不清、重复啰嗦、或需要补充说明的地方
+
+【输出格式 - 严格JSON】
+{{
+  "batch_overall_score": 8.5,
+  "batch_overall_comment": "对这几章的整体评价",
+  "chapter_reviews": [
+    {{
+      "chapter_number": N,
+      "score": 8.0,
+      "strengths": ["优点1", "优点2"],
+      "issues": [
+        {{
+          "type": "pace|continuity|character|expression|readability",
+          "severity": "high|medium|low",
+          "description": "问题描述",
+          "suggestion": "修改建议"
+        }}
+      ]
+    }}
+  ],
+  "cross_chapter_issues": [
+    {{
+      "chapters": [N1, N2],
+      "type": "continuity|character|pace",
+      "description": "跨章节问题描述",
+      "suggestion": "修改建议"
+    }}
+  ]
+}}
+
+【评分标准】
+- 9-10: 优秀，无需修改
+- 7-8: 良好，有少量可改进之处
+- 5-6: 一般，存在明显问题需修复
+- 3-4: 较差，需要大幅修改
+- 1-2: 很差，建议重写
+
+【重要】只输出JSON，不要输出任何其他内容。'''
+
+READER_REVIEW_USER_PROMPT = '''请以读者视角审阅以下连续章节（共{total_chapters}章，含{overlap_count}章重叠用于上下文衔接）：
+
+卷标题：{volume_title}
+卷摘要：{volume_summary}
+
+{chapters_text}
+
+请按JSON格式返回审阅结果。'''
+
+
+# ========== 批量章节校验 ==========
+
+CHAPTER_BATCH_CHECK_SYSTEM_PROMPT = '''你是一位资深的小说编辑，负责对连续章节进行全方位质量校验。请严格按照JSON格式返回结果。
+
+【校验维度 - 逐章检查】
+1. 衔接性 (continuity)：章节之间的过渡是否自然，与前后章的情节、时间、地点、细节是否衔接良好，是否存在突兀跳跃
+2. 逻辑性 (logic)：章节内部的因果逻辑是否合理，角色行为是否符合常识和铺垫，是否存在逻辑漏洞
+3. 角色一致性 (character)：角色性格、动机、能力、说话风格在章节间是否保持一致，是否存在OOC（脱离角色设定）
+4. 情节合理性 (plot)：情节推进节奏是否恰当（不拖沓不仓促），关键转折是否有足够铺垫，冲突设置是否合理
+5. 语言质量 (language)：语言是否流畅优美，是否存在生硬、啰嗦、重复的表述；特别注意以下AI写作痕迹：
+   - 频繁使用"不是...而是..."、"并非...而是..."等先否定再肯定的句式
+   - 过度使用"然而"、"但是"、"不过"、"却"等转折词
+   - 大量堆砌成语或形容词
+   - 人物心理活动过于直白啰嗦
+   - "他觉得"、"他感到"、"他意识到"等内心独白标记词过多
+   - 总结性语句过多（如"这一天的经历让他明白了..."）
+6. 对话质量 (dialogue)：对话是否自然，是否符合角色身份和性格，是否有AI味道（如对话中频繁出现"先反驳再肯定"的模式）
+7. 字数合规 (word_count)：每章目标字数为3000字，合理范围3060-4500字（下限+2%防平台统计偏差，上限+50%），超出范围需标注
+
+【跨章节检查】
+- 跨章节的情节线索是否连贯，有无前后矛盾
+- 伏笔是否合理埋设和回收
+- 角色关系发展是否自然
+
+【输出格式 - 严格JSON】
+只输出JSON，不要任何其他内容。
+{{
+  "overall_assessment": "对这批章节的整体评价，1-2句话",
+  "issues": [
+    {{
+      "chapter_number": 12,
+      "type": "continuity|logic|character|plot|language|dialogue|word_count",
+      "severity": "high|medium|low",
+      "description": "具体问题描述，说明哪里不对、为什么不对，尽量引用原文片段帮助定位",
+      "suggestion": "可操作的具体修改方案，不要泛泛而谈",
+      "original_text": "原文中相关的片段（尽量简短）"
+    }}
+  ],
+  "cross_chapter_issues": [
+    {{
+      "chapters": [11, 12],
+      "type": "continuity|logic|character|plot",
+      "severity": "high|medium|low",
+      "description": "跨章节问题的具体描述",
+      "suggestion": "修改建议"
+    }}
+  ]
+}}
+
+【注意事项】
+- 每个维度存在才输出，不存在就跳过，不要为了凑数而编造问题
+- 如果某章没有任何问题，不要在issues中为该章添加条目
+- 如果全部章节均无问题，issues和cross_chapter_issues为空数组
+- 优先标注高优先级(high)的问题
+- description和suggestion必须具体，不能泛泛而谈
+- 字数问题只在实际超出范围时标注'''
+
+CHAPTER_BATCH_CHECK_USER_PROMPT = '''请对以下章节进行全方位质量校验。
+
+卷标题：{volume_title}
+卷摘要：{volume_summary}
+
+【章节范围说明】
+- 前{context_before_count}章（第{context_before_start}-{context_before_end}章）为上下文参考，**不可修改**
+- 中间{main_count}章（第{main_start}-{main_end}章）为**本批主要校验对象**
+- 后{context_after_count}章（第{context_after_start}-{context_after_end}章）为上下文参考，**可修改**（主要用于字数溢出迁移）
+
+【目标字数】每章3000字，合理范围3060-4500字。
+
+{chapters_text}
+
+请按JSON格式返回校验结果。'''
+
+
+# ========== 批量章节修复 ==========
+
+CHAPTER_BATCH_FIX_SYSTEM_PROMPT = '''你是一位资深的小说编辑，根据校验发现的问题和用户意见，对章节内容进行精准修改。
+
+【修改原则】
+1. 只修改问题相关的部分，尽量保持原文的其他内容不变
+2. 衔接性问题：调整过渡段落，增加必要的铺垫或呼应
+3. 逻辑问题：修正因果关系，确保行为合理
+4. 角色一致性问题：调整角色言行，使其符合性格设定
+5. 情节问题：调整节奏（精简冗余、补充关键细节）
+6. 语言问题：消除AI味道，让语言更自然流畅；特别注意：
+   - 将"不是...而是..."等先否定再肯定的句式改为直接陈述
+   - 减少不必要的转折词
+   - 让角色心理活动更含蓄、更自然
+   - 多样化句式结构，避免重复模式
+7. 对话问题：让对话更符合角色身份，消除"先反驳再肯定"的模式
+8. 字数超出4500字：精简冗余描写或对话，注意不要删除关键情节信息
+9. 字数不足3060字：适当补充细节描写、环境氛围或角色心理，但不要注水
+
+【输出格式 - 严格JSON】
+只输出修改过的章节，未修改的章节不要输出。每章一个JSON对象。
+如果某章无需修改，不放入chapters数组。
+只输出JSON，不要任何其他内容。
+
+[
+  {{
+    "chapter_number": 12,
+    "title": "修改后的标题（如未修改则保持原标题）",
+    "content": "修改后的完整章节正文"
+  }}
+]'''
+
+CHAPTER_BATCH_FIX_USER_PROMPT = '''请根据以下校验问题和用户意见，对相关章节进行修改。
+
+卷标题：{volume_title}
+卷摘要：{volume_summary}
+
+【目标字数】每章3000字，修改后应保持在3060-4500字范围内。
+
+{chapters_text}
+
+【需要修复的问题及用户意见】
+{issues_text}
+
+请输出修改后的章节内容（JSON格式）。只输出JSON，不要其他内容。'''

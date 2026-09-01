@@ -155,6 +155,12 @@ function getTaskTypeText(taskType) {
         'project_description_optimize': '项目-简介优化',
         'project_enhance_description': '项目-描述完善',
         'note_polish': '随手记-AI整理',
+        'character_state_extract': '角色-状态提取',
+        'chapter_outline_adjust': '章节-概要调整',
+        'chapter_batch_content': '章节-批量内容生成',
+        'chapter_batch_fix': '章节-批量修复',
+        'chapter_scoring': '章节-评分',
+        'reader_review': '章节-读者审阅',
         'other': '其他任务'
     };
     return texts[taskType] || taskType;

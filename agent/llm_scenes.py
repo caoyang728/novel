@@ -136,6 +136,34 @@ LLM_SCENES = {
         "default_temperature": 0.3,
         "default_max_tokens": 8000,
     },
+    "chapter_batch_content": {
+        "name": "章节批次正文生成",
+        "group": "chapter",
+        "group_name": "章节",
+        "default_temperature": 0.7,
+        "default_max_tokens": 16000,
+    },
+    "chapter_scoring": {
+        "name": "章节多维度评分",
+        "group": "chapter",
+        "group_name": "章节",
+        "default_temperature": 0.3,
+        "default_max_tokens": 4000,
+    },
+    "character_state_extract": {
+        "name": "角色动态状态提取",
+        "group": "character",
+        "group_name": "人物清单",
+        "default_temperature": 0.3,
+        "default_max_tokens": 4000,
+    },
+    "chapter_outline_adjust": {
+        "name": "章节概述微调",
+        "group": "chapter",
+        "group_name": "章节",
+        "default_temperature": 0.5,
+        "default_max_tokens": 4000,
+    },
     # ==================== 随手记 ====================
     "note_polish": {
         "name": "随手记润色",

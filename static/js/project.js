@@ -108,6 +108,7 @@ function editProject() {
         if (data.success) {
             document.getElementById('edit-title').value = data.project.title;
             document.getElementById('edit-description').value = data.project.description || '';
+            document.getElementById('edit-min-words').value = data.project.min_words_per_chapter || 3000;
             
             // 隐藏之前的推荐
             const suggestionsContainer = document.getElementById('title-suggestions-container');
@@ -207,8 +208,9 @@ async function generateDescription() {
 async function saveProjectEdit() {
     const title = document.getElementById('edit-title').value;
     const description = document.getElementById('edit-description').value;
+    const minWords = parseInt(document.getElementById('edit-min-words').value) || 3000;
 
-    const data = await api.put(`/api/projects/${projectId}/`, { title, description });
+    const data = await api.put(`/api/projects/${projectId}/`, { title, description, min_words_per_chapter: minWords });
 
     if (data.success) {
         location.reload();

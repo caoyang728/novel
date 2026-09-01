@@ -70,24 +70,40 @@ class BaseAPIView(APIView):
     def get_knowledge_context(self, project, include=None, exclude=None, query_text=None):
         """
         从知识库（Milvus/降级DB）检索项目上下文
-        返回合并为文本的上下文，适用于注入 LLM prompt
+        返回 (worldview_text, characters_text, extra_context) 三元组
         """
         try:
             from apps.knowledge.retriever import KnowledgeRetriever
+            from apps.outline.models import OutlineVersion
+
             retriever = KnowledgeRetriever()
-            raw = retriever.retrieve(
+            # 获取当前大纲版本，知识库检索只返回该版本的 chunks
+            current_outline = OutlineVersion.objects.filter(
+                project=project, is_current=True, is_deleted=False
+            ).first()
+            outline_version_id = current_outline.pk if current_outline else None
+
+            raw = retriever.search_project_with_scores(
                 project_id=str(project.pk),
-                include=include,
-                exclude=exclude,
-                query_text=query_text,
+                query=query_text or "",
+                top_k=20,
+                threshold=0.5,
+                outline_version_id=outline_version_id,
             )
-            return self._format_knowledge_result(raw)
+            # 将搜索结果转换为 _format_knowledge_result 期望的 dict 格式
+            grouped = {}
+            for doc_type, score, content in raw:
+                if doc_type not in grouped:
+                    grouped[doc_type] = []
+                grouped[doc_type].append({"content": content, "score": score})
+            return self._format_knowledge_result(grouped)
         except Exception as e:
             from loguru import logger
             logger.warning(f"知识库检索失败, 降级到传统格式化: {e}")
             return (
                 self.get_worldview_context(project),
                 self.get_characters_context(project),
+                "",
             )
 
     @staticmethod

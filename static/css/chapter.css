@@ -366,55 +366,7 @@
     transform: none !important;
     box-shadow: none !important;
 }
-/* .btn-gradient 和 .btn-gradient-primary 未使用，已删除 */
 
-/* 生成章节按钮 - 更醒目 */
-.generate-chapters-btn {
-    padding: 0.55rem 1.2rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-    border-radius: 10px;
-    border: none;
-    background: linear-gradient(135deg, #818cf8 0%, #6366f1 50%, #7c3aed 100%);
-    color: #fff;
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-    transition: all 0.25s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    position: relative;
-    overflow: hidden;
-}
-.generate-chapters-btn::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
-    transition: left 0.5s ease;
-}
-.generate-chapters-btn:hover:not(:disabled)::before {
-    left: 100%;
-}
-.generate-chapters-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
-}
-.generate-chapters-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none !important;
-    box-shadow: none !important;
-}
-.generate-chapters-btn i {
-    font-size: 0.95rem;
-}
-/* .btn-gradient-success 已移至 common.css */
-/* .btn-outline-gradient 已移至 common.css */
-/* .btn-outline-primary 已移至 common.css */
 /* .btn-outline-warning 未使用，已删除 */
 /* .btn-outline-danger 已移至 common.css */
 
@@ -1424,5 +1376,266 @@
     height: 16px;
     cursor: pointer;
 }
+
+
+/* ========== AI审阅结果 ========== */
+
+.review-batch-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+}
+
+.review-batch-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+}
+
+.review-score {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #10b981;
+}
+
+.review-chapter-item {
+    margin-top: 0.75rem;
+    padding: 0.6rem;
+    background: var(--surface-dark);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+.review-strengths {
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.review-issues {
+    margin-top: 0.35rem;
+}
+
+.review-issue-item {
+    padding: 0.35rem 0.5rem;
+    margin: 0.2rem 0;
+    background: rgba(255,255,255,0.03);
+    border-radius: 4px;
+    font-size: 0.83rem;
+}
+
+.review-cross-issues {
+    padding: 0.6rem;
+    background: rgba(239, 68, 68, 0.08);
+    border-radius: 8px;
+    border-left: 3px solid #ef4444;
+}
+
+
+/* ========== AI批量校验 ========== */
+
+/* 范围选择弹窗 */
+.batch-range-form {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.batch-range-row {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.batch-range-row label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.batch-range-preview {
+    margin-top: 1.25rem;
+    padding: 1rem;
+    background: var(--surface-dark);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+}
+
+.batch-range-preview-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.75rem;
+}
+
+.batch-range-legend {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.batch-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.batch-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.batch-legend-dot.context-before {
+    background: #6b7280;
+}
+
+.batch-legend-dot.main {
+    background: #818cf8;
+}
+
+.batch-legend-dot.context-after {
+    background: #34d399;
+}
+
+.batch-range-chapters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.batch-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #fff;
+    cursor: default;
+}
+
+.batch-chip.context-before {
+    background: #4b5563;
+}
+
+.batch-chip.main {
+    background: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+}
+
+.batch-chip.context-after {
+    background: #10b981;
+}
+
+/* 校验结果弹窗 */
+.batch-check-overall {
+    padding: 0.75rem 1rem;
+    background: rgba(129, 140, 248, 0.08);
+    border-left: 3px solid #818cf8;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: var(--text);
+    line-height: 1.6;
+}
+
+.batch-check-issues-container {
+    max-height: 55vh;
+    overflow-y: auto;
+}
+
+.batch-check-issue {
+    margin-bottom: 0.5rem;
+}
+
+.batch-check-chapter-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    background: rgba(99, 102, 241, 0.15);
+    color: #a5b4fc;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    margin-right: 0.35rem;
+}
+
+.batch-check-cross-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    margin-right: 0.35rem;
+}
+
+.check-issue-severity-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    margin-left: 0.35rem;
+}
+
+.check-issue-severity-badge.severity-high {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+}
+
+.check-issue-severity-badge.severity-medium {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.check-issue-severity-badge.severity-low {
+    background: rgba(156, 163, 175, 0.15);
+    color: #9ca3af;
+}
+
+.check-issue-original-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.4rem;
+}
+
+.check-issue-original-label {
+    color: #f59e0b;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+    padding-top: 0.15rem;
+}
+
+.check-issue-original-text {
+    color: #d4d4d8;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    font-style: italic;
+    background: rgba(245, 158, 11, 0.06);
+    padding: 0.35rem 0.6rem;
+    border-radius: 4px;
+    flex: 1;
+}
+
+/* 问题类型相关样式 */
+.check-type-continuity { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.check-type-logic { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.check-type-character { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+.check-type-plot { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+.check-type-language { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.check-type-dialogue { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+.check-type-word_count { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
+
 
 

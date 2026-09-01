@@ -6,7 +6,7 @@ RUN pip install --no-cache-dir \
     fastapi==0.115.0 \
     uvicorn[standard]==0.30.0 \
     sentence-transformers==3.0.1 \
-    torch --index-url https://download.pytorch.org/whl/cpu
+    torch --extra-index-url https://download.pytorch.org/whl/cpu
 
 COPY server.py .
 

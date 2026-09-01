@@ -4,14 +4,25 @@ from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.utils import timezone
+from django.core.cache import cache
 
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from apps.project.base import BaseAPIView
 from apps.chapter.models import ChapterList
 from apps.volume.models import VolumeList
+from apps.characters.models import Character
 from agent.llm import get_llm, call_llm_with_retry, log_token_usage
-from utils.constants import MAX_CONTENT_LENGTH, MAX_TITLE_LENGTH, MAX_SUMMARY_LENGTH, PREV_CHAPTER_TAIL_LENGTH, MAX_CHAT_MESSAGE_LENGTH, MAX_CHAT_HISTORY_LENGTH
+from utils.constants import (
+    MAX_CONTENT_LENGTH, MAX_TITLE_LENGTH, MAX_SUMMARY_LENGTH,
+    PREV_CHAPTER_TAIL_LENGTH, MAX_CHAT_MESSAGE_LENGTH, MAX_CHAT_HISTORY_LENGTH,
+    BATCH_SIZE, BATCH_PREV_CHAPTERS_COUNT, BATCH_NEXT_CHAPTERS_COUNT,
+    PREV_BATCH_SUMMARY_TAIL_LENGTH, MAX_VERIFY_FIX_LOOPS,
+    SCORING_PASS_THRESHOLD, MAX_REWRITE_LOOPS,
+    CHAPTER_TAIL_CONTEXT_LENGTH,
+    REDIS_KEY_CORNERSTONE_CTX, REDIS_KEY_VOLUME_LOCK,
+)
 from utils.helpers import safe_parse_json
 from apps.chapter.prompts import (
     CHAPTER_OUTLINE_SYSTEM_PROMPT,
@@ -29,6 +40,21 @@ from apps.chapter.prompts import (
     CHAPTER_SPLIT_BY_PLOT_USER_PROMPT,
     CHAPTER_CHAT_WRITE_SYSTEM_PROMPT,
     CHAPTER_CHAT_WRITE_USER_PROMPT,
+    CHAPTER_BATCH_CONTENT_SYSTEM_PROMPT,
+    CHAPTER_BATCH_CONTENT_USER_PROMPT,
+    CHAPTER_SINGLE_CONTENT_USER_PROMPT,
+    CHAPTER_SCORING_SYSTEM_PROMPT,
+    CHAPTER_SCORING_USER_PROMPT,
+    CHARACTER_STATE_EXTRACT_SYSTEM_PROMPT,
+    CHARACTER_STATE_EXTRACT_USER_PROMPT,
+    CHAPTER_OUTLINE_ADJUST_SYSTEM_PROMPT,
+    CHAPTER_OUTLINE_ADJUST_USER_PROMPT,
+    READER_REVIEW_SYSTEM_PROMPT,
+    READER_REVIEW_USER_PROMPT,
+    CHAPTER_BATCH_CHECK_SYSTEM_PROMPT,
+    CHAPTER_BATCH_CHECK_USER_PROMPT,
+    CHAPTER_BATCH_FIX_SYSTEM_PROMPT,
+    CHAPTER_BATCH_FIX_USER_PROMPT,
 )
 
 
@@ -75,6 +101,223 @@ class BaseChapterAPIView(BaseAPIView):
 
         return prev_chapter_tail, next_chapter_summary
 
+    def get_enhanced_adjacent_context(self, volume, chapter_number, title=None, prev_count=None, next_count=None):
+        """
+        增强版上下文获取：取前N章摘要+后M章概述（批次生成用）
+        返回 (prev_chapters_context, next_chapters_context)
+        """
+        prev_count = prev_count or BATCH_PREV_CHAPTERS_COUNT
+        next_count = next_count or BATCH_NEXT_CHAPTERS_COUNT
+
+        # 前N章摘要（已完成的章节，从数据库读取原文摘要）
+        prev_chapters_context = ""
+        if title:
+            prev_chapters_context = f"当前章节标题：{title}\n"
+        prev_chapters = ChapterList.objects.filter(
+            volume=volume,
+            chapter_number__lt=chapter_number,
+            state=ChapterList.STATE_NORMAL,
+            status__in=[ChapterList.STATUS_DRAFT, ChapterList.STATUS_PUBLISHED],
+        ).order_by('-chapter_number')[:prev_count]
+
+        prev_list = sorted(prev_chapters, key=lambda c: c.chapter_number)
+        if prev_list:
+            parts = []
+            for pc in prev_list:
+                summary_text = pc.content[-CHAPTER_TAIL_CONTEXT_LENGTH:] if pc.content else (pc.summary or "")
+                parts.append(f"第{pc.chapter_number}章 {pc.title}\n{summary_text}")
+            prev_chapters_context = "【已生成的前几章内容末尾】\n" + "\n---\n".join(parts)
+
+        # 后M章概述
+        next_chapters_context = ""
+        next_chapters = ChapterList.objects.filter(
+            volume=volume,
+            chapter_number__gt=chapter_number,
+            state=ChapterList.STATE_NORMAL,
+            summary__isnull=False,
+        ).exclude(summary="").order_by('chapter_number')[:next_count]
+        if next_chapters:
+            parts = []
+            for nc in next_chapters:
+                parts.append(f"第{nc.chapter_number}章 {nc.title}：{nc.summary}")
+            next_chapters_context = "【后续章节概述】\n" + "\n".join(parts)
+
+        return prev_chapters_context, next_chapters_context
+
+    def get_previous_batch_context(self, volume, last_chapter_number, batch_size=None):
+        """获取上一批次章节摘要（用于批次间衔接）"""
+        batch_size = batch_size or BATCH_SIZE
+        prev_chapters = ChapterList.objects.filter(
+            volume=volume,
+            chapter_number__lte=last_chapter_number,
+            chapter_number__gt=last_chapter_number - batch_size,
+            state=ChapterList.STATE_NORMAL,
+            status__in=[ChapterList.STATUS_DRAFT, ChapterList.STATUS_PUBLISHED],
+        ).order_by('chapter_number')
+
+        if not prev_chapters:
+            return ""
+
+        parts = []
+        for pc in prev_chapters:
+            content = pc.content or ""
+            summary_text = content[-PREV_BATCH_SUMMARY_TAIL_LENGTH:] if len(content) > PREV_BATCH_SUMMARY_TAIL_LENGTH else content
+            parts.append(f"第{pc.chapter_number}章 {pc.title}：{summary_text}")
+        return "【上一批次章节摘要】\n" + "\n---\n".join(parts)
+
+    def get_cornerstone_context(self, project, volume):
+        """
+        获取基石上下文（世界观 + 角色静态属性 + 卷大纲），带 Redis 缓存
+        System Prompt 命中 LLM 厂商缓存后能省 30-50% Token
+        """
+        cache_key = f"{REDIS_KEY_CORNERSTONE_CTX}:{project.pk}:{volume.pk}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached["worldview"], cached["characters"], cached["volume_outline"]
+
+        worldview, characters, _extra = self.get_knowledge_context(project)
+        volume_outline = volume.content or volume.summary or ""
+
+        cornerstone = {
+            "worldview": worldview,
+            "characters": characters,
+            "volume_outline": volume_outline,
+        }
+        # 缓存 24 小时（或直到卷大纲被修改时失效）
+        cache.set(cache_key, cornerstone, timeout=86400)
+        return worldview, characters, volume_outline
+
+    def get_character_dynamic_states_context(self, project):
+        """获取所有角色的动态状态上下文（用于 User Prompt 注入）"""
+        characters = Character.objects.filter(project=project, is_deleted=False)
+        parts = []
+        for ch in characters:
+            states = ch.dynamic_states or {}
+            if states:
+                state_lines = [f"- {k}: {v}" for k, v in states.items() if v]
+                if state_lines:
+                    parts.append(f"{ch.name}：\n" + "\n".join(state_lines))
+        if parts:
+            return "【角色当前动态状态】\n" + "\n\n".join(parts)
+        return ""
+
+    def extract_and_update_character_states(self, project, chapter_content, user):
+        """从章节内容中提取角色动态状态并更新"""
+        try:
+            characters = list(Character.objects.filter(project=project, is_deleted=False))
+            if not characters:
+                return
+
+            # 构建角色列表（含当前状态）
+            char_parts = []
+            for ch in characters:
+                states_str = json.dumps(ch.dynamic_states or {}, ensure_ascii=False)
+                char_parts.append(f"- {ch.name}（{ch.role_type}）：当前状态={states_str}")
+            characters_with_states = "\n".join(char_parts)
+
+            llm = get_llm(user=user, scene="character_state_extract")
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", CHARACTER_STATE_EXTRACT_SYSTEM_PROMPT),
+                ("human", CHARACTER_STATE_EXTRACT_USER_PROMPT),
+            ])
+            chain = prompt | llm
+            result = call_llm_with_retry(
+                chain,
+                input_vars={
+                    "characters_with_states": characters_with_states,
+                    "chapter_content": chapter_content[-8000:],
+                },
+                user=user,
+                scene="character_state_extract",
+                project=project,
+                task_type="character_state_extract",
+            )
+
+            text = result.content if hasattr(result, 'content') else str(result)
+            state_updates = safe_parse_json(text)
+            if not state_updates or not isinstance(state_updates, list):
+                logger.warning(f"角色状态提取返回格式异常: {text[:200]}")
+                return
+
+            char_map = {ch.name: ch for ch in characters}
+            updated = 0
+            for update_item in state_updates:
+                name = (update_item.get("character_name") or "").strip()
+                updates = update_item.get("updates", {})
+                if not name or not updates:
+                    continue
+                character = char_map.get(name)
+                if not character:
+                    continue
+                current_states = character.dynamic_states or {}
+                current_states.update(updates)
+                character.dynamic_states = current_states
+                character.save(update_fields=['dynamic_states'])
+                updated += 1
+
+            if updated:
+                logger.info(f"角色动态状态更新完成，更新 {updated}/{len(characters)} 个角色")
+        except Exception as e:
+            logger.warning(f"角色状态提取失败（非致命）: {e}")
+
+    def adjust_subsequent_outlines(self, volume, completed_chapters, user, project):
+        """完成批次后微调后续章节概述"""
+        try:
+            pending_chapters = ChapterList.objects.filter(
+                volume=volume,
+                state=ChapterList.STATE_NORMAL,
+                status=ChapterList.STATUS_SUMMARY,
+            ).order_by('chapter_number')
+
+            if not pending_chapters.exists():
+                return
+
+            completed_summaries = "\n".join([
+                f"第{ch.chapter_number}章 {ch.title}：{ch.content[-CHAPTER_TAIL_CONTEXT_LENGTH:] if ch.content else ch.summary}"
+                for ch in completed_chapters[:3]
+            ])
+            pending_summaries = "\n".join([
+                f"第{ch.chapter_number}章 {ch.title}：{ch.summary}"
+                for ch in pending_chapters[:10]
+            ])
+
+            llm = get_llm(user=user, scene="chapter_outline_adjust")
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", CHAPTER_OUTLINE_ADJUST_SYSTEM_PROMPT),
+                ("human", CHAPTER_OUTLINE_ADJUST_USER_PROMPT),
+            ])
+            chain = prompt | llm
+            result = call_llm_with_retry(
+                chain,
+                input_vars={
+                    "volume_title": volume.title,
+                    "volume_summary": volume.summary or "",
+                    "completed_summaries": completed_summaries,
+                    "pending_summaries": pending_summaries,
+                },
+                user=user,
+                scene="chapter_outline_adjust",
+                project=project,
+                task_type="chapter_outline_adjust",
+            )
+
+            text = result.content if hasattr(result, 'content') else str(result)
+            adjusted = safe_parse_json(text)
+            if not adjusted or not isinstance(adjusted, dict):
+                return
+
+            adjusted_list = adjusted.get("adjusted_chapters", [])
+            for item in adjusted_list:
+                ch_num = item.get("chapter_number")
+                new_summary = item.get("adjusted_summary")
+                if ch_num and new_summary:
+                    chapter = pending_chapters.filter(chapter_number=ch_num).first()
+                    if chapter:
+                        chapter.summary = new_summary
+                        chapter.save(update_fields=['summary'])
+        except Exception as e:
+            logger.warning(f"概述微调失败（非致命）: {e}")
+
     def validate_chapter_id(self, request):
         """校验 chapter_id 参数（仅校验参数存在性，不查询数据库）"""
         chapter_id = request.data.get('chapter_id')
@@ -82,9 +325,35 @@ class BaseChapterAPIView(BaseAPIView):
             return None, JsonResponse({'success': False, 'message': '缺少chapter_id'}, status=400)
         return chapter_id, None
 
+    def _get_vector_retrieval_context(self, project, query_text):
+        """J4: 向量语义检索历史相关片段"""
+        try:
+            from apps.knowledge.retriever import KnowledgeRetriever
+            from apps.outline.models import OutlineVersion
+
+            retriever = KnowledgeRetriever()
+            current_outline = OutlineVersion.objects.filter(
+                project=project, is_current=True, is_deleted=False
+            ).first()
+            results = retriever.search_project_with_scores(
+                project_id=str(project.pk),
+                query=query_text,
+                top_k=5,
+                threshold=0.55,
+                outline_version_id=current_outline.pk if current_outline else None,
+            )
+            if results:
+                parts = []
+                for doc_type, score, content in results[:5]:
+                    parts.append(f"[{doc_type}] {content}")
+                return "【相关历史片段】\n" + "\n---\n".join(parts)
+        except Exception as e:
+            logger.warning(f"向量检索失败（非致命）: {e}")
+        return ""
+
 
 class ApiChapterGenerateView(BaseChapterAPIView):
-    """两阶段章节生成：阶段1生成标题+概述，阶段2逐章生成正文"""
+    """两阶段章节生成：阶段1生成标题+概述，阶段2批次生成正文 + 自动反思修复 + 评分"""
 
     def post(self, request, project_id):
 
@@ -98,17 +367,68 @@ class ApiChapterGenerateView(BaseChapterAPIView):
         )
         project = volume.volume_version.project
 
-        # 检查是否已有章节，避免重复生成
-        existing_count = ChapterList.objects.filter(volume=volume).count()
-        if existing_count > 0:
-            return JsonResponse({'success': False, 'message': f'该卷已有{existing_count}个章节，请先删除后再生成'}, status=400)
+        # 检查是否已有章节
+        existing_chapters = list(ChapterList.objects.filter(volume=volume).order_by('chapter_number'))
+        skip_outline = False
+        outline_gap_info = None  # { "existing_chapters_text": "第1章...", "missing_range": "第5-10章" }
+        if existing_chapters:
+            chapters_with_content = sum(
+                1 for ch in existing_chapters
+                if ch.status in (ChapterList.STATUS_DRAFT, ChapterList.STATUS_PUBLISHED, ChapterList.STATUS_ARCHIVED)
+                and ch.content
+            )
+            if chapters_with_content == len(existing_chapters):
+                return JsonResponse({'success': False, 'message': f'该卷已有{len(existing_chapters)}个章节（含已生成内容），请先删除后再重新生成'}, status=400)
+
+            # 检测概述缺口：volume.chapter_count 已知时判断是否有章节缺失
+            if volume.chapter_count and volume.chapter_count > 0:
+                max_num = max(ch.chapter_number for ch in existing_chapters)
+                existing_nums = {ch.chapter_number for ch in existing_chapters}
+                all_nums = set(range(1, volume.chapter_count + 1))
+                missing_nums = sorted(all_nums - existing_nums)
+                # 同时检查 LLM 输出是否超过 chapter_count（部分生成但未完整）
+                extra_nums = sorted(existing_nums - all_nums)
+                if missing_nums or (max_num < volume.chapter_count) or extra_nums:
+                    # 有缺口：让 Phase 1 补全
+                    skip_outline = False
+                    recent_chapters = existing_chapters[-3:]  # 最后3章
+                    existing_text = "\n".join([
+                        f"第{ch.chapter_number}章 {ch.title}：{ch.summary or '(无概述)'}"
+                        for ch in existing_chapters
+                    ])
+                    recent_text = "\n".join([
+                        f"第{ch.chapter_number}章 {ch.title}：{ch.summary or '(无概述)'}"
+                        for ch in recent_chapters
+                    ]) if recent_chapters else "(暂无)"
+                    missing_range = f"{min(missing_nums or [volume.chapter_count])}-{volume.chapter_count}章" if missing_nums else f"第{max_num + 1}-{volume.chapter_count}章"
+                    # 清理多余章节（超过 chapter_count 的）
+                    if extra_nums:
+                        ChapterList.objects.filter(
+                            volume=volume,
+                            chapter_number__in=extra_nums
+                        ).delete()
+                        existing_chapters = [ch for ch in existing_chapters if ch.chapter_number not in extra_nums]
+                    outline_gap_info = {
+                        "existing_chapters_text": existing_text,
+                        "recent_chapters_text": recent_text,
+                        "missing_range": missing_range,
+                        "existing_count": len(existing_chapters),
+                        "target_count": volume.chapter_count,
+                    }
+                else:
+                    # 无缺口 → 所有概述完整，跳过 Phase 1
+                    skip_outline = True
+            else:
+                # volume.chapter_count 未设置，无法判断完整性，直接跳过 Phase 1
+                skip_outline = True
 
         def stream():
+            nonlocal skip_outline, existing_chapters, outline_gap_info
             try:
                 # 章节数量规划
                 if volume.chapter_count:
                     chapter_count_section = f"预估章节数：{volume.chapter_count}章"
-                    chapter_count_requirement = f"请严格按照预估章节数生成章节，"
+                    chapter_count_requirement = "请严格按照预估章节数生成章节，"
                     chapter_count_rule = f"章节数量必须为{volume.chapter_count}章，不能多也不能少"
                     total_chapters = volume.chapter_count
                 else:
@@ -117,243 +437,359 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                     chapter_count_rule = "根据卷大纲的情节走向和节奏，合理确定章节数量"
                     total_chapters = None
 
-                # ========== 阶段1：生成标题+概述 ==========
-                yield self.sse_event('progress', {'message': '思考中...', 'phase': 'outline'})
+                if not skip_outline:
+                    # ========== 阶段1：生成标题+概述 ==========
+                    yield self.sse_event('progress', {'message': '思考中...', 'phase': 'outline'})
 
-                llm = get_llm(user=request.user, scene="chapter_batch_generate")
+                    llm = get_llm(user=request.user, scene="chapter_batch_generate")
 
-                outline_input_vars = {
-                    "volume_outline": volume.content or volume.summary or "",
-                    "volume_number": volume.volume_number,
-                    "volume_title": volume.title,
-                    "volume_summary": volume.summary or "",
-                    "chapter_count_section": chapter_count_section,
-                    "chapter_count_requirement": chapter_count_requirement,
-                    "chapter_count_rule": chapter_count_rule,
-                }
-                outline_prompt = ChatPromptTemplate.from_messages([
-                    ("system", CHAPTER_OUTLINE_SYSTEM_PROMPT),
-                    ("human", CHAPTER_OUTLINE_USER_PROMPT),
-                ])
-                outline_chain = outline_prompt | llm
+                    outline_input_vars = {
+                        "volume_outline": volume.content or volume.summary or "",
+                        "volume_number": volume.volume_number,
+                        "volume_title": volume.title,
+                        "volume_summary": volume.summary or "",
+                        "chapter_count_section": chapter_count_section,
+                        "chapter_count_requirement": chapter_count_requirement,
+                        "chapter_count_rule": chapter_count_rule,
+                        "existing_chapters_info": "",
+                        "gap_instruction": "",
+                    }
+                    # 补全模式：告诉 LLM 已有哪些章节，只生成缺失的
+                    if outline_gap_info:
+                        outline_input_vars["existing_chapters_info"] = (
+                            f"【已有章节概述（直接复用，不要重新生成）】\n"
+                            f"已生成 {outline_gap_info['existing_count']}/{outline_gap_info['target_count']} 章：\n"
+                            f"{outline_gap_info['recent_chapters_text']}\n"
+                            f"(以上为最后3章概述，更多已有章节不再列出)\n"
+                        )
+                        outline_input_vars["gap_instruction"] = (
+                            f"【补全要求】\n"
+                            f"你只需要生成缺失章节的概述，范围：{outline_gap_info['missing_range']}。\n"
+                            f"已有章节的概述请原样保留勿动，chapter_number 严格按缺失范围输出。\n"
+                        )
+                    outline_prompt = ChatPromptTemplate.from_messages([
+                        ("system", CHAPTER_OUTLINE_SYSTEM_PROMPT),
+                        ("human", CHAPTER_OUTLINE_USER_PROMPT),
+                    ])
+                    outline_chain = outline_prompt | llm
 
-                yield self.sse_event('progress', {'message': '拆分卷内容中...', 'phase': 'outline'})
+                    yield self.sse_event('progress', {'message': '拆分卷内容中...', 'phase': 'outline'})
 
-                # 流式接收阶段1，按分隔符切割
-                buffer = ""
-                in_content = False
-                outline_chapters = []  # 存储阶段1结果
-                chapter_number_counter = 0  # 章节计数器，确保连续
-                last_outline_chunk = None
+                    # 流式接收阶段1，按分隔符切割
+                    buffer = ""
+                    in_content = False
+                    outline_chapters = []
+                    chapter_number_counter = 0
+                    last_outline_chunk = None
 
-                for chunk in outline_chain.stream(outline_input_vars):
-                    last_outline_chunk = chunk
-                    chunk_content = self.get_chunk_text(chunk)
-                    buffer += chunk_content
+                    for chunk in outline_chain.stream(outline_input_vars):
+                        last_outline_chunk = chunk
+                        chunk_content = self.get_chunk_text(chunk)
+                        buffer += chunk_content
 
-                    while True:
-                        if not in_content:
-                            start_idx = buffer.find('════CONTENT_START════')
-                            if start_idx == -1:
-                                break
-                            in_content = True
-                            buffer = buffer[start_idx + len('════CONTENT_START════'):]
-                        else:
-                            end_idx = buffer.find('════CONTENT_END════')
-                            if end_idx == -1:
-                                break
-                            current_json = buffer[:end_idx].strip()
-                            buffer = buffer[end_idx + len('════CONTENT_END════'):]
+                        while True:
+                            if not in_content:
+                                start_idx = buffer.find('════CONTENT_START════')
+                                if start_idx == -1:
+                                    break
+                                in_content = True
+                                buffer = buffer[start_idx + len('════CONTENT_START════'):]
+                            else:
+                                end_idx = buffer.find('════CONTENT_END════')
+                                if end_idx == -1:
+                                    break
+                                current_json = buffer[:end_idx].strip()
+                                buffer = buffer[end_idx + len('════CONTENT_END════'):]
 
-                            chapter_number_counter += 1
-                            chap_data = safe_parse_json(current_json)
-                            if chap_data:
-                                chap_number = chap_data.get('chapter_number', chapter_number_counter)
-                                chap_title = chap_data.get('title', f'第{chap_number}章')
-                                chap_summary = chap_data.get('summary', '')
+                                chapter_number_counter += 1
+                                chap_data = safe_parse_json(current_json)
+                                if chap_data:
+                                    chap_number = chap_data.get('chapter_number', chapter_number_counter)
+                                    chap_title = chap_data.get('title', f'第{chap_number}章')
+                                    chap_summary = chap_data.get('summary', '')
 
-                                # 保存到数据库，状态为 summary
-                                ChapterList.objects.create(
-                                    volume=volume,
-                                    chapter_number=chap_number,
-                                    title=chap_title,
-                                    summary=chap_summary,
-                                    status=ChapterList.STATUS_SUMMARY,
-                                    word_count=0,
-                                )
+                                    ChapterList.objects.update_or_create(
+                                        volume=volume,
+                                        chapter_number=chap_number,
+                                        defaults={
+                                            'title': chap_title,
+                                            'summary': chap_summary,
+                                            'status': ChapterList.STATUS_SUMMARY,
+                                            'word_count': 0,
+                                        },
+                                    )
 
-                                outline_chapters.append({
-                                    'chapter_number': chap_number,
-                                    'title': chap_title,
-                                    'summary': chap_summary,
-                                })
-
-                                # 推送概述到前端
-                                yield self.sse_event('outline', {
-                                    'chapter': {
+                                    outline_chapters.append({
                                         'chapter_number': chap_number,
                                         'title': chap_title,
                                         'summary': chap_summary,
-                                    },
-                                    'current': len(outline_chapters),
-                                    'total': total_chapters or 0,
-                                })
-                            else:
-                                # JSON解析失败，仍然创建空章节占位
-                                chap_number = chapter_number_counter
-                                chap_title = f'第{chap_number}章'
-                                ChapterList.objects.create(
-                                    volume=volume,
-                                    chapter_number=chap_number,
-                                    title=chap_title,
-                                    summary='',
-                                    status=ChapterList.STATUS_SUMMARY,
-                                    word_count=0,
-                                )
-                                outline_chapters.append({
-                                    'chapter_number': chap_number,
-                                    'title': chap_title,
-                                    'summary': '',
-                                })
-                                logger.warning(f"阶段1：第{chap_number}章JSON解析失败，创建空占位章节")
+                                    })
 
-                                yield self.sse_event('outline', {
-                                    'chapter': {
+                                    yield self.sse_event('outline', {
+                                        'chapter': {
+                                            'chapter_number': chap_number,
+                                            'title': chap_title,
+                                            'summary': chap_summary,
+                                        },
+                                        'current': len(outline_chapters),
+                                        'total': total_chapters or 0,
+                                    })
+                                else:
+                                    chap_number = chapter_number_counter
+                                    chap_title = f'第{chap_number}章'
+                                    ChapterList.objects.create(
+                                        volume=volume,
+                                        chapter_number=chap_number,
+                                        title=chap_title,
+                                        summary='',
+                                        status=ChapterList.STATUS_SUMMARY,
+                                        word_count=0,
+                                    )
+                                    outline_chapters.append({
                                         'chapter_number': chap_number,
                                         'title': chap_title,
                                         'summary': '',
-                                    },
-                                    'current': len(outline_chapters),
-                                    'total': total_chapters or 0,
-                                })
+                                    })
+                                    logger.warning(f"阶段1：第{chap_number}章JSON解析失败，创建空占位章节")
 
-                            in_content = False
+                                    yield self.sse_event('outline', {
+                                        'chapter': {
+                                            'chapter_number': chap_number,
+                                            'title': chap_title,
+                                            'summary': '',
+                                        },
+                                        'current': len(outline_chapters),
+                                        'total': total_chapters or 0,
+                                    })
 
-                if not outline_chapters:
-                    yield self.sse_event('error', {'message': '未生成任何章节概述'})
-                    return
+                                in_content = False
 
-                # 记录阶段1 token 使用量
-                self.log_token_usage('chapter_outline', result=last_outline_chunk, user=request.user, project=project)
+                    if not outline_chapters:
+                        yield self.sse_event('error', {'message': '未生成任何章节概述'})
+                        return
 
-                # 更新总数（如果之前未知）
-                if not total_chapters:
-                    total_chapters = len(outline_chapters)
+                    self.log_token_usage('chapter_outline', result=last_outline_chunk, user=request.user, project=project)
 
-                # ========== 阶段2：逐章生成正文 ==========
-                yield self.sse_event('progress', {'message': '生成中...', 'phase': 'content'})
+                    if not total_chapters:
+                        total_chapters = len(outline_chapters)
+                else:
+                    # 跳过阶段1，使用已有的概述数据
+                    outline_chapters = [
+                        {'chapter_number': ch.chapter_number, 'title': ch.title, 'summary': ch.summary or ''}
+                        for ch in existing_chapters
+                    ]
+                    if not total_chapters:
+                        total_chapters = len(outline_chapters)
+                    yield self.sse_event('progress', {'message': f'已有{len(outline_chapters)}章概述，直接开始正文生成...', 'phase': 'content'})
 
-                worldview, characters, extra_context = self.get_knowledge_context(project)
-                volume_outline = volume.content or volume.summary or ""
+                # ========== 阶段2：批次生成正文（优化版） ==========
+                yield self.sse_event('progress', {'message': '准备批次生成...', 'phase': 'content'})
 
-                for i, chap_info in enumerate(outline_chapters):
-                    chap_number = chap_info['chapter_number']
-                    chap_title = chap_info['title']
-                    chap_summary = chap_info['summary']
+                # 获取基石上下文（缓存命中则跳过 LLM 查询，System Prompt 命中厂商缓存）
+                worldview, characters, volume_outline = self.get_cornerstone_context(project, volume)
 
-                    # 上一章内容
-                    if i > 0:
-                        prev_chap = outline_chapters[i - 1]
-                        prev_chapter_tail = f"【上一章末尾】\n{prev_chap.get('last_content', '')[-PREV_CHAPTER_TAIL_LENGTH:]}"
-                    else:
-                        prev_chapter_tail = ""
+                # 跳过已有正文的章节（内容非空）
+                existing_chapter_numbers = set(
+                    ChapterList.objects.filter(
+                        volume=volume,
+                        chapter_number__in=[ch['chapter_number'] for ch in outline_chapters],
+                        status__in=(ChapterList.STATUS_DRAFT, ChapterList.STATUS_PUBLISHED, ChapterList.STATUS_ARCHIVED),
+                    ).exclude(content='').values_list('chapter_number', flat=True)
+                )
+                if existing_chapter_numbers:
+                    skipped = []
+                    filtered = []
+                    for ch in outline_chapters:
+                        if ch['chapter_number'] in existing_chapter_numbers:
+                            skipped.append(ch['chapter_number'])
+                        else:
+                            filtered.append(ch)
+                    if skipped:
+                        yield self.sse_event('progress', {
+                            'message': f'跳过已有正文的章节: 第{",".join(str(n) for n in sorted(skipped))}章',
+                            'phase': 'content',
+                        })
+                    outline_chapters = filtered
+                    if not outline_chapters:
+                        yield self.sse_event('progress', {
+                            'message': '所有章节已有正文，跳过正文生成',
+                            'phase': 'content',
+                        })
+                        yield self.sse_event('complete', {
+                            'volume_id': volume.pk,
+                            'volume_version_id': volume.volume_version.pk,
+                            'chapters_count': 0,
+                        })
+                        return
 
-                    # 下一章概述
-                    if i < len(outline_chapters) - 1:
-                        next_chap = outline_chapters[i + 1]
-                        next_chapter_summary = f"【下一章概述】\n第{next_chap['chapter_number']}章 {next_chap['title']}：{next_chap['summary']}"
-                    else:
-                        next_chapter_summary = ""
+                # 分为批次（按连续性断开：章节号不连续则新起一批）
+                total_chapters = len(outline_chapters)
+                batch_size = BATCH_SIZE
+                all_batches = []
+                current_batch = []
+                for ch in outline_chapters:
+                    # 检测连续性：当前章节号不是上一章的下一章，断开批次
+                    if current_batch and ch['chapter_number'] != current_batch[-1]['chapter_number'] + 1:
+                        all_batches.append(current_batch)
+                        current_batch = []
+                    current_batch.append(ch)
+                    if len(current_batch) >= batch_size:
+                        all_batches.append(current_batch)
+                        current_batch = []
+                if current_batch:
+                    all_batches.append(current_batch)
+
+                total_batches = len(all_batches)
+                completed_chapter_numbers = []
+
+                for batch_idx, batch_chapters in enumerate(all_batches):
+                    first_chap_num = batch_chapters[0]['chapter_number']
+                    last_chap_num = batch_chapters[-1]['chapter_number']
 
                     yield self.sse_event('progress', {
-                        'message': f'正在生成第{chap_number}章: {chap_title}',
+                        'message': f'正在生成第{first_chap_num}-{last_chap_num}章（第{batch_idx + 1}/{total_batches}批）',
                         'phase': 'content',
-                        'current': i + 1,
+                        'current': len(completed_chapter_numbers) + len(batch_chapters),
                         'total': total_chapters,
                     })
 
-                    content_input_vars = {
-                        "worldview": worldview,
-                        "characters": characters,
-                        "extra_context": extra_context,
-                        "volume_title": volume.title,
-                        "volume_summary": volume.summary or "",
-                        "volume_outline": volume_outline,
-                        "chapter_number": chap_number,
-                        "chapter_title": chap_title,
-                        "chapter_summary": chap_summary,
-                        "prev_chapter_tail": prev_chapter_tail,
-                        "next_chapter_summary": next_chapter_summary,
-                    }
-                    content_prompt = ChatPromptTemplate.from_messages([
-                        ("system", CHAPTER_CONTENT_GEN_SYSTEM_PROMPT),
-                        ("human", CHAPTER_CONTENT_GEN_USER_PROMPT),
+                    # --- 组装动态上下文（User Prompt 部分） ---
+                    # J1: 本批次章节概述
+                    batch_chapters_text = "\n".join([
+                        f"第{ch['chapter_number']}章 {ch['title']}：{ch['summary']}"
+                        for ch in batch_chapters
                     ])
-                    content_chain = content_prompt | llm
 
-                    try:
-                        # 流式生成正文
-                        full_content = ""
-                        last_content_chunk = None
-                        for chunk in content_chain.stream(content_input_vars):
-                            last_content_chunk = chunk
-                            chunk_content = self.get_chunk_text(chunk)
-                            full_content += chunk_content
+                    # J2: 前N章上下文 + 后M章概述
+                    prev_chapters_context, next_chapters_context = self.get_enhanced_adjacent_context(
+                        volume, first_chap_num
+                    )
 
-                        word_count = len(full_content) if full_content else 0
+                    # J3: 角色动态状态
+                    character_dynamic_states = self.get_character_dynamic_states_context(project)
 
-                        # 记录阶段2 token 使用量（逐章累加）
-                        self.log_token_usage('chapter_content', result=last_content_chunk, user=request.user, project=project)
+                    # J4: 向量语义检索
+                    search_query = batch_chapters[0]['summary'] or batch_chapters[0]['title']
+                    retriever_context = self._get_vector_retrieval_context(project, search_query)
 
-                        # 更新数据库
+                    # J5: 上一批次摘要
+                    prev_batch_context = ""
+                    if batch_idx > 0:
+                        prev_batch_context = self.get_previous_batch_context(volume, first_chap_num - 1)
+
+                    # --- 构建 LLM 请求 ---
+                    # System = 基石上下文（可命中厂商缓存）
+                    system_text = CHAPTER_BATCH_CONTENT_SYSTEM_PROMPT.format(
+                        worldview=worldview,
+                        characters=characters,
+                        volume_outline=volume_outline,
+                        min_words_per_chapter=project.min_words_per_chapter,
+                    )
+
+                    # User = 动态上下文（每次变化）
+                    user_text = CHAPTER_BATCH_CONTENT_USER_PROMPT.format(
+                        volume_number=volume.volume_number,
+                        volume_title=volume.title,
+                        volume_summary=volume.summary or "",
+                        batch_chapters=batch_chapters_text,
+                        prev_batch_context=prev_batch_context,
+                        prev_chapters_context=prev_chapters_context,
+                        next_chapters_context=next_chapters_context,
+                        character_dynamic_states=character_dynamic_states,
+                        relevant_history=retriever_context,
+                    )
+
+                    # 直接使用消息列表拼接，避免 f-string 中 {} 冲突
+                    messages = [
+                        SystemMessage(content=system_text),
+                        HumanMessage(content=user_text),
+                    ]
+
+                    # --- 生成初稿 ---
+                    batch_content = self._generate_batch_content(
+                        messages, batch_chapters, user=request.user, project=project
+                    )
+                    if not batch_content:
+                        yield self.sse_event('error', {'message': f'第{first_chap_num}-{last_chap_num}章批次生成失败'})
+                        continue
+
+                    # --- 自动反思修复闭环（最多2次） ---
+                    batch_content = self._auto_verify_fix_loop(
+                        volume, batch_content, batch_chapters,
+                        max_loops=MAX_VERIFY_FIX_LOOPS,
+                        user=request.user, project=project,
+                    )
+
+                    # --- 多维度评分 ---
+                    scored_chapters = self._score_batch_chapters(
+                        volume, batch_content, batch_chapters,
+                        user=request.user, project=project,
+                        min_words=project.min_words_per_chapter,
+                    )
+
+                    # --- 评分不达标 → 定向重写（最多1次） ---
+                    batch_content = self._auto_rewrite_loop(
+                        volume, batch_content, batch_chapters, scored_chapters,
+                        max_loops=MAX_REWRITE_LOOPS,
+                        user=request.user, project=project,
+                        system_text=system_text,
+                    )
+
+                    # --- 保存定稿 ---
+                    for chap_idx, (chap_data, chap_info) in enumerate(zip(batch_content, batch_chapters)):
+                        content = chap_data.get('content', '')
+                        word_count = len(content)
+
                         chapter_obj = ChapterList.objects.filter(
                             volume=volume,
-                            chapter_number=chap_number
+                            chapter_number=chap_info['chapter_number']
                         ).first()
                         if chapter_obj:
-                            chapter_obj.content = full_content
+                            chapter_obj.content = content
                             chapter_obj.word_count = word_count
                             chapter_obj.status = ChapterList.STATUS_DRAFT
                             chapter_obj.save()
 
-                        # 记录内容用于下章衔接
-                        chap_info['last_content'] = full_content
+                            completed_chapter_numbers.append(chap_info['chapter_number'])
 
-                        # 推送到前端
-                        yield self.sse_event('chapter', {
-                            'chapter': {
-                                'chapter_number': chap_number,
-                                'title': chap_title,
-                                'content': full_content,
-                                'word_count': word_count,
-                                'status': 'draft',
-                            },
-                            'current': i + 1,
-                            'total': total_chapters,
-                        })
+                            yield self.sse_event('chapter', {
+                                'chapter': {
+                                    'chapter_number': chap_info['chapter_number'],
+                                    'title': chap_info['title'],
+                                    'content': content,
+                                    'word_count': word_count,
+                                    'status': 'draft',
+                                },
+                                'current': len(completed_chapter_numbers),
+                                'total': total_chapters,
+                            })
 
+                    # --- 定稿后：角色状态提取 ---
+                    try:
+                        total_batch_content = "\n\n".join([
+                            ch.get('content', '') for ch in batch_content
+                        ])
+                        self.extract_and_update_character_states(project, total_batch_content, request.user)
                     except Exception as e:
-                        logger.error(f"生成第{chap_number}章内容失败: {e}")
-                        # 标记为生成失败，但保留章节记录
-                        chapter_obj = ChapterList.objects.filter(
-                            volume=volume,
-                            chapter_number=chap_number
-                        ).first()
-                        if chapter_obj:
-                            chapter_obj.status = ChapterList.STATUS_FAILED
-                            chapter_obj.save()
+                        logger.warning(f"角色状态提取失败（非致命）: {e}")
 
-                        yield self.sse_event('chapter_failed', {
-                            'chapter_number': chap_number,
-                            'title': chap_title,
-                            'message': str(e),
-                        })
+                    # --- 定稿后：概述微调 ---
+                    try:
+                        batch_chapter_numbers = [ch['chapter_number'] for ch in batch_chapters]
+                        completed_objs = list(ChapterList.objects.filter(
+                            volume=volume,
+                            chapter_number__in=batch_chapter_numbers,
+                            status=ChapterList.STATUS_DRAFT,
+                        ))
+                        self.adjust_subsequent_outlines(volume, completed_objs, request.user, project)
+                    except Exception as e:
+                        logger.warning(f"概述微调失败（非致命）: {e}")
 
                 # 完成
                 yield self.sse_event('complete', {
                     'volume_id': volume.pk,
                     'volume_version_id': volume.volume_version.pk,
-                    'chapters_count': len(outline_chapters),
+                    'chapters_count': total_chapters,
                 })
 
             except Exception as e:
@@ -363,37 +799,759 @@ class ApiChapterGenerateView(BaseChapterAPIView):
         return self.sse_response(stream)
 
 
-class ApiChapterContentView(BaseChapterAPIView):
-    def _generate_chapter_content_stream(self, volume_outline, volume_title, volume_summary, chapter_number, chapter_title, chapter_summary, reference_content=None, user=None, project=None, worldview="", characters="", extra_context=""):
-        reference_context = ""
-        if reference_content:
-            reference_context = f"上一章节的内容（作为写作参考，保持风格和情节连续性）:\n{reference_content}\n\n"
+# ========== 批量章节校验与修复 ==========
 
-        llm = get_llm(user=user, scene="default")
+class ApiChapterBatchCheckView(BaseChapterAPIView):
+    """批量章节校验：每批10章核心，前后各扩展3章上下文"""
 
+    BATCH_SIZE = 10   # 每批核心校验章节数
+    OVERLAP = 3       # 前后扩展上下文章节数
+
+    def post(self, request, project_id):
+        volume_id = request.data.get('volume_id')
+        start_chapter = request.data.get('start_chapter')
+        end_chapter = request.data.get('end_chapter')
+
+        if not volume_id:
+            return JsonResponse({'success': False, 'message': '缺少 volume_id'}, status=400)
+        if not start_chapter or not end_chapter:
+            return JsonResponse({'success': False, 'message': '缺少起始/结束章节号'}, status=400)
+
+        try:
+            start_chapter = int(start_chapter)
+            end_chapter = int(end_chapter)
+        except (ValueError, TypeError):
+            return JsonResponse({'success': False, 'message': '章节号格式错误'}, status=400)
+
+        if start_chapter > end_chapter:
+            return JsonResponse({'success': False, 'message': '起始章节不能大于结束章节'}, status=400)
+
+        try:
+            volume = VolumeList.objects.get(id=volume_id, volume_version__project_id=project_id)
+        except VolumeList.DoesNotExist:
+            return JsonResponse({'success': False, 'message': '卷不存在'}, status=404)
+
+        # 获取卷中所有有效章节
+        all_chapters = list(ChapterList.objects.filter(
+            volume=volume,
+            state__in=[ChapterList.STATE_NORMAL, ChapterList.STATE_LOCKED],
+        ).order_by('chapter_number'))
+
+        if not all_chapters:
+            return JsonResponse({'success': False, 'message': '该卷下没有可用章节'}, status=400)
+
+        min_ch = all_chapters[0].chapter_number
+        max_ch = all_chapters[-1].chapter_number
+
+        # 扩展前后各3章作为上下文
+        context_start = max(min_ch, start_chapter - self.OVERLAP)
+        context_end = min(max_ch, end_chapter + self.OVERLAP)
+
+        # 筛选范围内的章节
+        review_chapters = [ch for ch in all_chapters
+                           if context_start <= ch.chapter_number <= context_end]
+
+        # 按内容划分：前3章（只读上下文）、核心10章（主要校验）、后3章（可修改上下文）
+        context_before = [ch for ch in review_chapters if ch.chapter_number < start_chapter]
+        main_chapters = [ch for ch in review_chapters
+                         if start_chapter <= ch.chapter_number <= end_chapter]
+        context_after = [ch for ch in review_chapters if ch.chapter_number > end_chapter]
+
+        # 构建章节文本
+        def build_chapter_text(ch):
+            content = ch.content or ''
+            return f"=== 第{ch.chapter_number}章 {ch.title or ''} ===\n字数: {len(content)}\n{content[:5000]}"
+
+        chapters_text_parts = [build_chapter_text(ch) for ch in review_chapters]
+        chapters_text = "\n\n".join(chapters_text_parts)
+
+        def stream():
+            try:
+                messages = [
+                    SystemMessage(content=CHAPTER_BATCH_CHECK_SYSTEM_PROMPT),
+                    HumanMessage(content=CHAPTER_BATCH_CHECK_USER_PROMPT.format(
+                        volume_title=volume.title,
+                        volume_summary=volume.summary or '',
+                        context_before_count=len(context_before),
+                        context_before_start=context_start if context_before else 0,
+                        context_before_end=start_chapter - 1 if context_before else 0,
+                        main_count=len(main_chapters),
+                        main_start=start_chapter,
+                        main_end=end_chapter,
+                        context_after_count=len(context_after),
+                        context_after_start=end_chapter + 1 if context_after else 0,
+                        context_after_end=context_end if context_after else 0,
+                        chapters_text=chapters_text,
+                    )),
+                ]
+
+                result = call_llm_with_retry(
+                    messages,
+                    user=request.user, scene="chapter_scoring",
+                    project=volume.volume_version.project, task_type="batch_chapter_check",
+                )
+                text = result.content if hasattr(result, 'content') else str(result)
+                check_data = safe_parse_json(text)
+
+                if not check_data or not isinstance(check_data, dict):
+                    yield self.sse_event('error', {'message': '校验结果解析失败'})
+                    return
+
+                yield self.sse_event('check_result', {
+                    'data': check_data,
+                    'context_range': [context_start, context_end],
+                    'main_range': [start_chapter, end_chapter],
+                })
+
+                yield self.sse_event('complete', {'message': '校验完成'})
+
+            except Exception as e:
+                logger.error(f"批量章节校验失败: {e}")
+                yield self.sse_event('error', {'message': f'校验失败: {str(e)}'})
+
+        return self.sse_response(stream)
+
+
+class ApiChapterBatchFixView(BaseChapterAPIView):
+    """批量章节修复：根据校验问题列表修复章节"""
+
+    def post(self, request, project_id):
+        volume_id = request.data.get('volume_id')
+        issues = request.data.get('issues', [])
+
+        if not volume_id:
+            return JsonResponse({'success': False, 'message': '缺少 volume_id'}, status=400)
+        if not issues:
+            return JsonResponse({'success': False, 'message': '没有需要修复的问题'}, status=400)
+
+        try:
+            volume = VolumeList.objects.get(id=volume_id, volume_version__project_id=project_id)
+        except VolumeList.DoesNotExist:
+            return JsonResponse({'success': False, 'message': '卷不存在'}, status=404)
+
+        # 收集涉及的所有章节号
+        chapter_numbers = set()
+        for issue in issues:
+            cn = issue.get('chapter_number')
+            if cn:
+                chapter_numbers.add(int(cn))
+        # 也收集跨章节问题的章节号
+        for issue in issues:
+            chs = issue.get('chapters', [])
+            for cn in chs:
+                chapter_numbers.add(int(cn))
+
+        if not chapter_numbers:
+            return JsonResponse({'success': False, 'message': '无法确定需要修复的章节'}, status=400)
+
+        # 获取相关章节
+        chapters = list(ChapterList.objects.filter(
+            volume=volume,
+            chapter_number__in=chapter_numbers,
+            state__in=[ChapterList.STATE_NORMAL, ChapterList.STATE_LOCKED],
+        ).order_by('chapter_number'))
+
+        chapter_map = {ch.chapter_number: ch for ch in chapters}
+
+        # 构建上下文：获取所有涉及章节前后各1章作为参考
+        all_context_numbers = set(chapter_numbers)
+        for cn in chapter_numbers:
+            all_context_numbers.add(cn - 1)
+            all_context_numbers.add(cn + 1)
+        all_context_numbers = {n for n in all_context_numbers
+                                if min(chapter_numbers) - 3 <= n <= max(chapter_numbers) + 3}
+
+        context_chapters = list(ChapterList.objects.filter(
+            volume=volume,
+            chapter_number__in=all_context_numbers,
+            state__in=[ChapterList.STATE_NORMAL, ChapterList.STATE_LOCKED],
+        ).order_by('chapter_number'))
+
+        def build_chapter_text(ch):
+            content = ch.content or ''
+            return f"=== 第{ch.chapter_number}章 {ch.title or ''} ===\n{content[:5000]}"
+
+        chapters_text = "\n\n".join([build_chapter_text(ch) for ch in context_chapters])
+
+        # 构建问题文本
+        issues_text_parts = []
+        for i, issue in enumerate(issues):
+            cn = issue.get('chapter_number', '?')
+            t = issue.get('type', '?')
+            desc = issue.get('description', '')
+            suggestion = issue.get('suggestion', '')
+            user_comment = issue.get('user_comment', '')
+            text = f"问题{i + 1}[第{cn}章][{t}]: {desc}"
+            if suggestion:
+                text += f"\n  建议: {suggestion}"
+            if user_comment:
+                text += f"\n  用户意见: {user_comment}"
+            issues_text_parts.append(text)
+        issues_text = "\n\n".join(issues_text_parts)
+
+        # 记录原内容用于对比
+        original_chapters = {}
+        for ch in chapters:
+            original_chapters[ch.chapter_number] = {
+                'id': ch.pk,
+                'title': ch.title,
+                'content': ch.content,
+                'word_count': ch.word_count,
+            }
+
+        def stream():
+            try:
+                messages = [
+                    SystemMessage(content=CHAPTER_BATCH_FIX_SYSTEM_PROMPT),
+                    HumanMessage(content=CHAPTER_BATCH_FIX_USER_PROMPT.format(
+                        volume_title=volume.title,
+                        volume_summary=volume.summary or '',
+                        chapters_text=chapters_text,
+                        issues_text=issues_text,
+                    )),
+                ]
+
+                result = call_llm_with_retry(
+                    messages,
+                    user=request.user, scene="chapter_scoring",
+                    project=volume.volume_version.project, task_type="batch_chapter_fix",
+                )
+                text = result.content if hasattr(result, 'content') else str(result)
+                fix_data = safe_parse_json(text)
+
+                if not fix_data or not isinstance(fix_data, (list, dict)):
+                    yield self.sse_event('error', {'message': '修复结果解析失败'})
+                    return
+
+                # 统一转为列表
+                fixed_chapters = fix_data if isinstance(fix_data, list) else fix_data.get('chapters', [fix_data])
+
+                # 构建对比数据
+                compare_data = []
+                for fc in fixed_chapters:
+                    cn = fc.get('chapter_number')
+                    if cn is None:
+                        continue
+                    orig = original_chapters.get(cn, {})
+                    compare_data.append({
+                        'chapter_number': cn,
+                        'chapter_id': orig.get('id'),
+                        'original_title': orig.get('title', ''),
+                        'original_content': orig.get('content', ''),
+                        'modified_title': fc.get('title', orig.get('title', '')),
+                        'modified_content': fc.get('content', ''),
+                    })
+
+                yield self.sse_event('fix_complete', {
+                    'fixed_count': len(compare_data),
+                    'compare_data': compare_data,
+                })
+
+                yield self.sse_event('complete', {'message': f'修复完成，共{len(compare_data)}章'})
+
+            except Exception as e:
+                logger.error(f"批量章节修复失败: {e}")
+                yield self.sse_event('error', {'message': f'修复失败: {str(e)}'})
+
+        return self.sse_response(stream)
+
+    # --- 内部辅助方法 ---
+
+    def _generate_batch_content(self, messages, batch_chapters, user=None, project=None):
+        """调用 LLM 生成批次章节正文，解析分隔符格式
+        重试策略（按时间/Token费用排序）：
+          1. safe_parse_json 解析 CONTENT_START/END 块
+          2. 正则提取 content 字段
+          3. LLM 修复格式
+          4. LLM 重新生成（兜底）
+        """
+        import re as regex_module
+
+        text = None
+
+        # --- 第1次尝试 ---
+        try:
+            result = call_llm_with_retry(
+                messages,
+                user=user, scene="chapter_batch_content",
+                project=project, task_type="chapter_batch_content",
+            )
+            text = result.content if hasattr(result, 'content') else str(result)
+        except Exception as e:
+            logger.error(f"批次 LLM 调用失败: {e}")
+            return None
+
+        def parse_with_json_blocks(raw_text):
+            """策略1: 解析 CONTENT_START/END 分隔的 JSON"""
+            chapters = []
+            in_block = False
+            block_content = ""
+            for line in raw_text.split('\n'):
+                if '════CONTENT_START════' in line:
+                    in_block = True
+                    block_content = ""
+                elif '════CONTENT_END════' in line:
+                    if in_block:
+                        chap_data = safe_parse_json(block_content.strip())
+                        if chap_data:
+                            chapters.append(chap_data)
+                    in_block = False
+                    block_content = ""
+                elif in_block:
+                    block_content += line + "\n"
+            return chapters
+
+        def parse_with_regex(raw_text):
+            """策略2: 正则提取 - 在 CONTENT_START/END 块中用正则捞 content 和 chapter_number"""
+            chapters = []
+            # 找到所有 CONTENT_START/END 块
+            blocks = regex_module.findall(
+                r'════CONTENT_START════\s*\n(.*?)\n\s*════CONTENT_END════',
+                raw_text, regex_module.DOTALL
+            )
+            for block in blocks:
+                # 尝试提取 chapter_number
+                num_match = regex_module.search(r'"chapter_number"\s*:\s*(\d+)', block)
+                cn = int(num_match.group(1)) if num_match else None
+                # 尝试提取 content 字段: "content": "..."  （处理多行内容）
+                content_match = regex_module.search(r'"content"\s*:\s*"((?:\\.|[^"\\])*)"', block, regex_module.DOTALL)
+                content = ""
+                if content_match:
+                    content = content_match.group(1)
+                    # 还原转义
+                    content = content.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+                if content or cn:
+                    chapters.append({'chapter_number': cn, 'content': content})
+            return chapters
+
+        def ask_llm_to_fix_format(raw_text):
+            """策略3: 让 LLM 修复格式，返回修复后的文本"""
+            fix_messages = [
+                SystemMessage(content=(
+                    "你是一个JSON格式修复助手。下面是一段包含章节内容的文本，其中使用了 ════CONTENT_START/END════ 标记包裹每章JSON，"
+                    "但JSON格式可能不完整或有错误（如未转义的引号、截断的内容、多余的空白等）。\n"
+                    "请修复JSON格式，确保每个 CONTENT_START/END 块内的JSON都是有效且完整的。"
+                    "只输出修复后的文本，不要添加任何额外说明。"
+                )),
+                HumanMessage(content=raw_text),
+            ]
+            try:
+                fix_result = call_llm_with_retry(
+                    fix_messages,
+                    user=user, scene="chapter_batch_content",
+                    project=project, task_type="chapter_batch_fix",
+                )
+                return fix_result.content if hasattr(fix_result, 'content') else str(fix_result)
+            except Exception as e:
+                logger.warning(f"LLM 格式修复失败: {e}")
+                return None
+
+        def ask_llm_to_regenerate():
+            """策略4: LLM 重新生成（兜底）"""
+            try:
+                retry_result = call_llm_with_retry(
+                    messages,
+                    user=user, scene="chapter_batch_content",
+                    project=project, task_type="chapter_batch_content",
+                )
+                return retry_result.content if hasattr(retry_result, 'content') else str(retry_result)
+            except Exception as e:
+                logger.error(f"LLM 重新生成失败: {e}")
+                return None
+
+        def build_result(chapters):
+            """将解析出的章节列表与 batch_chapters 对齐"""
+            if not chapters:
+                return None
+            result_chapters = []
+            for i, ch_info in enumerate(batch_chapters):
+                found = None
+                for ch in chapters:
+                    if ch.get('chapter_number') == ch_info['chapter_number']:
+                        found = ch
+                        break
+                if found:
+                    result_chapters.append(found)
+                else:
+                    if i < len(chapters):
+                        chapters[i]['chapter_number'] = ch_info['chapter_number']
+                        result_chapters.append(chapters[i])
+                    else:
+                        logger.warning(f"批次正文缺少第{ch_info['chapter_number']}章")
+                        result_chapters.append({
+                            'chapter_number': ch_info['chapter_number'],
+                            'content': '',
+                        })
+            return result_chapters
+
+        # --- 策略1: JSON 块解析 ---
+        chapters = parse_with_json_blocks(text)
+        if chapters:
+            return build_result(chapters)
+
+        logger.warning(f"批次正文 JSON 解析失败，原始文本前500字符: {text[:500]}")
+
+        # --- 策略2: 正则提取 ---
+        logger.info("尝试正则提取...")
+        chapters = parse_with_regex(text)
+        if chapters:
+            logger.info(f"正则提取成功，解析出 {len(chapters)} 章")
+            return build_result(chapters)
+
+        # --- 策略3: LLM 修复格式 ---
+        logger.info("尝试 LLM 修复格式...")
+        fixed_text = ask_llm_to_fix_format(text)
+        if fixed_text:
+            chapters = parse_with_json_blocks(fixed_text)
+            if chapters:
+                logger.info(f"LLM 修复后 JSON 解析成功，解析出 {len(chapters)} 章")
+                return build_result(chapters)
+            chapters = parse_with_regex(fixed_text)
+            if chapters:
+                logger.info(f"LLM 修复后正则提取成功，解析出 {len(chapters)} 章")
+                return build_result(chapters)
+
+        # --- 策略4: LLM 重新生成（兜底） ---
+        logger.warning("所有解析策略失败，尝试 LLM 重新生成...")
+        new_text = ask_llm_to_regenerate()
+        if not new_text:
+            logger.error("LLM 重新生成失败，批次生成彻底失败")
+            return None
+
+        chapters = parse_with_json_blocks(new_text)
+        if not chapters:
+            chapters = parse_with_regex(new_text)
+        if chapters:
+            return build_result(chapters)
+
+        logger.error(f"批次正文所有策略均失败，最终文本前500字符: {new_text[:500]}")
+        return None
+
+    def _auto_verify_fix_loop(self, volume, batch_content, batch_chapters, max_loops=2, user=None, project=None):
+        """自动反思修复闭环：校验 → 修复 → 再校验，最多 N 次"""
+        for loop_idx in range(max_loops):
+            has_issues = False
+            for chap_idx, (chap_data, chap_info) in enumerate(zip(batch_content, batch_chapters)):
+                content = chap_data.get('content', '')
+                if not content:
+                    continue
+
+                # 获取上一章内容（批次内前一篇或已完成的前一章）
+                prev_content = ""
+                if chap_idx > 0:
+                    prev_content = batch_content[chap_idx - 1].get('content', '')
+                else:
+                    prev_obj = ChapterList.objects.filter(
+                        volume=volume,
+                        chapter_number=chap_info['chapter_number'] - 1,
+                        status=ChapterList.STATUS_DRAFT,
+                    ).first()
+                    if prev_obj:
+                        prev_content = prev_obj.content or ""
+
+                # 调用校验
+                try:
+                    issues = self._verify_single_chapter(
+                        volume, chap_info['chapter_number'], chap_info['title'],
+                        content, prev_content, user=user, project=project,
+                    )
+                except Exception as e:
+                    logger.warning(f"校验第{chap_info['chapter_number']}章失败: {e}")
+                    continue
+
+                if issues and not any(issue.get('type') == 'pass' for issue in issues):
+                    has_issues = True
+                    # 构建修复请求
+                    issues_text = "\n".join([
+                        f"- [{issue.get('type', 'unknown')}] {issue.get('description', '')}"
+                        for issue in issues
+                    ])
+
+                    try:
+                        fixed_content = self._fix_single_chapter(
+                            volume, chap_info['chapter_number'], chap_info['title'],
+                            content, issues_text, user=user, project=project,
+                        )
+                        if fixed_content:
+                            batch_content[chap_idx]['content'] = fixed_content
+                            logger.info(f"第{chap_info['chapter_number']}章修复完成 (第{loop_idx + 1}轮)")
+                    except Exception as e:
+                        logger.warning(f"修复第{chap_info['chapter_number']}章失败: {e}")
+
+            if not has_issues:
+                logger.info(f"自动校验通过（第{loop_idx + 1}轮），无需修复")
+                break
+
+        return batch_content
+
+    def _verify_single_chapter(self, volume, chapter_number, chapter_title, chapter_content, prev_content="", user=None, project=None):
+        """调用校验 LLM 发现章节问题，返回问题列表"""
         input_vars = {
-            "volume_outline": volume_outline,
-            "volume_title": volume_title,
-            "volume_summary": volume_summary,
+            "volume_outline": volume.content or volume.summary or "",
+            "volume_title": volume.title,
+            "volume_summary": volume.summary or "",
+            "prev_chapter_content": prev_content,
             "chapter_number": chapter_number,
             "chapter_title": chapter_title,
-            "chapter_summary": chapter_summary,
-            "reference_context": reference_context,
-            "worldview": worldview,
-            "characters": characters,
-            "extra_context": extra_context,
+            "chapter_content": chapter_content,
         }
 
+        llm = get_llm(user=user, scene="chapter_verify")
         prompt = ChatPromptTemplate.from_messages([
-            ("system", CHAPTER_CONTENT_SYSTEM_PROMPT),
-            ("human", CHAPTER_CONTENT_USER_PROMPT),
+            ("system", CHAPTER_VERIFY_SYSTEM_PROMPT),
+            ("human", CHAPTER_VERIFY_USER_PROMPT),
         ])
         chain = prompt | llm
+        result = call_llm_with_retry(
+            chain, input_vars=input_vars,
+            user=user, scene="chapter_verify",
+            project=project, task_type="chapter_verify",
+        )
 
-        for chunk in call_llm_with_retry(chain, input_vars=input_vars, stream=True, user=user, scene="default", project=project, task_type='chapter_content'):
-            if chunk:
-                yield chunk
+        text = result.content if hasattr(result, 'content') else str(result)
+        return self._parse_verify_issues(text)
 
+    def _parse_verify_issues(self, text):
+        """从校验结果中解析问题列表（══ITEM_START/END════ 格式）"""
+        issues = []
+        in_item = False
+        item_content = ""
+        for line in text.split('\n'):
+            if '════ITEM_START════' in line:
+                in_item = True
+                item_content = ""
+            elif '════ITEM_END════' in line:
+                if in_item:
+                    issue = safe_parse_json(item_content.strip())
+                    if issue:
+                        issues.append(issue)
+                in_item = False
+                item_content = ""
+            elif in_item:
+                item_content += line + "\n"
+        return issues
+
+    def _fix_single_chapter(self, volume, chapter_number, chapter_title, chapter_content, issues_text, user=None, project=None):
+        """调用修复 LLM 修复章节问题"""
+        input_vars = {
+            "volume_title": volume.title,
+            "volume_summary": volume.summary or "",
+            "volume_outline": volume.content or volume.summary or "",
+            "chapter_number": chapter_number,
+            "chapter_title": chapter_title,
+            "chapter_content": chapter_content,
+            "issues_text": issues_text,
+        }
+
+        llm = get_llm(user=user, scene="chapter_verify")
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", CHAPTER_VERIFY_FIX_SYSTEM_PROMPT),
+            ("human", CHAPTER_VERIFY_FIX_USER_PROMPT),
+        ])
+        chain = prompt | llm
+        result = call_llm_with_retry(
+            chain, input_vars=input_vars,
+            user=user, scene="chapter_verify",
+            project=project, task_type="chapter_verify_fix",
+        )
+
+        return result.content if hasattr(result, 'content') else str(result)
+
+    def _score_batch_chapters(self, volume, batch_content, batch_chapters, user=None, project=None, min_words=3000):
+        """对批次中每章进行5维度评分（字数不足仅做字数审阅，不评分）"""
+        scored = {}
+        for chap_data, chap_info in zip(batch_content, batch_chapters):
+            content = chap_data.get('content', '')
+            if not content:
+                scored[chap_info['chapter_number']] = {"average": 100, "low_dimensions": []}
+                continue
+
+            # 字数检查：不足则不评分，直接触发重写扩展
+            content_len = len(content)
+            if content_len < min_words:
+                scored[chap_info['chapter_number']] = {
+                    "average": 0,
+                    "low_dimensions": ["word_count"],
+                    "suggestions": {
+                        "word_count": f"当前章节字数仅{content_len}字，目标至少{min_words}字，大幅扩展情节描写、对话和场景细节"
+                    },
+                }
+                continue
+
+            try:
+                # 获取前后文用于评分
+                prev_idx = next((i for i, c in enumerate(batch_chapters) if c['chapter_number'] == chap_info['chapter_number'] - 1), -1)
+                prev_tail = batch_content[prev_idx].get('content', '')[-CHAPTER_TAIL_CONTEXT_LENGTH:] if prev_idx >= 0 else ""
+                if not prev_tail:
+                    prev_obj = ChapterList.objects.filter(
+                        volume=volume, chapter_number=chap_info['chapter_number'] - 1,
+                        status=ChapterList.STATUS_DRAFT,
+                    ).first()
+                    if prev_obj:
+                        prev_tail = (prev_obj.content or "")[-CHAPTER_TAIL_CONTEXT_LENGTH:]
+
+                next_idx = next((i for i, c in enumerate(batch_chapters) if c['chapter_number'] == chap_info['chapter_number'] + 1), -1)
+                next_summary = batch_chapters[next_idx].get('summary', '') if next_idx >= 0 else ""
+
+                # 获取相关角色信息
+                project_obj = volume.volume_version.project
+                characters = Character.objects.filter(project=project_obj, is_deleted=False)
+                related_characters = "\n".join([
+                    f"- {ch.name}: {ch.personality or ''} {ch.motivation or ''}"
+                    for ch in characters[:5]
+                ]) if characters.exists() else ""
+
+                input_vars = {
+                    "volume_title": volume.title,
+                    "volume_summary": volume.summary or "",
+                    "chapter_number": chap_info['chapter_number'],
+                    "chapter_title": chap_info['title'],
+                    "chapter_content": content,
+                    "prev_chapter_tail": prev_tail,
+                    "next_chapter_summary": next_summary,
+                    "related_characters": related_characters,
+                }
+
+                llm = get_llm(user=user, scene="chapter_scoring")
+                prompt = ChatPromptTemplate.from_messages([
+                    ("system", CHAPTER_SCORING_SYSTEM_PROMPT),
+                    ("human", CHAPTER_SCORING_USER_PROMPT),
+                ])
+                chain = prompt | llm
+                result = call_llm_with_retry(
+                    chain, input_vars=input_vars,
+                    user=user, scene="chapter_scoring",
+                    project=project, task_type="chapter_scoring",
+                )
+
+                text = result.content if hasattr(result, 'content') else str(result)
+                score_data = safe_parse_json(text)
+                if score_data and isinstance(score_data, dict):
+                    avg = float(score_data.get("average", 0)) * 5  # 0-20 转为 0-100
+                    scored[chap_info['chapter_number']] = {
+                        "scores": score_data.get("scores", {}),
+                        "average": min(100, avg),
+                        "low_dimensions": score_data.get("low_dimensions", []),
+                        "suggestions": score_data.get("suggestions", {}),
+                    }
+                else:
+                    scored[chap_info['chapter_number']] = {"average": 80, "low_dimensions": []}
+
+            except Exception as e:
+                logger.warning(f"评分第{chap_info['chapter_number']}章失败（非致命）: {e}")
+                scored[chap_info['chapter_number']] = {"average": 80, "low_dimensions": []}
+
+        return scored
+
+    def _auto_rewrite_loop(self, volume, batch_content, batch_chapters, scored_chapters, max_loops=1, user=None, project=None, system_text=""):
+        """自动重写低分章节（最多1次）"""
+        for loop_idx in range(max_loops):
+            needs_rewrite = False
+            for chap_idx, chap_info in enumerate(batch_chapters):
+                score_info = scored_chapters.get(chap_info['chapter_number'], {})
+                avg_score = score_info.get("average", 80)
+
+                if avg_score < SCORING_PASS_THRESHOLD:
+                    needs_rewrite = True
+                    low_dims = score_info.get("low_dimensions", [])
+                    suggestions = score_info.get("suggestions", {})
+
+                    # 构建定向重写提示
+                    rewrite_hints = []
+                    word_count_hint = None
+                    for dim in low_dims:
+                        if dim == "word_count":
+                            # 字数不足：优先给出具体的字数目标
+                            suggestion = suggestions.get(dim, "")
+                            word_count_hint = f"请扩展本章节内容，{suggestion}"
+                            continue
+                        suggestion = suggestions.get(dim, "")
+                        if suggestion:
+                            rewrite_hints.append(f"- {dim}: {suggestion}")
+
+                    if word_count_hint:
+                        rewrite_hints.insert(0, word_count_hint)
+
+                    if not rewrite_hints:
+                        rewrite_hints.append("整体质量需要提升")
+
+                    rewrite_prompt = f"请重新创作第{chap_info['chapter_number']}章，重点改进以下方面：\n" + "\n".join(rewrite_hints)
+
+                    try:
+                        messages = [
+                            SystemMessage(content=system_text),
+                            HumanMessage(content=rewrite_prompt),
+                        ]
+                        result = call_llm_with_retry(
+                            messages,
+                            user=user, scene="chapter_batch_content",
+                            project=project, task_type="chapter_batch_content",
+                        )
+                        new_text = result.content if hasattr(result, 'content') else str(result)
+
+                        # 解析新内容
+                        in_block = False
+                        block_content = ""
+                        for line in new_text.split('\n'):
+                            if '════CONTENT_START════' in line:
+                                in_block = True
+                                block_content = ""
+                            elif '════CONTENT_END════' in line:
+                                if in_block:
+                                    chap_data = safe_parse_json(block_content.strip())
+                                    if chap_data and chap_data.get('content'):
+                                        batch_content[chap_idx]['content'] = chap_data['content']
+                                        logger.info(f"第{chap_info['chapter_number']}章重写完成 (第{loop_idx + 1}轮)")
+                                in_block = False
+                                block_content = ""
+                            elif in_block:
+                                block_content += line + "\n"
+                    except Exception as e:
+                        logger.warning(f"重写第{chap_info['chapter_number']}章失败: {e}")
+
+            if not needs_rewrite:
+                logger.info(f"评分全部达标，跳过重写")
+                break
+
+        return batch_content
+
+
+def _extract_single_content(raw_text, chapter_number):
+    """从 LLM 流式输出中提取单章正文
+    支持两种格式：
+    1. ════CONTENT_START/END════ 包裹的 JSON（批量格式）
+    2. 纯文本正文
+    """
+    import re as _re
+
+    # 尝试提取 CONTENT_START/END 块
+    pattern = r'════CONTENT_START════\s*\n(.*?)\n\s*════CONTENT_END════'
+    blocks = _re.findall(pattern, raw_text, _re.DOTALL)
+    for block in blocks:
+        # 尝试 JSON 解析
+        chap_data = safe_parse_json(block.strip())
+        if chap_data and isinstance(chap_data, dict):
+            content = chap_data.get('content', '')
+            if content:
+                return content
+        # 正则兜底提取 content 字段
+        content_match = _re.search(r'"content"\s*:\s*"((?:\\.|[^"\\])*)"', block, _re.DOTALL)
+        if content_match:
+            content = content_match.group(1)
+            content = content.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"')
+            if content:
+                return content
+
+    # 纯文本：直接返回（去掉可能的尾部JSON标记行）
+    cleaned = _re.sub(r'\s*════CONTENT_(START|END)════', '', raw_text)
+    # 去掉可能残留在开头的 JSON 结构标记
+    cleaned = _re.sub(r'^\s*\{\s*"chapter_number"\s*:\s*\d+\s*,\s*"content"\s*:\s*"', '', cleaned)
+    # 去掉末尾的 "
+    cleaned = _re.sub(r'"\s*\}\s*$', '', cleaned)
+    return cleaned.strip()
+
+
+class ApiChapterContentView(BaseChapterAPIView):
     def post(self, request, project_id):
         chapter_id = request.data.get('chapter_id')
         if not chapter_id:
@@ -409,43 +1567,109 @@ class ApiChapterContentView(BaseChapterAPIView):
         if chapter.content and len(chapter.content) >= MAX_CONTENT_LENGTH:
             return JsonResponse({'success': False, 'message': f'章节内容已达上限{MAX_CONTENT_LENGTH}字'}, status=400)
 
-        reference_content = ""
+        project = chapter.volume.volume_version.project
+        volume = chapter.volume
+
+        # 获取基石上下文（与批量生成一致）
+        worldview, characters, volume_outline = self.get_cornerstone_context(project, volume)
+
+        # 获取上下文（前N章 + 后M章概述）
+        prev_chapters_context, next_chapters_context = self.get_enhanced_adjacent_context(
+            volume, chapter.chapter_number
+        )
+
+        # 角色动态状态
+        character_dynamic_states = self.get_character_dynamic_states_context(project)
+
+        # 向量语义检索
+        search_query = chapter.summary or chapter.title
+        retriever_context = self._get_vector_retrieval_context(project, search_query)
+
+        # 上一章完整内容（reference）
+        reference_context = ""
         if reference_chapter_id:
             ref_chapter = get_object_or_404(ChapterList, pk=reference_chapter_id, volume__volume_version__project__user=request.user)
-            reference_content = ref_chapter.content
+            reference_context = ref_chapter.content or ""
+        elif chapter.chapter_number > 1:
+            prev_chapter = ChapterList.objects.filter(
+                volume=volume,
+                chapter_number=chapter.chapter_number - 1,
+                status=ChapterList.STATUS_DRAFT,
+            ).first()
+            if prev_chapter and prev_chapter.content:
+                reference_context = prev_chapter.content
 
-        project = chapter.volume.volume_version.project
-        worldview, characters, extra_context = self.get_knowledge_context_for_chapter(project, chapter)
+        # 构建单章 batch 格式
+        batch_chapters_text = f"第{chapter.chapter_number}章 {chapter.title}：{chapter.summary or ''}"
+
+        prev_batch_context = ""
+        if reference_context:
+            prev_batch_context = f"【上一章正文（保持风格和情节连续性）】\n{reference_context[-3000:]}\n"
+
+        # 构建与批量生成一致的 prompt
+        system_text = CHAPTER_BATCH_CONTENT_SYSTEM_PROMPT.format(
+            worldview=worldview,
+            characters=characters,
+            volume_outline=volume_outline,
+            min_words_per_chapter=project.min_words_per_chapter,
+        )
+
+        user_text = CHAPTER_SINGLE_CONTENT_USER_PROMPT.format(
+            chapter_number=chapter.chapter_number,
+            volume_number=volume.volume_number,
+            volume_title=volume.title,
+            volume_summary=volume.summary or "",
+            batch_chapters=batch_chapters_text,
+            prev_batch_context=prev_batch_context,
+            prev_chapters_context=prev_chapters_context,
+            next_chapters_context=next_chapters_context,
+            character_dynamic_states=character_dynamic_states,
+            relevant_history=retriever_context,
+        )
+
+        # 额外上下文（写作参考等）
+        worldview_ctx, characters_ctx, extra_context = self.get_knowledge_context_for_chapter(project, chapter)
+        if extra_context:
+            user_text += f"\n\n【额外写作参考】\n{extra_context}"
 
         def generate():
-            full_content = ""
-            # logger.info(f"开始流式生成章节内容，chapter_id: {chapter_id}")
+            full_response = ""
             try:
-                volume = chapter.volume
-                for chunk in self._generate_chapter_content_stream(
-                    volume.content or volume.summary,
-                    volume.title,
-                    volume.summary,
-                    chapter.chapter_number,
-                    chapter.title,
-                    chapter.summary,
-                    reference_content,
-                    user=request.user,
-                    project=project,
-                    worldview=worldview,
-                    characters=characters,
-                    extra_context=extra_context,
-                ):
-                    full_content += chunk
-                    yield self.sse_event('chunk', {'content': chunk})
+                llm = get_llm(user=request.user, scene="default")
+                messages = [
+                    SystemMessage(content=system_text),
+                    HumanMessage(content=user_text),
+                ]
 
-                # logger.info(f"流式内容生成完成，总长度: {len(full_content)}")
-                word_count = len(full_content) if full_content else 0
-                chapter.content = full_content
+                for chunk_text in call_llm_with_retry(
+                    messages,
+                    user=request.user, scene="default",
+                    project=project, task_type='chapter_content',
+                    stream=True,
+                ):
+                    if chunk_text:
+                        full_response += chunk_text
+                        yield self.sse_event('chunk', {'content': chunk_text})
+
+                # 单章 prompt 直接输出纯文本，无需 JSON 解析
+                content = full_response.strip()
+                if not content:
+                    yield self.sse_event('error', {'message': '生成的章节内容为空'})
+                    return
+
+                word_count = len(content)
+                chapter.content = content
                 chapter.word_count = word_count
                 chapter.status = ChapterList.STATUS_DRAFT
                 chapter.save()
                 yield self.sse_event('complete', {'word_count': word_count})
+
+                # 角色状态提取
+                try:
+                    self.extract_and_update_character_states(project, content, request.user)
+                except Exception as e:
+                    logger.warning(f"单章角色状态提取失败（非致命）: {e}")
+
             except Exception as e:
                 logger.error(f"流式生成章节内容失败: {e}")
                 yield self.sse_event('error', {'message': '章节内容生成失败，请稍后重试'})
@@ -795,6 +2019,10 @@ class ApiChapterSaveView(BaseChapterAPIView):
                 return JsonResponse({'success': False, 'message': f'内容长度不能超过{MAX_CONTENT_LENGTH}字'}, status=400)
             chapter.content = content
             chapter.word_count = len(content) if content else 0
+            # 内容为空时回退到"已生成概述"状态，前端展示"生成正文"按钮
+            if not content or not content.strip():
+                chapter.status = ChapterList.STATUS_SUMMARY
+
         chapter.save()
 
         return JsonResponse({
@@ -805,6 +2033,7 @@ class ApiChapterSaveView(BaseChapterAPIView):
                 'summary': chapter.summary,
                 'content': chapter.content,
                 'word_count': chapter.word_count,
+                'status': chapter.status,
                 'updated_at': chapter.updated_at.isoformat()
             }
         })
@@ -1110,3 +2339,126 @@ class ApiChapterReorderView(BaseChapterAPIView):
                 chap.save()
 
         return JsonResponse({'success': True, 'chapters_count': chapters.count()})
+
+
+class ApiReaderReviewView(BaseChapterAPIView):
+    """读者模式审阅：每10章一批，重叠3章，以读者视角评估"""
+
+    BATCH_SIZE = 10   # 每批审阅章节数
+    OVERLAP = 3       # 重叠章节数
+
+    def post(self, request, project_id):
+        volume_id = request.data.get('volume_id')
+        if not volume_id:
+            return JsonResponse({'success': False, 'message': '缺少 volume_id'}, status=400)
+
+        try:
+            volume = Volume.objects.get(id=volume_id, volume_version__project_id=project_id)
+        except Volume.DoesNotExist:
+            return JsonResponse({'success': False, 'message': '卷不存在'}, status=404)
+
+        project = volume.volume_version.project
+
+        # 获取所有有内容的章节
+        chapters = list(ChapterList.objects.filter(
+            volume=volume,
+            state__in=[ChapterList.STATE_NORMAL, ChapterList.STATE_LOCKED],
+            status__in=(ChapterList.STATUS_DRAFT, ChapterList.STATUS_PUBLISHED, ChapterList.STATUS_ARCHIVED),
+        ).exclude(content='').order_by('chapter_number'))
+
+        if len(chapters) < 2:
+            return JsonResponse({'success': False, 'message': '可审阅的章节不足（至少需要2章）'}, status=400)
+
+        total = len(chapters)
+
+        def stream():
+            all_reviews = []
+            batch_idx = 0
+            start = 0
+
+            while start < total:
+                # 本批次实际审阅范围
+                batch_end = min(start + self.BATCH_SIZE, total)
+                batch_chapters = chapters[start:batch_end]
+
+                # 重叠章节：下一批次的 OVERLAP 章在本批次中也审阅
+                overlap_start = max(0, start - self.OVERLAP)
+                overlap_before = chapters[overlap_start:start] if start > 0 else []
+
+                overlap_count = len(overlap_before)
+                review_chapters = overlap_before + batch_chapters
+
+                batch_idx += 1
+                total_batches = (total + self.BATCH_SIZE - self.OVERLAP - 1) // (self.BATCH_SIZE - self.OVERLAP)
+
+                yield self.sse_event('progress', {
+                    'current': batch_idx,
+                    'total': max(total_batches, 1),
+                    'chapters': f'第{review_chapters[0].chapter_number}-{review_chapters[-1].chapter_number}章',
+                    'message': f'正在审阅第{batch_idx}批...',
+                })
+
+                # 构建章节文本
+                chapters_text_parts = []
+                for ch in review_chapters:
+                    chapters_text_parts.append(
+                        f"=== 第{ch.chapter_number}章 {ch.title or ''} ===\n{ch.content[:4000]}"
+                    )
+                chapters_text = "\n\n".join(chapters_text_parts)
+
+                try:
+                    messages = [
+                        SystemMessage(content=READER_REVIEW_SYSTEM_PROMPT),
+                        HumanMessage(content=READER_REVIEW_USER_PROMPT.format(
+                            volume_title=volume.title,
+                            volume_summary=volume.summary or '',
+                            total_chapters=len(review_chapters),
+                            overlap_count=overlap_count,
+                            chapters_text=chapters_text,
+                        )),
+                    ]
+                    result = call_llm_with_retry(
+                        messages,
+                        user=request.user, scene="chapter_scoring",
+                        project=project, task_type="reader_review",
+                    )
+                    text = result.content if hasattr(result, 'content') else str(result)
+                    review_data = safe_parse_json(text)
+
+                    if review_data and isinstance(review_data, dict):
+                        review_data['batch'] = batch_idx
+                        review_data['chapter_range'] = [
+                            review_chapters[0].chapter_number,
+                            review_chapters[-1].chapter_number
+                        ]
+                        all_reviews.append(review_data)
+
+                        yield self.sse_event('review', {
+                            'batch': batch_idx,
+                            'review': review_data,
+                        })
+                    else:
+                        logger.warning(f"第{batch_idx}批审阅解析失败")
+                        yield self.sse_event('review', {
+                            'batch': batch_idx,
+                            'error': '审阅结果解析失败',
+                        })
+
+                except Exception as e:
+                    logger.error(f"第{batch_idx}批审阅失败: {e}")
+                    yield self.sse_event('review', {
+                        'batch': batch_idx,
+                        'error': str(e),
+                    })
+
+                # 下一批从 (start + BATCH_SIZE - OVERLAP) 开始
+                start = start + self.BATCH_SIZE - self.OVERLAP
+                if start < 0:
+                    start = 0
+
+            yield self.sse_event('complete', {
+                'total_batches': len(all_reviews),
+                'all_reviews': all_reviews,
+            })
+
+        return self.sse_response(stream)

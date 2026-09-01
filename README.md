@@ -62,9 +62,9 @@
 ## 技术栈
 
 - **后端**: Django 5.2 + Django REST Framework
-- **数据库**: MySQL 8.0+
+- **数据库**: PostgreSQL 16 + pgvector（业务 + 向量一库两用）
 - **缓存**: Redis
-- **向量库**: Milvus（支持 Lite 嵌入式 / Standalone 两种模式）
+- **异步任务**: Celery（Worker + Beat 定时调度）
 - **Embedding**: DeepSeek API / 本地 sentence-transformers（可切换）
 - **AI**: LangChain + OpenAI-compatible LLM API（默认 DeepSeek）
 - **前端**: 原生 HTML / CSS / JavaScript（分离式文件结构，无构建工具）
@@ -81,18 +81,17 @@ novel-agent/
 ├── requirements.txt              # Python 依赖
 ├── manage.py                     # Django 管理脚本
 ├── Dockerfile                    # Django 容器镜像
-├── docker-compose.yml            # 一键部署（Nginx + Django + MySQL + Milvus + Embedding）
+├── docker-compose.yml            # 一键部署（PostgreSQL + Redis + Django + Celery + Embedding）
 ├── docs/                         # 文档资源
 │   └── images/                   # README 截图
 ├── docker/                       # Docker 配置
 │   ├── entrypoint.sh             # 容器启动脚本（迁移 + collectstatic + Gunicorn）
-│   ├── nginx/default.conf        # Nginx 反向代理（静态文件 + SSE 支持）
-│   ├── mysql/init.sql            # MySQL 初始化
+│   ├── nginx/default.conf        # Nginx 反向代理（生产环境静态文件 + SSE 支持）
 │   └── embedding/                # 独立 Embedding 服务（FastAPI + sentence-transformers）
 │       ├── Dockerfile
 │       └── server.py
 ├── novel_agent/                  # 项目配置目录
-│   ├── settings.py               # Django 配置（含 Milvus/Embedding/STATIC_ROOT）
+│   ├── settings.py               # Django 配置（含 PostgreSQL/pgvector/Embedding/STATIC_ROOT）
 │   ├── urls.py                   # 主路由
 │   ├── wsgi.py / asgi.py
 │   ├── middleware.py             # JWT 认证中间件
@@ -103,8 +102,8 @@ novel-agent/
 │   ├── llm_scenes.py             # 场景化配置（温度/max_tokens）
 │   └── memory.py                 # 消息历史滚动压缩
 ├── apps/
-│   ├── knowledge/                # 向量知识库
-│   │   ├── client.py             # Milvus 连接管理（local 嵌入式 / docker 独立服务）
+│   ├── knowledge/                # 向量知识库（PostgreSQL + pgvector）
+│   │   ├── client.py             # 向量数据库连接管理
 │   │   ├── embedder.py           # Embedding 工厂（DeepSeek API / 本地模型）
 │   │   ├── indexer.py            # 索引同步器（大纲/世界观/角色/卷/章节段落）
 │   │   ├── retriever.py          # 检索器（include/exclude + 语义检索 + DB 降级）
@@ -211,9 +210,8 @@ novel-agent/
 ### 1. 环境要求
 
 - Python 3.10+
-- MySQL 8.0+
+- PostgreSQL 16+（需安装 pgvector 扩展）
 - Redis
-- Milvus（本地开发可选，使用嵌入式 Lite 模式无需额外安装；Docker 部署自动配置）
 
 ### 2. 复制环境配置模板
 
@@ -233,17 +231,20 @@ pip install -r requirements.txt
 
 ```env
 # 数据库
-MYSQL_DB_HOST=localhost
-MYSQL_DB_PORT=3306
-MYSQL_DB_DATABASE=novel_agent
-MYSQL_DB_USER=root
-MYSQL_DB_PASSWORD=your_password
+PG_DB_HOST=localhost
+PG_DB_PORT=5432
+PG_DB_DATABASE=novel_agent
+PG_DB_USER=novel_agent
+PG_DB_PASSWORD=your_password
 
 # Redis
 REDIS_DB_HOST=localhost
 REDIS_DB_PORT=6379
 REDIS_DB_PASSWORD=
 REDIS_DB_DB=0
+
+# Celery（异步任务）
+CELERY_BROKER_URL=redis://localhost:6379/1
 
 # LLM（DeepSeek）
 LLM_API_KEY=your_api_key
@@ -252,9 +253,6 @@ LLM_BASE_URL=https://api.deepseek.com
 
 # Embedding（向量化，默认用 DeepSeek API 零配置启动）
 EMBEDDING_PROVIDER=deepseek
-
-# Milvus 向量库（默认用嵌入式，无需单独部署）
-MILVUS_MODE=local
 ```
 
 ### 5. 初始化知识库索引（可选，首次使用）
@@ -290,12 +288,11 @@ python manage.py runserver
 # 1. 配置环境变量（调整 host 为 docker 服务名）
 cp .env.example .env
 # 修改 .env 中以下字段：
-#   MYSQL_DB_HOST=mysql
+#   PG_DB_HOST=postgres
 #   REDIS_DB_HOST=redis
-#   MILVUS_MODE=docker
-#   MILVUS_HOST=milvus
+#   CELERY_BROKER_URL=redis://redis:6379/1
 #   EMBEDDING_PROVIDER=local
-#   LOCAL_EMBEDDING_URL=http://embedding:8000/embed
+#   EMBEDDING_DOCKER_URL=http://embedding:8000/embed
 
 # 2. 启动所有服务
 docker-compose up -d
@@ -309,12 +306,12 @@ Docker 部署包含的服务：
 | 服务 | 说明 |
 |------|------|
 | nginx | 反向代理 + 静态文件服务（端口 80） |
-| django | Gunicorn + UvicornWorker（4 workers，支持 SSE） |
-| mysql | MySQL 8.0（端口 3306） |
+| postgres | PostgreSQL 16 + pgvector（业务 + 向量，端口 5432） |
+| redis | Redis 缓存 + Celery Broker（端口 6379） |
+| django | Gunicorn + UvicornWorker（4 workers，支持 SSE，端口 8000） |
+| celery-worker | Celery 异步任务 Worker |
+| celery-beat | Celery 定时任务调度 |
 | embedding | sentence-transformers 本地模型（端口 8080） |
-| milvus | Milvus Standalone（端口 19530） |
-| etcd | Milvus 依赖 |
-| minio | Milvus 依赖 |
 
 > **静态文件处理**: Docker 部署时，Django 容器启动会自动执行 `collectstatic`，将静态文件收集到 `STATIC_ROOT`（/app/staticfiles/），通过共享卷挂载到 Nginx 容器，由 Nginx 直接服务静态文件，Django 不再处理静态文件请求。
 
@@ -653,9 +650,88 @@ AI 辅助生成角色设定，管理角色的：
 |------|------|------|
 | `/api/llm-config/` | GET/POST | 获取/更新 LLM 配置 |
 
+## 章节生成优化架构（规划中）
+
+> 详细设计文档：[chapter_generation_architecture.md](docs/chapter_generation_architecture.md)
+>
+> 基于现有系统（卷分析 → 卷大纲 → 两阶段章节生成 + PostgreSQL + pgvector 向量知识库）的优化方案，核心目标：**降低 Token 成本 × 提升生成质量 × 保证跨章节一致性**。
+>
+> 四大核心改进：卷级静态基石缓存锚点 · 批次化动态上下文组装 · 自动反思修复闭环 · 角色动态状态追踪
+
+```mermaid
+flowchart TD
+    %% ========== 卷级初始化 ==========
+    subgraph 卷级初始化["📦 卷级初始化（复用现有 VOLUME_ANALYSIS + VOLUME_GENERATION）"]
+        A["输入：世界观\n/全局大纲\n/角色初始设定"] --> B["锁定世界规则全集\n（不变）"]
+        A --> C["从全局大纲提取当前卷详细大纲\n（现有 VOLUME_GENERATION）"]
+        C --> D["锁定当前卷大纲\n（生成期间禁止编辑）"]
+        B & D --> E["拼接基石上下文\n→ 写入 Redis 缓存锚点\n→ System Prompt 命中 LLM Cache"]
+        E --> F["基础角色静态属性\n（现有 Character 模型）"]
+    end
+
+    E --> G
+    F --> G
+
+    %% ========== 阶段1：章节概述 ==========
+    G0["阶段1：批量生成章节标题+概述\n（现有 CHAPTER_OUTLINE，已实现）"]
+    G["进入卷生成流程"] --> G0
+
+    %% ========== 阶段2：批次生成循环 ==========
+    G0 --> H["开始本卷批次生成\nBATCH_SIZE = 2 或 3（可配置）"]
+    H --> I{"本卷所有章节\n是否完成？"}
+    I -- 否 --> J["取出下一批次\n例如第 11-12 章"]
+
+    subgraph 动态组装["🧩 动态上下文组装（每次变化）"]
+        J --> K1["J1 提取当前批次章节概述"]
+        J --> K2["J2 取前 N 章摘要 + 后 M 章概述\n（增强 get_adjacent_context）"]
+        J --> K3["J3 从 Character.dynamic_states\n提取本批次相关角色动态状态"]
+        J --> K4["J4 向量语义检索\n取最相关历史片段\n（现有 KnowledgeRetriever）"]
+        J --> K5["J5 取上一批次 2-3 章原文摘要"]
+        K1 & K2 & K3 & K4 & K5 --> L["拼接动态上下文 → User Prompt"]
+    end
+
+    %% 最终请求拼接
+    L --> M["最终请求拼接：\nSystem=基石（可缓存）\n+ User=动态\n直接 llm.stream() 避免 f-string 坑"]
+    M --> N["📝 LLM 生成初稿\n按分隔符 ════CONTENT_START/END════\n解析多章 JSON"]
+
+    %% 反思与修复
+    N --> O["🔍 一致性反思\n（复用现有 CHAPTER_VERIFY，自动化）"]
+    O --> P{"检测到矛盾？\n且修复次数 ≤ 2 次？"}
+    P -- 是 --> Q["🛠️ 修复矛盾段落\n（复用现有 CHAPTER_VERIFY_FIX，自动化）"]
+    Q --> O
+    P -- 否 --> R["📊 多维度评分\n（连续性/逻辑/人设/情节/文笔 5 维度）"]
+
+    %% 评分与重写
+    R --> S{"平均分 ≥ 阈值？\n且重写次数 ≤ 1 次？"}
+    S -- 否 --> T["📋 提取低分维度意见\n定向重写"]
+    T --> N
+    S -- 是 --> U["✅ 批次定稿"]
+
+    %% 状态更新
+    subgraph 更新["💾 定稿与记忆更新"]
+        U --> V["章节切片存入长期记忆库\n（现有 post_save signal 自动索引 pgvector）"]
+        U --> W["提取本章角色状态变化\n→ 更新 Character.dynamic_states\n（新增：状态提取 LLM）"]
+        U --> X["标记章节概述为“已完成”\n→ 微调后续章节概述\n（新增：概述微调 LLM，仅微调不动卷大纲）"]
+    end
+
+    V & W & X --> Y["进入下一批次"]
+    Y --> I
+    I -- 是 --> Z["📘 本卷定稿，人工通读审阅"]
+```
+
+**分阶段落地路线（按 ROI 排序）：**
+
+| 阶段 | 核心内容 | 预期收益 |
+|---|---|---|
+| 🏗️ 第一阶段 | 基石上下文 Redis 缓存锚点 + Phase 2 批次生成（2章一批） + 前后章节上下文扩展 | Token 成本下降 30-50%（System Prompt 命中厂商缓存） |
+| 🏗️ 第二阶段 | Character 新增 dynamic_states JSONField + 自动校验修复闭环（≤2次） + 角色状态 LLM 提取 | 跨章节一致性显著提升，角色人设不崩坏 |
+| 🏗️ 第三阶段 | 5维度评分系统（≤1次重写） + 后续章节概述微调（强约束不动核心节点） | 生成质量可控，减少人工审阅返工 |
+
+详细的模块映射表和改造说明见 [docs/chapter_generation_architecture.md](docs/chapter_generation_architecture.md)。
+
 ## 开发计划
 
-- [x] 向量知识库（Milvus + Embedding，自动索引 + 语义检索 + 降级策略）
+- [x] 向量知识库（PostgreSQL + pgvector + Embedding，自动索引 + 语义检索 + 降级策略）
 - [ ] 实现自我优化/自我审阅功能
 - [ ] 添加更多的自定义选项
 - [ ] 添加导出功能（Word/EPUB/PDF）

@@ -6,6 +6,12 @@
 
 Novel Agent 是一个 Django 5.2 Web 应用，帮助作者通过聊天式 AI 交互构建小说大纲、卷、章节、角色、世界观设定和时间线。它通过 LangChain 使用兼容 OpenAI 的 LLM API（默认为 DeepSeek）实现所有 AI 功能，使用 Server-Sent Events (SSE) 实现流式响应。
 
+- **数据库**: PostgreSQL 16 + pgvector（业务数据 + 向量存储一库两用）
+- **缓存 & 消息队列**: Redis（缓存 + Celery Broker）
+- **异步任务**: Celery Worker + Celery Beat（定时调度）
+- **向量检索**: pgvector HNSW 索引 + cosine 相似度搜索
+- **Embedding**: DeepSeek API / 本地 sentence-transformers（可切换）
+
 ## 技术架构
 
 ### 前后端分离架构
@@ -105,6 +111,7 @@ pip install -r requirements.txt
 | `timeline` | TimelineEvent、TimelineChatHistory — 基于章节范围的故事时间线 |
 | `note` | Note — 自由形式的"随手记"，支持 AI 润色 |
 | `user` | 用户 LLM 配置（LLMConfig、UserLLMConfig）、TokenUsageLog、JWT 认证视图 |
+| `knowledge` | KnowledgeVector（pgvector 向量存储）、向量索引、语义检索 |
 
 ### URL 和路由模式
 
@@ -152,8 +159,9 @@ apps/
 
 ### 关键环境变量（`.env`）
 
-- `MYSQL_DB_*` — MySQL 数据库连接
+- `PG_DB_*` — PostgreSQL 数据库连接
 - `REDIS_DB_*` — Redis 缓存连接
+- `CELERY_BROKER_URL` — Celery 消息代理（默认复用 Redis DB 1）
 
 ### 日志
 

@@ -1,167 +1,74 @@
 """
-Django Signals - 自动同步知识库
+Django Signals - 自动同步知识库索引
 
-在模型保存/删除时, 异步更新 Milvus 中的向量索引
+在模型保存/删除时提交 Celery 异步任务更新 pgvector（若 broker 不可用则降级同步）。
+不再使用后台线程：因为 gunicorn 下线程共享连接池可能泄漏，Celery 自带 retry/监控更稳。
 """
-import threading
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from loguru import logger
 
-
-def _run_async(func):
-    """装饰器: 在新线程中执行, 避免阻塞请求响应"""
-    def wrapper(*args, **kwargs):
-        t = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
-        t.start()
-    return wrapper
+from . import tasks as _tasks
 
 
-# ==================== 章节 ====================
-
-@_run_async
-def _index_chapter(chapter):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        indexer.index_chapter(chapter)
-    except Exception as e:
-        logger.error(f"索引章节 {chapter.pk} 失败: {e}")
-
-
-@_run_async
-def _delete_chapter_index(chapter):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        indexer.delete_chapter(chapter)
-    except Exception as e:
-        logger.error(f"删除章节 {chapter.pk} 向量索引失败: {e}")
-
-
+# ====================================================================
+# 章节
+# ====================================================================
 @receiver(post_save, sender='chapter.ChapterList')
-def on_chapter_saved(sender, instance, created, **kwargs):
-    """章节保存后重新索引"""
-    _index_chapter(instance)
+def on_chapter_saved(sender, instance, created, **kwargs):  # noqa: ARG001
+    _tasks._enqueue(_tasks.index_chapter_task, instance.pk)
 
 
 @receiver(post_delete, sender='chapter.ChapterList')
-def on_chapter_deleted(sender, instance, **kwargs):
-    """章节删除后清理向量索引"""
-    _delete_chapter_index(instance)
+def on_chapter_deleted(sender, instance, **kwargs):  # noqa: ARG001
+    _tasks._enqueue(_tasks.delete_chapter_task, instance.pk)
 
 
-# ==================== 角色 ====================
-
-@_run_async
-def _index_character(character):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        indexer.index_character(character)
-    except Exception as e:
-        logger.error(f"索引角色 {character.pk} 失败: {e}")
-
-
-@_run_async
-def _delete_character_index(character):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        indexer.delete_character(character)
-    except Exception as e:
-        logger.error(f"删除角色 {character.pk} 向量索引失败: {e}")
-
-
+# ====================================================================
+# 角色
+# ====================================================================
 @receiver(post_save, sender='characters.Character')
-def on_character_saved(sender, instance, created, **kwargs):
-    _index_character(instance)
+def on_character_saved(sender, instance, created, **kwargs):  # noqa: ARG001
+    _tasks._enqueue(_tasks.index_character_task, instance.pk)
 
 
 @receiver(post_delete, sender='characters.Character')
-def on_character_deleted(sender, instance, **kwargs):
-    _delete_character_index(instance)
+def on_character_deleted(sender, instance, **kwargs):  # noqa: ARG001
+    _tasks._enqueue(_tasks.delete_character_task, instance.pk)
 
 
-# ==================== 大纲 ====================
-
-@_run_async
-def _index_outline(outline_version):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        if outline_version.is_finalized and not outline_version.is_deleted:
-            indexer.index_outline(outline_version)
-        else:
-            indexer.delete_outline(outline_version)
-    except Exception as e:
-        logger.error(f"索引大纲版本 {outline_version.pk} 失败: {e}")
-
-
+# ====================================================================
+# 大纲（只有 finalized=True 且未删才索引，否则删索引）
+# ====================================================================
 @receiver(post_save, sender='outline.OutlineVersion')
-def on_outline_saved(sender, instance, created, **kwargs):
-    _index_outline(instance)
+def on_outline_saved(sender, instance, created, **kwargs):  # noqa: ARG001
+    if instance.is_finalized and not instance.is_deleted:
+        _tasks._enqueue(_tasks.index_outline_task, instance.pk)
+    else:
+        _tasks._enqueue(_tasks.delete_outline_task, instance.pk)
 
 
-# ==================== 世界观 ====================
-
-@_run_async
-def _index_worldview(worldview):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        indexer.index_worldview(worldview)
-    except Exception as e:
-        logger.error(f"索引世界观 {worldview.pk} 失败: {e}")
-
-
-@_run_async
-def _delete_worldview_index(worldview):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        indexer.delete_worldview(worldview)
-    except Exception as e:
-        logger.error(f"删除世界观 {worldview.pk} 向量索引失败: {e}")
-
-
+# ====================================================================
+# 世界观
+# ====================================================================
 @receiver(post_save, sender='worldview.WorldView')
-def on_worldview_saved(sender, instance, created, **kwargs):
-    _index_worldview(instance)
+def on_worldview_saved(sender, instance, created, **kwargs):  # noqa: ARG001
+    _tasks._enqueue(_tasks.index_worldview_task, instance.pk)
 
 
 @receiver(post_delete, sender='worldview.WorldView')
-def on_worldview_deleted(sender, instance, **kwargs):
-    _delete_worldview_index(instance)
+def on_worldview_deleted(sender, instance, **kwargs):  # noqa: ARG001
+    _tasks._enqueue(_tasks.delete_worldview_task, instance.pk)
 
 
-# ==================== 卷大纲 ====================
-
-@_run_async
-def _index_volume(volume):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        indexer.index_volume(volume)
-    except Exception as e:
-        logger.error(f"索引卷 {volume.pk} 失败: {e}")
-
-
-@_run_async
-def _delete_volume_index(volume):
-    try:
-        from .indexer import KnowledgeIndexer
-        indexer = KnowledgeIndexer()
-        indexer.delete_volume(volume)
-    except Exception as e:
-        logger.error(f"删除卷 {volume.pk} 向量索引失败: {e}")
-
-
+# ====================================================================
+# 卷大纲
+# ====================================================================
 @receiver(post_save, sender='volume.VolumeList')
-def on_volume_saved(sender, instance, created, **kwargs):
-    _index_volume(instance)
+def on_volume_saved(sender, instance, created, **kwargs):  # noqa: ARG001
+    _tasks._enqueue(_tasks.index_volume_task, instance.pk)
 
 
 @receiver(post_delete, sender='volume.VolumeList')
-def on_volume_deleted(sender, instance, **kwargs):
-    _delete_volume_index(instance)
+def on_volume_deleted(sender, instance, **kwargs):  # noqa: ARG001
+    _tasks._enqueue(_tasks.delete_volume_task, instance.pk)

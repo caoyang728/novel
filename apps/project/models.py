@@ -18,6 +18,7 @@ class ProjectList(models.Model):
     status = models.CharField(max_length=50, default='draft', verbose_name='状态')
     finalized = models.BooleanField(default=False, verbose_name='是否定稿')
     is_deleted = models.BooleanField(default=False, verbose_name='是否删除')
+    min_words_per_chapter = models.PositiveIntegerField(default=3000, verbose_name='单章最少字数')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 

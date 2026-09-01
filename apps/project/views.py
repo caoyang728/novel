@@ -269,6 +269,7 @@ class ApiProjectListView(BaseAPIView):
                 'id': project.id,
                 'title': project.title,
                 'description': project.description,
+                'min_words_per_chapter': project.min_words_per_chapter,
                 'status': 'completed' if project.finalized else ('writing' if latest_outline and latest_outline.is_finalized else 'draft'),
                 'version_count': version_count,
                 'latest_version_number': latest_outline.version_number if latest_outline else 0,
@@ -350,6 +351,7 @@ class ApiProjectDetailView(BaseAPIView):
                     'description': project.description,
                     'status': project.status,
                     'finalized': project.finalized,
+                    'min_words_per_chapter': project.min_words_per_chapter,
                     'version_count': outline_versions.count(),
                     'latest_version_number': latest_outline.version_number if latest_outline else 0,
                     'created_at': project.created_at.strftime('%Y-%m-%d %H:%M'),
@@ -396,6 +398,7 @@ class ApiProjectDetailView(BaseAPIView):
             project = get_object_or_404(ProjectList, pk=pk, user=request.user)
             title = request.data.get('title', '').strip()
             description = request.data.get('description', '')
+            min_words = request.data.get('min_words_per_chapter')
 
             if title and title != project.title:
                 if ProjectList.objects.filter(user=request.user, title=title, is_deleted=False).exclude(pk=pk).exists():
@@ -403,6 +406,13 @@ class ApiProjectDetailView(BaseAPIView):
                 project.title = title
             if description is not None:
                 project.description = description
+            if min_words is not None:
+                try:
+                    mw = int(min_words)
+                    if 500 <= mw <= 50000:
+                        project.min_words_per_chapter = mw
+                except (ValueError, TypeError):
+                    pass
 
             project.save()
             return JsonResponse({'success': True})

@@ -1,62 +1,71 @@
 """
-知识库索引器
+知识库索引器（PostgreSQL + pgvector 重写版，替代原 Milvus 实现）
 
-负责将项目相关数据（大纲、世界观、角色、卷大纲、章节段落）写入 Milvus
-
-支持:
-- 单条 upsert (signal 触发)
-- 按前缀删除 (删除旧数据后重建)
-- 全量重建 (management command 调用)
+- 对外接口与原 Milvus 版完全兼容（index_xxx / delete_xxx / rebuild_project）
+- 使用 Django ORM + pg_catalog 的 pgvector：
+    单条 upsert: create_or_update
+    批量 upsert: bulk_create(..., update_conflicts=True, update_fields=['content','embedding','metadata','project_id','doc_type'])
+    前缀删除: filter(id__startswith=prefix).delete()
+- 长耗时的 embedding 不变（仍用 EmbedderFactory）
 """
 import json
 import re
-from django.db import close_old_connections
 from loguru import logger
-from .client import get_client, get_collection_name
+from django.db import close_old_connections
+from .client import ensure_backend_ready
+from .models import KnowledgeVector
 from .embedder import EmbedderFactory
 
 # Chunk 配置
 CHUNK_MAX_TOKENS = 512
 CHUNK_OVERLAP_RATIO = 0.1  # 10% overlap
-
-# Embedding API 输入限制 (智谱 embedding-3: 3072, embedding-2: 512)
 EMBEDDING_API_MAX_TOKENS = 3072
 
 
 class KnowledgeIndexer:
-    """知识库索引器"""
+    """知识库索引器（PG+pgvector 后端）"""
 
     def __init__(self):
-        self.client = get_client()
-        self.coll_name = get_collection_name()
+        ensure_backend_ready()
         self.embedder = EmbedderFactory.create()
 
-    # ==================== 大纲 ====================
-
+    # ================================================================
+    # 大纲
+    # ================================================================
     def index_outline(self, outline_version):
-        """索引大纲（仅 finalized 的大纲版本）"""
+        """索引大纲 — 按段落分块，每块 ≤ 512 token"""
         if not outline_version.content:
-            return
-
-        pk = f"{outline_version.project_id}_outline_{outline_version.pk}"
-        self._upsert_doc(
-            pk=pk,
-            project_id=str(outline_version.project_id),
-            doc_type="outline",
-            content=outline_version.content,
-            metadata={
-                "version_number": outline_version.version_number,
-                "outline_version_id": outline_version.pk,
-            },
-        )
+            return 0
+        chunks = self._chunk_text(outline_version.content)
+        if not chunks:
+            return 0
+        prefix = f"{outline_version.project_id}_outline_{outline_version.pk}"
+        count = 0
+        for i, chunk_text in enumerate(chunks):
+            pk = f"{prefix}_{i}"
+            if self._upsert_doc(
+                pk=pk,
+                project_id=outline_version.project_id,
+                doc_type="outline",
+                content=chunk_text,
+                metadata={
+                    "version_number": outline_version.version_number,
+                    "outline_version_id": outline_version.pk,
+                    "chunk_index": i,
+                    "total_chunks": len(chunks),
+                },
+            ):
+                count += 1
+        return count
 
     def delete_outline(self, outline_version):
-        self._delete_by_prefix(f"{outline_version.project_id}_outline_{outline_version.pk}")
+        return self._delete_by_prefix(f"{outline_version.project_id}_outline_{outline_version.pk}")
 
-    # ==================== 世界观 ====================
-
+    # ================================================================
+    # 世界观（按 8 类分条写入）
+    # ================================================================
     def index_worldview(self, worldview):
-        """索引世界观，按 8 大类别分别存储"""
+        """索引世界观 — 按 8 类分条，超长字段内部再分块"""
         categories = {
             "setting": self._format_worldview_setting(worldview),
             "foundation": self._format_worldview_section(worldview.foundation),
@@ -67,35 +76,41 @@ class KnowledgeIndexer:
             "history": self._format_worldview_section(worldview.history),
             "special": self._format_worldview_section(worldview.special),
         }
-
-        # 收集所有待 embedding 的文本
-        entries = []
-        texts_to_embed = []
+        entries, texts = [], []
         for category, content in categories.items():
             if not content or not content.strip():
                 continue
-            pk = f"{worldview.project_id}_worldview_{worldview.pk}_{category}"
-            entries.append({
-                "id": pk,
-                "project_id": str(worldview.project_id),
-                "doc_type": "worldview",
-                "content": content[:65535],
-                "metadata": {"worldview_id": worldview.pk, "category": category},
-            })
-            texts_to_embed.append(content)
-
-        if entries and self.client:
-            embeddings = self._embed_batch_safe(texts_to_embed)
-            data = []
-            for entry, emb in zip(entries, embeddings):
-                if emb is not None:
-                    entry["embedding"] = emb
-                    data.append(entry)
-            if data:
-                self.client.upsert(collection_name=self.coll_name, data=data)
+            chunks = self._chunk_text(content) if self._token_count(content) > EMBEDDING_API_MAX_TOKENS else [content]
+            for ci, chunk_text in enumerate(chunks):
+                pk = f"{worldview.project_id}_worldview_{worldview.pk}_{category}"
+                if len(chunks) > 1:
+                    pk += f"_{ci}"
+                entries.append({
+                    "id": pk,
+                    "project_id": worldview.project_id,
+                    "doc_type": "worldview",
+                    "content": chunk_text[:65535],
+                    "metadata": {
+                        "worldview_id": worldview.pk,
+                        "category": category,
+                        "chunk_index": ci,
+                        "total_chunks": len(chunks),
+                    },
+                })
+                texts.append(chunk_text)
+        if not entries:
+            return 0
+        embeddings = self._embed_batch_safe(texts)
+        data = []
+        for entry, emb in zip(entries, embeddings):
+            if emb is None:
+                continue
+            entry["embedding"] = emb
+            data.append(entry)
+        return self._bulk_upsert(data)
 
     def delete_worldview(self, worldview):
-        self._delete_by_prefix(f"{worldview.project_id}_worldview_{worldview.pk}")
+        return self._delete_by_prefix(f"{worldview.project_id}_worldview_{worldview.pk}")
 
     def _format_worldview_setting(self, worldview):
         setting = worldview.setting or {}
@@ -110,7 +125,8 @@ class KnowledgeIndexer:
                 parts.append(f"{key}: {val}")
         return "\n".join(parts)
 
-    def _format_worldview_section(self, data):
+    @staticmethod
+    def _format_worldview_section(data):
         if not data:
             return ""
         if isinstance(data, str):
@@ -125,22 +141,19 @@ class KnowledgeIndexer:
             return "\n".join(parts)
         return str(data)
 
-    # ==================== 角色 ====================
-
+    # ================================================================
+    # 角色
+    # ================================================================
     def index_character(self, character):
-        """索引单个角色"""
         if character.is_deleted:
-            self.delete_character(character)
-            return
-
+            return self.delete_character(character)
         content = self._format_character(character)
         if not content:
-            return
-
+            return 0
         pk = f"{character.project_id}_character_{character.pk}"
-        self._upsert_doc(
+        return self._upsert_doc(
             pk=pk,
-            project_id=str(character.project_id),
+            project_id=character.project_id,
             doc_type="character",
             content=content,
             metadata={
@@ -151,7 +164,7 @@ class KnowledgeIndexer:
         )
 
     def delete_character(self, character):
-        self._delete_by_prefix(f"{character.project_id}_character_{character.pk}")
+        return self._delete_by_prefix(f"{character.project_id}_character_{character.pk}")
 
     def _format_character(self, char):
         """格式化角色为文本"""
@@ -166,20 +179,19 @@ class KnowledgeIndexer:
             parts.append(f"身份: {char.identity}")
         if char.faction:
             parts.append(f"阵营: {char.faction}")
-        if char.appearance:
-            parts.append(f"外貌: {char.appearance}")
-        if char.personality:
-            parts.append(f"性格: {char.personality}")
-        if char.backstory:
-            parts.append(f"背景: {char.backstory}")
-        if char.motivation:
-            parts.append(f"动机: {char.motivation}")
-        if char.tagline:
-            parts.append(f"标签: {char.tagline}")
-        if char.abilities:
-            parts.append(f"能力: {char.abilities}")
-        if char.development:
-            parts.append(f"成长: {char.development}")
+        for field in ('appearance', 'personality', 'backstory', 'motivation',
+                      'tagline', 'abilities', 'development', 'strengths',
+                      'flaws', 'obsession', 'taboos', 'secrets', 'dark_history', 'weaknesses'):
+            val = getattr(char, field, None)
+            if val:
+                label = {'appearance': '外貌', 'personality': '性格',
+                         'backstory': '背景', 'motivation': '动机',
+                         'tagline': '标签', 'abilities': '能力',
+                         'development': '成长', 'strengths': '优点',
+                         'flaws': '缺点', 'obsession': '执念',
+                         'taboos': '禁忌', 'secrets': '秘密',
+                         'dark_history': '过往黑历史', 'weaknesses': '弱点'}.get(field, field)
+                parts.append(f"{label}: {val}")
         if char.relationships:
             rels = []
             for rel in char.relationships:
@@ -198,12 +210,11 @@ class KnowledgeIndexer:
         """索引卷大纲"""
         content = volume.content or volume.summary
         if not content:
-            return
-
+            return 0
         pk = f"{volume.volume_version.project_id}_volume_{volume.pk}"
-        self._upsert_doc(
+        return self._upsert_doc(
             pk=pk,
-            project_id=str(volume.volume_version.project_id),
+            project_id=volume.volume_version.project_id,
             doc_type="volume",
             content=content,
             metadata={
@@ -215,31 +226,31 @@ class KnowledgeIndexer:
         )
 
     def delete_volume(self, volume):
-        self._delete_by_prefix(f"{volume.volume_version.project_id}_volume_{volume.pk}")
+        return self._delete_by_prefix(f"{volume.volume_version.project_id}_volume_{volume.pk}")
 
-    # ==================== 章节段落 ====================
-
+    # ================================================================
+    # 章节（按段落 chunk 拆分）
+    # ================================================================
     def index_chapter(self, chapter):
         """按段落拆分章节并索引"""
         # 先删除旧数据
         project_id = chapter.volume.volume_version.project_id
+        # 先删旧的段落
         self._delete_by_prefix(f"{project_id}_chapter_{chapter.pk}")
 
         # 确定要索引的文本: content 优先, 没有则用 summary
         text = chapter.content or chapter.summary
         if not text:
-            return
-
+            return 0
         paragraphs = self._chunk_text(text)
         if not paragraphs:
-            return
-
+            return 0
         entries = []
         for i, para in enumerate(paragraphs):
             pk = f"{project_id}_chapter_{chapter.pk}_{i}"
             entries.append({
                 "id": pk,
-                "project_id": str(project_id),
+                "project_id": project_id,
                 "doc_type": "chapter",
                 "content": para[:65535],
                 "metadata": {
@@ -252,30 +263,25 @@ class KnowledgeIndexer:
                     "total_paragraphs": len(paragraphs),
                 },
             })
-
-        if entries and self.client:
-            embeddings = self._embed_batch_safe(paragraphs)
-            data = []
-            for entry, emb in zip(entries, embeddings):
-                if emb is not None:
-                    entry["embedding"] = emb
-                    data.append(entry)
-            if data:
-                self.client.upsert(collection_name=self.coll_name, data=data)
-                logger.debug(f"章节 {chapter.pk} 索引完成: {len(data)} 个段落")
+        embeddings = self._embed_batch_safe(paragraphs)
+        data = []
+        for entry, emb in zip(entries, embeddings):
+            if emb is None:
+                continue
+            entry["embedding"] = emb
+            data.append(entry)
+        n = self._bulk_upsert(data)
+        logger.debug(f"章节 {chapter.pk} 索引完成: {n} 个段落")
+        return n
 
     def delete_chapter(self, chapter):
         project_id = chapter.volume.volume_version.project_id
-        self._delete_by_prefix(f"{project_id}_chapter_{chapter.pk}")
+        return self._delete_by_prefix(f"{project_id}_chapter_{chapter.pk}")
 
+    # ================================================================
+    # Chunk 策略（保持原 Milvus 版完全一致的 token/overlap 算法）
+    # ================================================================
     def _chunk_text(self, text):
-        """
-        语义拆分 + Token 限制 + Overlap 的混合 chunk 策略
-
-        1. 先按空行(段落)拆分 → 语义边界
-        2. 长段落按换行/句子边界继续拆分
-        3. 合并短片段到 512 token chunk，相邻 chunk 保留 10% overlap
-        """
         if not text or not text.strip():
             return []
 
@@ -291,11 +297,8 @@ class KnowledgeIndexer:
                 segments.append(para)
             else:
                 segments.extend(self._split_long_paragraph(para))
-
         if not segments:
             return []
-
-        # Step 3: 合并短片段到 chunk，带 overlap
         return self._merge_segments(segments)
 
     @staticmethod
@@ -307,7 +310,7 @@ class KnowledgeIndexer:
             import tiktoken
             enc = tiktoken.encoding_for_model("gpt-4o")
             return len(enc.encode(text))
-        except Exception:
+        except Exception:  # noqa: BLE001
             return max(1, len(text) // 2)
 
     @staticmethod
@@ -328,18 +331,10 @@ class KnowledgeIndexer:
 
     @staticmethod
     def _merge_segments(segments):
-        """合并短片段为 chunk，相邻 chunk 保留 10% overlap"""
-        if not segments:
-            return []
-
         overlap_tokens = int(CHUNK_MAX_TOKENS * CHUNK_OVERLAP_RATIO)
-        chunks = []
-        current_chunk = ""
-        current_tokens = 0
-
+        chunks, current_chunk, current_tokens = [], "", 0
         for seg in segments:
             seg_tokens = KnowledgeIndexer._token_count(seg)
-
             if current_tokens + seg_tokens <= CHUNK_MAX_TOKENS:
                 # 可以追加到当前 chunk
                 current_chunk = (current_chunk + "\n\n" + seg) if current_chunk else seg
@@ -358,10 +353,8 @@ class KnowledgeIndexer:
                 else:
                     current_chunk = seg
                 current_tokens = KnowledgeIndexer._token_count(current_chunk)
-
         if current_chunk:
             chunks.append(current_chunk)
-
         return chunks
 
     @staticmethod
@@ -375,20 +368,19 @@ class KnowledgeIndexer:
             tokens = enc.encode(text)
             if len(tokens) <= max_tokens:
                 return text
-            tail_tokens = tokens[-max_tokens:]
-            return enc.decode(tail_tokens)
-        except Exception:
-            # fallback: 取末尾约 max_tokens * 2 字符
+            return enc.decode(tokens[-max_tokens:])
+        except Exception:  # noqa: BLE001
             return text[-max_tokens * 2:]
 
-    # ==================== 通用方法 ====================
-
+    # ================================================================
+    # Embedding 封装
+    # ================================================================
     def _embed_safe(self, text):
         """安全获取 embedding, 失败返回 None。超长文本自动截断到 API 限制"""
         try:
             truncated = self._truncate_to_tokens(text, EMBEDDING_API_MAX_TOKENS)
             return self.embedder.embed(truncated)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"获取 embedding 失败: {e}")
             return None
 
@@ -397,7 +389,7 @@ class KnowledgeIndexer:
         try:
             truncated = [self._truncate_to_tokens(t, EMBEDDING_API_MAX_TOKENS) for t in texts]
             return self.embedder.embed_batch(truncated)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"批量获取 embedding 失败: {e}")
             return [None] * len(texts)
 
@@ -413,90 +405,113 @@ class KnowledgeIndexer:
             if len(tokens) <= max_tokens:
                 return text
             return enc.decode(tokens[:max_tokens])
-        except Exception:
-            # fallback: 中文约 0.5 token/字，取安全系数
+        except Exception:  # noqa: BLE001
             max_chars = max_tokens * 2
             return text[:max_chars] if len(text) > max_chars else text
 
+    # ================================================================
+    # 写库底层方法
+    # ================================================================
     def _upsert_doc(self, pk, project_id, doc_type, content, metadata):
-        """上传单条记录到 Milvus"""
-        if not self.client:
-            return
+        """单条 upsert"""
         embedding = self._embed_safe(content)
         if embedding is None:
-            return
-        self.client.upsert(collection_name=self.coll_name, data=[{
-            "id": pk,
-            "project_id": project_id,
-            "doc_type": doc_type,
-            "content": content[:65535],
-            "embedding": embedding,
-            "metadata": metadata,
-        }])
+            return 0
+        try:
+            KnowledgeVector.objects.update_or_create(
+                id=pk,
+                defaults=dict(
+                    project_id=project_id,
+                    doc_type=doc_type,
+                    content=content[:65535],
+                    embedding=embedding,
+                    metadata=metadata or {},
+                ),
+            )
+            return 1
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"KnowledgeVector upsert 失败 id={pk}: {e}")
+            return 0
+
+    def _bulk_upsert(self, data):
+        """批量 upsert（Django 5.1+ bulk_create(update_conflicts=True) 原生支持）"""
+        if not data:
+            return 0
+        try:
+            rows = [KnowledgeVector(**d) for d in data]
+            KnowledgeVector.objects.bulk_create(
+                rows,
+                batch_size=200,
+                update_conflicts=True,
+                unique_fields=['id'],
+                update_fields=['project_id', 'doc_type', 'content', 'embedding', 'metadata', 'updated_at'],
+            )
+            return len(rows)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"KnowledgeVector 批量 upsert 失败: {e}")
+            # 降级：逐条 update_or_create 保证成功
+            ok = 0
+            for d in data:
+                try:
+                    KnowledgeVector.objects.update_or_create(
+                        id=d['id'],
+                        defaults={k: v for k, v in d.items() if k != 'id'},
+                    )
+                    ok += 1
+                except Exception as ee:  # noqa: BLE001
+                    logger.error(f"降级 upsert 失败 id={d.get('id')}: {ee}")
+            return ok
 
     def _delete_by_prefix(self, prefix):
-        """按 id 前缀删除记录"""
-        if not self.client:
-            return
+        """按 id 前缀删（替代 Milvus 的 id like "xxx%"）"""
+        if not prefix:
+            return 0
         try:
-            expr = f'id like "{prefix}%"'
-            self.client.delete(collection_name=self.coll_name, filter=expr)
-        except Exception as e:
-            logger.warning(f"删除向量记录失败 (prefix={prefix}): {e}")
+            deleted, _ = KnowledgeVector.objects.filter(id__startswith=prefix).delete()
+            return deleted
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"按前缀删除向量失败 (prefix={prefix}): {e}")
+            return 0
 
-    # ==================== 全量重建 ====================
-
+    # ================================================================
+    # 全量重建
+    # ================================================================
     def rebuild_project(self, project_id):
-        """全量重建某个项目的所有知识索引"""
+        close_old_connections()
+        logger.info(f"开始重建项目 {project_id} 的知识库索引")
+
+        # 先清除该项目的所有旧向量记录（避免 PK 格式变更后残留孤儿数据）
+        deleted, _ = KnowledgeVector.objects.filter(project_id=project_id).delete()
+        logger.info(f"  已清除旧记录: {deleted} 条")
+
         from apps.outline.models import OutlineVersion
         from apps.worldview.models import WorldView
         from apps.characters.models import Character
         from apps.volume.models import VolumeList
         from apps.chapter.models import ChapterList
 
-        # 每个项目开始前关闭旧连接，避免 embedding 耗时导致 MySQL 超时断开
-        close_old_connections()
-
-        logger.info(f"开始重建项目 {project_id} 的知识库索引")
-
         count = 0
-
-        # 大纲
         versions = OutlineVersion.objects.filter(project_id=project_id, is_finalized=True, is_deleted=False)
         for v in versions:
-            self.index_outline(v)
-            count += 1
+            count += self.index_outline(v) or 0
         logger.info(f"  大纲已索引: {versions.count()} 条")
-
-        # 世界观
         try:
             worldview = WorldView.objects.get(project_id=project_id)
-            self.index_worldview(worldview)
-            count += 1
-            logger.info(f"  世界观已索引")
+            count += self.index_worldview(worldview) or 0
+            logger.info("  世界观已索引")
         except WorldView.DoesNotExist:
-            logger.info(f"  世界观不存在, 跳过")
-
-        # 角色
+            logger.info("  世界观不存在, 跳过")
         characters = Character.objects.filter(project_id=project_id, is_deleted=False)
         for c in characters:
-            self.index_character(c)
-        count += characters.count()
+            count += self.index_character(c) or 0
         logger.info(f"  角色已索引: {characters.count()} 条")
-
-        # 卷大纲
         volumes = VolumeList.objects.filter(volume_version__project_id=project_id)
         for v in volumes:
-            self.index_volume(v)
-        count += volumes.count()
+            count += self.index_volume(v) or 0
         logger.info(f"  卷大纲已索引: {volumes.count()} 条")
-
-        # 章节
         chapters = ChapterList.objects.filter(volume__volume_version__project_id=project_id)
         for ch in chapters:
-            self.index_chapter(ch)
-        count += chapters.count()
+            count += self.index_chapter(ch) or 0
         logger.info(f"  章节已索引: {chapters.count()} 条")
-
         logger.info(f"项目 {project_id} 知识库重建完成, 共 {count} 条记录")
         return count

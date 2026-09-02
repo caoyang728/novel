@@ -1,10 +1,9 @@
-version: '3.8'
+# version: '3.8'  # Docker Compose V2 已不再需要此字段
 
 services:
   # ==================== 缓存 / Celery Broker ====================
   redis:
     image: redis:8.0-alpine   # alpine 版: 体积小 (≈30MB vs ≈120MB)、内存少 ≈50MB，缺点 musl libc 极端场景性能略低于 glibc，本项目足够
-    container_name: redis
     restart: always
     ports:
       - "6379:6379"
@@ -19,7 +18,7 @@ services:
       redis-server
       --requirepass ${REDIS_DB_PASSWORD}
       --bind 0.0.0.0
-      --maxmemory 64mb
+      --maxmemory 128mb
       --maxmemory-policy allkeys-lru
       --ignore-warnings ARM64-COW-BUG
       --ignore-warnings MEMORY
@@ -27,12 +26,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M              # Docker 硬限制，防 OOM
+          memory: 512M              # 10G 预算分配 512M
 
   # ==================== 业务库 + 向量库（合一）PostgreSQL 16 + pgvector ====================
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: postgres
     restart: always
     environment:
       POSTGRES_USER: ${PG_DB_USER:-novel_agent}
@@ -43,11 +41,11 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     command: |
-      -c shared_buffers=128MB
-      -c effective_cache_size=256MB
-      -c maintenance_work_mem=32MB
-      -c work_mem=4MB
-      -c max_connections=20
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=64MB
+      -c work_mem=8MB
+      -c max_connections=50
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PG_DB_USER:-novel_agent} -d ${PG_DB_DATABASE:-novel_agent}"]
       interval: 10s
@@ -58,27 +56,26 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384M
+          memory: 2G                  # 10G 预算分配 2G
 
   django:
     build: .
-    container_name: novel-django
     env_file:
       - .env
     environment:
       DJANGO_ROLE: web
-      EMBEDDING_DOCKER_URL: http://embedding:8000/embed  # 容器内直连，覆盖 .env 的公网地址
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
+      - .:/app                        # 挂载本地代码，本地修改自动同步到容器
       - static_volume:/app/staticfiles
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/ || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/')\" || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -87,55 +84,54 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 2G                  # 10G 预算分配 2G
 
   # ==================== Celery Worker（执行异步任务）====================
   celery-worker:
     build: .
-    container_name: novel-celery-worker
     env_file:
       - .env
     environment:
       DJANGO_ROLE: worker
-      CELERY_CONCURRENCY: 2
+      CELERY_CONCURRENCY: 4
       C_FORCE_ROOT: "1"
-      EMBEDDING_DOCKER_URL: http://embedding:8000/embed
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - .:/app                        # 挂载本地代码，本地修改自动同步到容器
     restart: always
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 4G 
 
   # ==================== Celery Beat（定时任务调度，只能 1 副本） ====================
   celery-beat:
     build: .
-    container_name: novel-celery-beat
     env_file:
       - .env
     environment:
       DJANGO_ROLE: beat
       C_FORCE_ROOT: "1"
-      EMBEDDING_DOCKER_URL: http://embedding:8000/embed
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - .:/app                        # 挂载本地代码，本地修改自动同步到容器
     restart: always
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 512M                 # 10G 预算分配 512M（调度器不需要太多）
 
   # ==================== Nginx（反向代理 + 静态文件服务） ====================
   nginx:
-    image: nginx:1.25-alpine
-    container_name: novel-nginx
+    image: nginx:1.27-alpine
     depends_on:
       django:
         condition: service_healthy
@@ -149,30 +145,31 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 512M 
 
   # ==================== 本地 Embedding 服务（bge-large-zh-v1.5） ====================
   # ※ 低内存服务器可注释此服务，启用知识库 API（.env 中 EMBEDDING_PREFER_DOCKER=false）
-  embedding:
-    build:
-      context: ./docker/embedding
-    container_name: novel-embedding
-    environment:
-      - MODEL_NAME=BAAI/bge-large-zh-v1.5
-      - DEVICE=cpu
-      - HF_ENDPOINT=https://hf-mirror.com
-    ports:
-      - "8080:8000"
-    volumes:
-      - embedding_cache:/root/.cache/huggingface
-    restart: always
-    deploy:
-      resources:
-        limits:
-          memory: 2G
+  # ※ 启用后需取消注释 EMBEDDING_DOCKER_URL 环境变量
+  # embedding:
+  #   build:
+  #     context: ./docker/embedding
+  #   container_name: novel-embedding
+  #   environment:
+  #     - MODEL_NAME=BAAI/bge-large-zh-v1.5
+  #     - DEVICE=cpu
+  #     - HF_ENDPOINT=https://hf-mirror.com
+  #   ports:
+  #     - "8080:8000"
+  #   volumes:
+  #     - embedding_cache:/root/.cache/huggingface
+  #   restart: always
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 6G                  # 16G 总预算分配 6G（embedding 模型内存大户）
 
 volumes:
   pg_data:
   redis_data:
   static_volume:
-  embedding_cache:
+  # embedding_cache:

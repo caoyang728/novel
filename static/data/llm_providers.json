@@ -119,5 +119,25 @@
                 "cache_hit_price": 0.245
             }
         ]
+    },
+    "xiaomi": {
+        "name": "MiMo",
+        "base_url": "https://api.xiaomimimo.com/v1",
+        "models": [
+            {
+                "name": "mimo-v2.5-pro",
+                "label": "MiMo V2.5 Pro",
+                "input_price": 3,
+                "output_price": 6,
+                "cache_hit_price": 0.025
+            },
+            {
+                "name": "mimo-v2.5",
+                "label": "MiMo V2.5",
+                "input_price": 1,
+                "output_price": 2,
+                "cache_hit_price": 0.02
+            }
+        ]
     }
 }

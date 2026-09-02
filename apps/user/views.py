@@ -22,40 +22,63 @@ from .models import LLMConfig, UserLLMConfig, TokenUsageLog
 
 def _test_llm_connection(api_key, base_url, model_name):
     """测试LLM连接是否可用，返回 (success, message)"""
+    import requests
+    
+    # 构建请求URL
+    url = f"{base_url.rstrip('/')}/chat/completions" if base_url else "https://api.openai.com/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 10
+    }
+    
     try:
-        from langchain_openai import ChatOpenAI
-        from langchain_core.messages import HumanMessage
-
-        client_params = {
-            'api_key': api_key,
-            'model_name': model_name,
-            'max_tokens': 10,
-            'timeout': 15,
-            'max_retries': 1,
-        }
-        if base_url:
-            client_params['base_url'] = base_url
-
-        client = ChatOpenAI(**client_params)
-        response = client.invoke([HumanMessage(content='Hi')])
-        if response and response.content:
-            return True, '连接成功'
-        return False, '响应内容为空'
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        data = response.json()
+        
+        # 调试日志
+        print(f"[LLM测试] URL: {url}")
+        print(f"[LLM测试] Model: {model_name}")
+        print(f"[LLM测试] Status: {response.status_code}")
+        print(f"[LLM测试] Response: {data}")
+        
+        if response.status_code == 200:
+            # 检查是否有有效的响应内容
+            choices = data.get('choices', [])
+            if choices:
+                message = choices[0].get('message', {})
+                content = message.get('content', '')
+                # MiMo 等推理模型可能返回 reasoning_content
+                reasoning = message.get('reasoning_content', '')
+                if content or reasoning:
+                    return True, '连接成功'
+                # 有 choices 但内容为空，也算连接成功
+                return True, '连接成功（响应内容为空）'
+            return False, '响应格式异常'
+        else:
+            error_msg = data.get('error', {}).get('message', '')
+            if not error_msg:
+                error_msg = str(data)[:100]
+            
+            if response.status_code == 401:
+                return False, 'API密钥无效'
+            elif response.status_code == 404:
+                return False, '模型不存在'
+            elif response.status_code == 429:
+                return True, '连接成功（限流中）'
+            return False, f'请求失败: {error_msg}'
+    except requests.exceptions.Timeout:
+        return False, '连接超时'
+    except requests.exceptions.ConnectionError:
+        return False, '无法连接到API地址'
     except Exception as e:
-        error_msg = str(e)
-        # 截取关键错误信息
-        if 'Unauthorized' in error_msg or '401' in error_msg:
-            return False, 'API密钥无效'
-        elif 'Connection' in error_msg or 'connect' in error_msg.lower():
-            return False, '无法连接到API地址'
-        elif 'not found' in error_msg.lower() or '404' in error_msg:
-            return False, '模型不存在'
-        elif 'timeout' in error_msg.lower():
-            return False, '连接超时'
-        elif 'rate limit' in error_msg.lower() or '429' in error_msg:
-            return True, '连接成功（限流中）'
-        # 截取前100字符避免过长
-        return False, error_msg[:100]
+        return False, str(e)[:100]
 
 
 def sync_default_task_config(user, llm_config):

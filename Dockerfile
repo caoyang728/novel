@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 # Novel Agent 生产镜像（Debian slim → apt/pip 都切国内源，避免 Docker build 在国内网络长时间卡住）
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
@@ -28,8 +28,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
         gcc \
-        libpq-dev \
-        pkg-config \
         postgresql-client \
         tzdata; \
     rm -rf /var/lib/apt/lists/*
@@ -38,9 +36,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     set -eux; \
-    PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"; \
+    PIP_MIRROR="https://mirrors.aliyun.com/pypi/simple/"; \
     pip config --global set global.index-url "$PIP_MIRROR"; \
-    pip config --global set global.trusted-host "pypi.tuna.tsinghua.edu.cn"; \
+    pip config --global set global.trusted-host "mirrors.aliyun.com"; \
     pip config --global set install.timeout "120"; \
     pip install --upgrade pip setuptools wheel; \
     pip install --no-cache-dir -r requirements.txt

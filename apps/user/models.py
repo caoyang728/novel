@@ -14,6 +14,8 @@ class LLMConfig(models.Model):
         ('deepseek', 'DeepSeek'),
         ('bigmodel', 'BigModel'),
         ('qwen', '通义千问'),
+        ('gemini', 'Gemini'),
+        ('xiaomi', '小米MiMo'),
         ('ollama', 'Ollama'),
         ('custom', '自定义'),
     ]

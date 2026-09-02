@@ -44,3 +44,10 @@ for file_name in frontend_files:
             'path': file_name,
         })
     )
+
+# 静态文件路由（开发环境）
+urlpatterns += [
+    path('static/<path:path>', serve, {
+        'document_root': os.path.join(settings.BASE_DIR, 'static'),
+    }),
+]

@@ -398,7 +398,12 @@ async function saveEditEvent() {
 function confirmDeleteEvent() {
     const id = selectedEvent ? selectedEvent.id : null;
     if (!id) return;
-    showModal('确认删除', '确定要删除这个时间线事件吗？此操作不可撤销。', () => deleteEvent(id));
+    showConfirmModal({
+        title: '确认删除',
+        message: '确定要删除这个时间线事件吗？此操作不可撤销。',
+        danger: true,
+        onConfirm: function(close) { close(); deleteEvent(id); }
+    });
 }
 
 async function deleteEvent(eventId) {
@@ -409,7 +414,6 @@ async function deleteEvent(eventId) {
 
         if (response.success) {
             showToast('删除成功', 'success');
-            closeModal();
             closeEditModal();
             loadEvents();
             if (selectedEvent && selectedEvent.id === eventId) {

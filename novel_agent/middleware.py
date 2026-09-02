@@ -1,6 +1,9 @@
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.conf import settings
+from django.contrib.auth.models import User
+from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.exceptions import InvalidToken
 import json
 
 
@@ -15,10 +18,6 @@ def _authenticate_jwt(request):
     token = auth_header[7:]
     if not token:
         return None
-
-    from rest_framework_simplejwt.tokens import AccessToken
-    from rest_framework_simplejwt.exceptions import InvalidToken
-    from django.contrib.auth.models import User
 
     try:
         access_token = AccessToken(token)

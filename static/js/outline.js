@@ -58,8 +58,15 @@ document.addEventListener('DOMContentLoaded', function() {
         Promise.all([loadProjectInfo(projectId), loadOutlineVersions()]).finally(() => hideLoading());
     } else {
         projectId = null;
-        showModal('参数错误', '项目ID参数无效，请从项目列表进入。', function() {
-            window.location.href = '/project.html';
+        showModal({
+            title: '参数错误',
+            body: '<p style="text-align:center;color:var(--text-secondary);">项目ID参数无效，请从项目列表进入。</p>',
+            width: '420px',
+            height: 'auto',
+            onConfirm: function(close) {
+                close();
+                window.location.href = '/';
+            }
         });
     }
 
@@ -108,23 +115,34 @@ document.addEventListener('DOMContentLoaded', function() {
         backBtn.onclick = function(e) {
             if (isSending || isTyping) {
                 e.preventDefault();
-                showModal('正在生成内容', 'AI 正在生成大纲内容，离开页面将丢失生成结果。确定要离开吗？', function() {
-                    if (originalOnclick) {
-                        originalOnclick.call(backBtn);
-                    } else {
-                        window.history.back();
+                showConfirmModal({
+                    title: '正在生成内容',
+                    message: 'AI 正在生成大纲内容，离开页面将丢失生成结果。确定要离开吗？',
+                    danger: true,
+                    onConfirm: function(close) {
+                        close();
+                        if (originalOnclick) {
+                            originalOnclick.call(backBtn);
+                        } else {
+                            window.history.back();
+                        }
                     }
                 });
                 return;
             }
             if (hasUnsavedChanges()) {
                 e.preventDefault();
-                showModal('未保存的修改', '当前大纲有未保存的修改，离开页面将丢失这些修改。确定要离开吗？', function() {
-                    saveBaseline(document.getElementById('outline-content').value); // 标记为已保存以避免二次弹窗
-                    if (originalOnclick) {
-                        originalOnclick.call(backBtn);
-                    } else {
-                        window.history.back();
+                showConfirmModal({
+                    title: '未保存的修改',
+                    message: '当前大纲有未保存的修改，离开页面将丢失这些修改。确定要离开吗？',
+                    onConfirm: function(close) {
+                        saveBaseline(document.getElementById('outline-content').value); // 标记为已保存以避免二次弹窗
+                        close();
+                        if (originalOnclick) {
+                            originalOnclick.call(backBtn);
+                        } else {
+                            window.history.back();
+                        }
                     }
                 });
             } else if (originalOnclick) {
@@ -153,9 +171,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             if (hasUnsavedChanges()) {
-                showModal('未保存的修改', '当前大纲有未保存的修改，切换版本将丢失这些修改。确定要切换吗？', function() {
-                    closeModal();
-                    loadOutlineVersion(versionId);
+                showConfirmModal({
+                    title: '未保存的修改',
+                    message: '当前大纲有未保存的修改，切换版本将丢失这些修改。确定要切换吗？',
+                    onConfirm: function(close) {
+                        close();
+                        loadOutlineVersion(versionId);
+                    }
                 });
                 // 重置下拉框回到当前版本
                 this.value = currentVersionId || '';
@@ -812,8 +834,13 @@ function saveVersion(isNewVersion) {
         ? '将当前内容保存为新的版本，现有版本不受影响。'
         : '将覆盖当前版本的内容。';
 
-    showModal(label, msg, function() {
-        doSaveVersion(isNewVersion);
+    showConfirmModal({
+        title: label,
+        message: msg,
+        onConfirm: function(close) {
+            close();
+            doSaveVersion(isNewVersion);
+        }
     });
 }
 
@@ -825,8 +852,6 @@ async function doSaveVersion(isNewVersion) {
         return;
     }
 
-    // 先关闭确认弹窗，进入 loading 状态
-    closeModal();
     showLoading('正在保存...', 0.01);
 
     try {
@@ -873,13 +898,17 @@ async function doSaveVersion(isNewVersion) {
 }
 
 function confirmLock() {
-    showModal('锁定版本', '确定要锁定这个大纲版本吗？锁定后将无法修改、删除', function() {
-        lockOutline();
+    showConfirmModal({
+        title: '锁定版本',
+        message: '确定要锁定这个大纲版本吗？锁定后将无法修改、删除',
+        onConfirm: function(close) {
+            close();
+            lockOutline();
+        }
     });
 }
 
 async function lockOutline() {
-    closeModal();
     showLoading('正在锁定...', 0.01);
     try {
         const data = await api.post(`/api/projects/${projectId}/outline/lock/`, `version_id=${currentVersionId}`, { contentType: 'application/x-www-form-urlencoded' });
@@ -904,13 +933,18 @@ function confirmDeleteVersion() {
     const versionSelect = document.getElementById('version-select');
     const selectedOption = versionSelect.options[versionSelect.selectedIndex];
     const versionLabel = selectedOption ? selectedOption.textContent : '该版本';
-    showModal('删除版本', `确定要删除${versionLabel}吗？锁定版本不能删除。此操作不可恢复。`, function() {
-        doDeleteVersion();
+    showConfirmModal({
+        title: '删除版本',
+        message: `确定要删除${versionLabel}吗？锁定版本不能删除。此操作不可恢复。`,
+        danger: true,
+        onConfirm: function(close) {
+            close();
+            doDeleteVersion();
+        }
     });
 }
 
 async function doDeleteVersion() {
-    closeModal();
     showLoading('正在删除...', 0.01);
     try {
         const data = await api.post(`/api/projects/${projectId}/outline/delete/`, `version_id=${currentVersionId}`, { contentType: 'application/x-www-form-urlencoded' });

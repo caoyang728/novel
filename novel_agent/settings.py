@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'apps.note.apps.NoteConfig',
     'apps.timeline.apps.TimelineConfig',
     'apps.knowledge.apps.KnowledgeConfig',
+    'apps.graph.apps.GraphConfig',
 ]
 
 MIDDLEWARE = [

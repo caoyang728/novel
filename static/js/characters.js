@@ -154,9 +154,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initPage() {
-    // 从URL查询参数获取项目ID
-    const urlParams = new URLSearchParams(window.location.search);
-    const rawProjectId = urlParams.get('project_id');
+    // 从URL获取项目ID（支持路径格式和查询参数格式）
+    const rawProjectId = getProjectIdFromUrl();
 
     // 校验 project_id 为有效数字
     if (rawProjectId && /^\d+$/.test(rawProjectId)) {
@@ -451,6 +450,10 @@ function setupEventListeners() {
     if (checkBtn) checkBtn.addEventListener('click', checkAllCharacters);
     const createCharBtn = document.getElementById('createCharBtn');
     if (createCharBtn) createCharBtn.addEventListener('click', openCreateDialog);
+    const graphBtn = document.getElementById('graphBtn');
+    if (graphBtn) graphBtn.addEventListener('click', function() {
+        window.location.href = '/' + currentProjectId + '/graph/';
+    });
 
     // 势力字段归一化
     document.querySelectorAll('[id$="Faction"]').forEach(el => {
@@ -1056,13 +1059,17 @@ function closeEditDialog(e) {
 // 从编辑弹窗删除角色
 async function deleteCharacter() {
     const id = document.getElementById('editCharacterId').value;
-    showModal('确认删除', '确定要删除这个角色吗？删除后可在角色列表中恢复。', async () => {
+    showConfirmModal({
+        title: '确认删除',
+        message: '确定要删除这个角色吗？删除后可在角色列表中恢复。',
+        danger: true,
+        onConfirm: async (close) => {
         try {
             const data = await api.delete(`/api/projects/${currentProjectId}/characters/${id}/`);
             if (!data) return;
 
             if (data.success) {
-                closeModal();
+                close();
                 showSuccess('角色已删除');
                 closeEditDialog();
                 loadCharacters();
@@ -1071,6 +1078,7 @@ async function deleteCharacter() {
             }
         } catch (error) {
             showError('网络错误');
+        }
         }
     });
 }
@@ -1261,6 +1269,136 @@ function switchEditTab(tab) {
 
     document.querySelector(`.edit-tab[data-tab="${tab}"]`).classList.add('active');
     document.getElementById('edit' + tab.charAt(0).toUpperCase() + tab.slice(1) + 'Tab').classList.add('active');
+
+    // 关系图谱 tab：加载 mini 图
+    if (tab === 'graph') {
+        const charName = document.getElementById('editName').value.trim();
+        if (charName) loadMiniGraph(charName);
+    }
+}
+
+// ---- Mini 图谱（编辑弹窗内） ----
+let miniCy = null;
+
+async function loadMiniGraph(characterName) {
+    const container = document.getElementById('miniGraphContainer');
+    if (!container) return;
+
+    // 销毁旧实例并重置容器
+    if (miniCy) { miniCy.destroy(); miniCy = null; }
+
+    try {
+        const resp = await api.get(`/api/projects/${currentProjectId}/graph/subgraph/?name=${encodeURIComponent(characterName)}&hops=1`);
+        if (!resp.success || !resp.data.nodes.length) {
+            container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:13px;">暂无图谱数据，请先重建图谱</div>';
+            return;
+        }
+
+        // 确保容器干净（Cytoscape 需要空容器）
+        container.innerHTML = '';
+
+        const elements = [];
+        resp.data.nodes.forEach(n => {
+            elements.push({
+                group: 'nodes',
+                data: { id: 'mn' + n.id, label: n.name, nodeType: n.node_type },
+            });
+        });
+        resp.data.edges.forEach(e => {
+            elements.push({
+                group: 'edges',
+                data: { id: 'me' + e.id, source: 'mn' + e.source_id, target: 'mn' + e.target_id, edgeType: e.edge_type },
+            });
+        });
+
+        miniCy = cytoscape({
+            container: container,
+            elements: elements,
+            style: [
+                {
+                    selector: 'node[nodeType="character"]',
+                    style: {
+                        'background-color': '#6366f1',
+                        'border-color': '#818cf8',
+                        'border-width': 2,
+                        'label': 'data(label)',
+                        'color': '#e0e7ff',
+                        'font-size': '11px',
+                        'text-valign': 'bottom',
+                        'text-margin-y': 5,
+                        'width': 30,
+                        'height': 30,
+                        'text-outline-color': '#111827',
+                        'text-outline-width': 2,
+                    },
+                },
+                {
+                    selector: 'node[nodeType="faction"]',
+                    style: {
+                        'background-color': '#ef4444',
+                        'border-color': '#f87171',
+                        'border-width': 2,
+                        'shape': 'hexagon',
+                        'label': 'data(label)',
+                        'color': '#fecaca',
+                        'font-size': '11px',
+                        'text-valign': 'bottom',
+                        'text-margin-y': 5,
+                        'width': 35,
+                        'height': 35,
+                        'text-outline-color': '#111827',
+                        'text-outline-width': 2,
+                    },
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 1.5,
+                        'line-color': '#6b7280',
+                        'target-arrow-color': '#6b7280',
+                        'target-arrow-shape': 'triangle',
+                        'arrow-scale': 0.7,
+                        'curve-style': 'bezier',
+                        'label': 'data(edgeType)',
+                        'font-size': '9px',
+                        'color': '#9ca3af',
+                        'text-rotation': 'autorotate',
+                        'text-margin-y': -8,
+                        'text-outline-color': '#111827',
+                        'text-outline-width': 2,
+                    },
+                },
+            ],
+            layout: { name: 'cose', animate: false, padding: 30 },
+            userZoomingEnabled: true,
+            userPanningEnabled: true,
+            boxSelectionEnabled: false,
+        });
+
+        // 高亮当前角色
+        const centerNode = miniCy.nodes().filter(n => n.data('label') === characterName);
+        if (centerNode.length) {
+            centerNode.style('border-width', 4);
+            centerNode.style('border-color', '#22d3ee');
+        }
+
+        // 点击节点跳转到完整图谱
+        miniCy.on('tap', 'node', function () {
+            window.location.href = '/' + currentProjectId + '/graph/';
+        });
+
+    } catch (e) {
+        console.error('加载 mini 图谱失败:', e);
+        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:13px;">加载失败</div>';
+    }
+
+    // "在图谱中查看" 按钮
+    const openBtn = document.getElementById('openFullGraphBtn');
+    if (openBtn) {
+        openBtn.onclick = function () {
+            window.location.href = '/' + currentProjectId + '/graph/';
+        };
+    }
 }
 
 async function saveCharacter() {

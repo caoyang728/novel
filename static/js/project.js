@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', function() {
             updateActionCards(project.status, versionCount, latestVersionNumber);
         }), loadProjectStats()]).finally(() => hideLoading());
     } else {
-        window.location.href = 'index.html';
+        window.location.href = '/';
     }
     
     // 返回书架按钮点击事件
@@ -75,30 +75,30 @@ async function loadProjectStats() {
 }
 
 function goBack() {
-    window.location.href = '/index.html';
+    window.location.href = '/';
 }
 
 function openOutlineBuilder() {
-    window.location.href = `outline.html?project_id=${projectId}`;
+    window.location.href = `/${projectId}/outline/`;
 }
 
 
 function openTimelineManager() {
-    window.location.href = `timeline.html?project_id=${projectId}`;
+    window.location.href = `/${projectId}/timeline/`;
 }
 
 function openVolumeGenerator() {
-    window.location.href = `volume.html?project_id=${projectId}`;
+    window.location.href = `/${projectId}/volume/`;
 }
 
 function openChapterGenerator() {
-    window.location.href = `chapter.html?project_id=${projectId}`;
+    window.location.href = `/${projectId}/chapter/`;
 }
 
 
 
 function openNoteManager() {
-    window.location.href = `note.html?project_id=${projectId}`;
+    window.location.href = `/${projectId}/note/`;
 }
 
 
@@ -223,11 +223,15 @@ async function saveProjectEdit() {
 // ============ 世界观管理 ============
 
 async function openWorldWorkspace() {
-    window.location.href = `worldview.html?project_id=${projectId}`;
+    window.location.href = `/${projectId}/worldview/`;
 }
 
 // ============ 人物管理 ============
 
 function openCharacterManager() {
-    window.location.href = `character.html?project_id=${projectId}`;
+    window.location.href = `/${projectId}/character/`;
+}
+
+function openGraphManager() {
+    window.location.href = `/${projectId}/graph/`;
 }

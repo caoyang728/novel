@@ -1,36 +1,43 @@
 document.addEventListener('DOMContentLoaded', function() {
-    showLoading('加载中...');
-    Promise.all([loadUserInfo(), loadProjects()]).finally(() => hideLoading());
-});
-
-async function loadUserInfo() {
-    // 如果未登录，直接显示登录弹窗，登录成功后重新加载数据
     if (!api.isAuthenticated()) {
         showLoginModal(() => {
-            loadUserInfo();
-            loadProjects();
+            loadAll();
         });
         return;
     }
+    loadAll();
+});
 
-    try {
-        const data = await api.get('/api/auth/user/');
-        if (data && data.success) {
-            document.getElementById('username').textContent = data.user.username;
-        }
-    } catch (error) {
-        console.error('Failed to load user info:', error);
-    }
-
-    try {
-        const data = await api.get('/api/token-usage/today/');
-        if (data && data.success) {
-            const total = data.usage.total_tokens || 0;
-            document.getElementById('token-usage').textContent = '今日 Token: ' + formatTokenCount(total);
-        }
-    } catch (error) {
-        console.error('Failed to load token usage:', error);
-    }
+function loadAll() {
+    showLoading('加载中...');
+    // 3 个请求并行，避免 loadUserInfo 内部串行导致瀑布延迟
+    Promise.all([
+        api.get('/api/auth/user/').then(data => {
+            if (data && data.success) {
+                document.getElementById('username').textContent = data.user.username;
+            }
+        }).catch(() => {}),
+        api.get('/api/token-usage/today/').then(data => {
+            if (data && data.success) {
+                const total = data.usage.total_tokens || 0;
+                document.getElementById('token-usage').textContent = '今日 Token: ' + formatTokenCount(total);
+            }
+        }).catch(() => {}),
+        api.get('/api/projects/').then(data => {
+            if (data) {
+                renderProjects(data.projects || []);
+            }
+        }).catch(error => {
+            console.error('Failed to load projects:', error);
+            document.getElementById('projects-container').innerHTML = `
+                <div class="col-md-12">
+                    <div class="empty-state">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>加载项目失败，请刷新重试</p>
+                    </div>
+                </div>`;
+        })
+    ]).finally(() => hideLoading());
 }
 
 async function loadProjects() {
@@ -123,7 +130,7 @@ function getStatusText(status) {
 
 // 根据版本数量决定跳转页面
 function openProjectByVersion(projectId, versionCount, latestVersionNumber) {
-    window.location.href = `project.html?project_id=${projectId}`;
+    window.location.href = `/${projectId}/`;
 }
 
 

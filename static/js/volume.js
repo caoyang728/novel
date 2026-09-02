@@ -679,12 +679,18 @@ function deleteVolume() {
     const volumeTitle = volume.title;
     
     if (currentVolumes.length === 1) {
-        showModal('删除卷', `该版本仅剩此卷，删除后版本将一并删除且无法恢复。确定要删除"${volumeTitle}"吗？`, function() {
-            doDeleteVolume();
+        showConfirmModal({
+            title: '删除卷',
+            message: `该版本仅剩此卷，删除后版本将一并删除且无法恢复。确定要删除"${volumeTitle}"吗？`,
+            danger: true,
+            onConfirm: function(close) { close(); doDeleteVolume(); }
         });
     } else {
-        showModal('删除卷', `确定要删除"${volumeTitle}"吗？`, function() {
-            doDeleteVolume();
+        showConfirmModal({
+            title: '删除卷',
+            message: `确定要删除"${volumeTitle}"吗？`,
+            danger: true,
+            onConfirm: function(close) { close(); doDeleteVolume(); }
         });
     }
 }
@@ -692,8 +698,6 @@ function deleteVolume() {
 async function doDeleteVolume() {
     const volume = currentVolumes[selectedVolumeIndex];
     const deleteIndex = selectedVolumeIndex;
-
-    closeModal();
 
     // 如果没有卷了（删除后），删除该版本
     if (currentVolumes.length === 1 && currentVolumeVersionId) {
@@ -815,15 +819,19 @@ function saveVersion() {
     }
     const btn = document.getElementById('save-as-btn');
     const msg = btn ? btn.getAttribute('data-msg') : '确认另存为新版本？';
-    showModal('另存为新版本', msg, function() {
-        doSaveVersion();
+    showConfirmModal({
+        title: '另存为新版本',
+        message: msg,
+        onConfirm: function(close) {
+            close();
+            doSaveVersion();
+        }
     });
 }
 
 async function doSaveVersion() {
     if (!currentVolumeVersionId) {
         showError('请先选择或生成一个卷版本');
-        closeModal();
         return;
     }
     showLoading('保存中...');
@@ -846,19 +854,22 @@ async function doSaveVersion() {
     } finally {
         hideLoading();
     }
-    closeModal();
 }
 
 function finalizeVersion() {
     const select = document.getElementById('volume-version-select');
     const selectedText = select.options[select.selectedIndex]?.text || '当前版本';
     if (isVersionFinalized) {
-        showModal('版本解锁', `确定要将 ${selectedText} 解除锁定吗？`, function() {
-            doFinalizeVersion();
+        showConfirmModal({
+            title: '版本解锁',
+            message: `确定要将 ${selectedText} 解除锁定吗？`,
+            onConfirm: function(close) { close(); doFinalizeVersion(); }
         });
     } else {
-        showModal('版本锁定', `确定要将 ${selectedText} 标记为锁定吗？`, function() {
-            doFinalizeVersion();
+        showConfirmModal({
+            title: '版本锁定',
+            message: `确定要将 ${selectedText} 标记为锁定吗？`,
+            onConfirm: function(close) { close(); doFinalizeVersion(); }
         });
     }
 }
@@ -880,7 +891,6 @@ async function doFinalizeVersion() {
     } finally {
         hideLoading();
     }
-    closeModal();
 }
 
 async function sendMessage() {

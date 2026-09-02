@@ -167,12 +167,13 @@ novel-agent/
 │   ├── login.html / register.html / reset_password.html
 │   ├── project.html / index.html
 │   ├── worldview.html / worldview_chat.html
-│   ├── character.html / _character_fields.html
+│   ├── character.html
 │   ├── timeline.html
 │   ├── outline.html
 │   ├── volume.html
 │   ├── chapter.html
 │   ├── note.html
+│   ├── graph.html
 │   ├── llm_config.html
 │   └── token.html
 └── static/                       # 静态文件（CSS / JS 分离）
@@ -188,6 +189,7 @@ novel-agent/
     │   ├── volume.css
     │   ├── chapter.css
     │   ├── note.css
+    │   ├── graph.css
     │   ├── llm_config.css
     │   └── token.css
     └── js/
@@ -201,15 +203,47 @@ novel-agent/
         ├── volume.js
         ├── chapter.js
         ├── note.js
+        ├── graph.js
         ├── llm_config.js
         └── token.js
 ```
+
+## 页面路由
+
+> 所有项目内页面统一使用 `/<project_id>/route/` 路径格式，无需查询参数。
+
+### 认证与设置页面
+
+| URL | 说明 |
+|-----|------|
+| `/` → `/index.html` | 项目列表（书架） |
+| `/login/` | 登录 |
+| `/register.html` | 注册 |
+| `/reset-password/` | 重置密码 |
+| `/token-usage/` | Token 用量统计 |
+| `/llm-config/` | LLM 配置管理 |
+
+### 项目内页面
+
+| URL | 说明 |
+|-----|------|
+| `/<id>/worldview/` | 世界观管理 |
+| `/<id>/worldview/chat/` | 世界观聊天构建 |
+| `/<id>/` | 项目详情 |
+| `/<id>/outline/` | 大纲构建 |
+| `/<id>/volume/` | 卷管理 |
+| `/<id>/chapter/` | 章节编辑器 |
+| `/<id>/content/` | 内容管理（共用章节编辑器） |
+| `/<id>/character/` | 角色管理 |
+| `/<id>/timeline/` | 时间线管理 |
+| `/<id>/note/` | 随手记 |
+| `/<id>/graph/` | 知识图谱 |
 
 ## 安装和配置
 
 ### 1. 环境要求
 
-- Python 3.10+
+- Python 3.14+
 - PostgreSQL 16+（需安装 pgvector 扩展）
 - Redis
 
@@ -573,6 +607,7 @@ AI 辅助生成角色设定，管理角色的：
 | `/api/projects/<id>/characters/check/` | POST | 角色一致性检查（流式 SSE） |
 | `/api/projects/<id>/characters/optimize/` | POST | AI 优化角色（流式 SSE） |
 | `/api/projects/<id>/characters/optimize/save/` | POST | 保存优化结果 |
+| `/api/projects/<id>/characters/relationship-types/` | GET | 关系类型列表 |
 
 ### 时间线相关
 | 接口 | 方法 | 说明 |
@@ -631,6 +666,14 @@ AI 辅助生成角色设定，管理角色的：
 | `/api/projects/<id>/chapters/volume/<vid>/load/` | GET | 加载卷下章节列表 |
 | `/api/projects/<id>/chapters/<cid>/` | GET | 章节详情 |
 | `/api/projects/<id>/chapters/chat/` | POST | AI 聊天协作写作（流式 SSE） |
+
+### 知识图谱相关
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/projects/<id>/graph/` | GET | 图谱数据 |
+| `/api/projects/<id>/graph/subgraph/` | GET | 子图查询 |
+| `/api/projects/<id>/graph/rebuild/` | POST | 重建图谱 |
+| `/api/projects/<id>/graph/stats/` | GET | 图谱统计 |
 
 ### 随手记相关
 | 接口 | 方法 | 说明 |

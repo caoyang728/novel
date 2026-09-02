@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识图谱 - 小说创作助手</title>
+    <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/graph.css">
+</head>
+<body class="page-full-height">
+    <!-- Header -->
+    <header class="page-header">
+        <div class="page-header-inner">
+            <button class="back-btn" id="backBtn"><i class="fas fa-arrow-left"></i></button>
+            <h1 class="header-title"><i class="fas fa-diagram-project"></i> 知识图谱</h1>
+            <div class="header-filter" style="margin-left:auto;">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="搜索节点...">
+                    <button class="search-clear-btn" id="searchClear" style="display:none;" type="button" title="清除搜索"></button>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button class="btn-ai" id="rebuildBtn"><i class="fas fa-sync-alt"></i> 重建</button>
+                <button class="btn-outline-secondary" id="fullscreenBtn"><i class="fas fa-expand"></i></button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Body -->
+    <div class="graph-body">
+        <!-- 左侧筛选 -->
+        <aside class="graph-sidebar" id="sidebar">
+            <div class="sidebar-section">
+                <h3 class="sidebar-title">节点类型</h3>
+                <label class="filter-checkbox"><input type="checkbox" class="node-type-filter" value="character" checked><span class="filter-dot" style="background:#6366f1;"></span> 角色</label>
+                <label class="filter-checkbox"><input type="checkbox" class="node-type-filter" value="faction" checked><span class="filter-dot" style="background:#ef4444;"></span> 势力</label>
+            </div>
+            <div class="sidebar-section">
+                <h3 class="sidebar-title">关系类型</h3>
+                <div id="edgeTypeFilters"></div>
+            </div>
+        </aside>
+
+        <!-- 图谱画布 -->
+        <div class="graph-canvas-wrapper">
+            <div id="cy"></div>
+            <div class="graph-loading" id="loadingOverlay"><div class="spinner"></div><div>加载图谱数据...</div></div>
+            <div class="graph-empty" id="emptyState" style="display:none;">
+                <i class="fas fa-diagram-project"></i>
+                <h3>暂无图谱数据</h3>
+                <p>请先创建角色，或点击"重建"按钮生成图谱</p>
+                <button class="btn btn-primary" id="emptyRebuildBtn"><i class="fas fa-sync-alt"></i> 重建图谱</button>
+            </div>
+        </div>
+
+        <!-- 右侧详情面板 -->
+        <aside class="graph-detail-panel" id="nodeDetail">
+            <div class="detail-header">
+                <h3 class="sidebar-title">节点详情</h3>
+                <button class="detail-close-btn" id="detailCloseBtn"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="detail-content">
+                <div class="detail-name" id="detailName"></div>
+                <div class="detail-type" id="detailType"></div>
+                <div class="detail-desc" id="detailDesc"></div>
+                <div class="detail-props" id="detailProps"></div>
+                <div class="detail-relations" id="detailRelations"></div>
+                <button class="btn btn-outline-secondary btn-sm" id="detailFocusBtn" style="margin-top:10px;display:none;">
+                    <i class="fas fa-crosshairs"></i> 聚焦该节点
+                </button>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 底部统计 -->
+    <footer class="graph-footer">
+        <span id="statsNodes">节点: 0</span>
+        <span class="footer-divider">|</span>
+        <span id="statsEdges">关系: 0</span>
+        <span class="footer-divider">|</span>
+        <span id="statsFactions">势力: 0</span>
+    </footer>
+
+    <script src="/static/js/cytoscape.min.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/graph.js"></script>
+</body>
+</html>

@@ -231,13 +231,13 @@ class VolumeView(View):
 class ChapterGeneratorView(View):
     '''章节生成页面视图'''
     def get(self, request, project_id):
-        return render(request, 'chapter_generator.html')
+        return render(request, 'chapter.html')
 
 
 class ContentManagerView(View):
     '''内容管理页面视图'''
     def get(self, request, project_id):
-        return render(request, 'content.html')
+        return render(request, 'chapter.html')
 
 
 class NoteView(View):
@@ -250,6 +250,24 @@ class CharacterView(View):
     '''人物管理页面视图'''
     def get(self, request, project_id):
         return render(request, 'character.html')
+
+
+class GraphView(View):
+    '''知识图谱页面视图'''
+    def get(self, request, project_id):
+        return render(request, 'graph.html')
+
+
+class WorldviewView(View):
+    '''世界观管理页面视图'''
+    def get(self, request, project_id):
+        return render(request, 'worldview.html')
+
+
+class WorldviewChatView(View):
+    '''世界观聊天构建页面视图'''
+    def get(self, request, project_id):
+        return render(request, 'worldview_chat.html')
 
 
 # ============ Project API Views ============

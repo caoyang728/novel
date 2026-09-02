@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', function() {
         window.location.href = '/index.html';
     }
 
-    initBackToProjectButton('.back-btn', 'project.html');
+    initBackToProjectButton('.back-btn');
 });
 
 let allNotes = [];

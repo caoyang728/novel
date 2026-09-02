@@ -14,6 +14,9 @@ from .views import (
     ContentManagerView,
     NoteView,
     CharacterView,
+    GraphView,
+    WorldviewView,
+    WorldviewChatView,
     # API
     ApiProjectListView,
     ApiProjectCreateView,
@@ -40,6 +43,9 @@ urlpatterns = [
     path('<int:project_id>/content/', ContentManagerView.as_view(), name='content_manager'),
     path('<int:project_id>/note/', NoteView.as_view(), name='note'),
     path('<int:project_id>/character/', CharacterView.as_view(), name='character'),
+    path('<int:project_id>/graph/', GraphView.as_view(), name='graph'),
+    path('<int:project_id>/worldview/', WorldviewView.as_view(), name='worldview'),
+    path('<int:project_id>/worldview/chat/', WorldviewChatView.as_view(), name='worldview_chat'),
 
     # API Project
     path('api/projects/', ApiProjectListView.as_view(), name='api_project_list'),

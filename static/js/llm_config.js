@@ -449,26 +449,31 @@ async function toggleConfigActive(configId, checkbox) {
 }
 
 function deleteConfig(configId) {
-    showModal('删除配置', '确定要删除这个配置吗？', async function() {
-        try {
-            const data = await api.request('/api/llm-config/', {
-                method: 'POST',
-                body: JSON.stringify({
-                    action: 'delete',
-                    config_id: configId
-                })
-            });
+    showConfirmModal({
+        title: '删除配置',
+        message: '确定要删除这个配置吗？',
+        danger: true,
+        onConfirm: async function(close) {
+            try {
+                const data = await api.request('/api/llm-config/', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: 'delete',
+                        config_id: configId
+                    })
+                });
 
-            if (data.success) {
-                loadConfigs(false);
-                showSuccess('删除成功');
-            } else {
-                showError(data.message || '删除失败');
+                if (data.success) {
+                    close();
+                    loadConfigs(false);
+                    showSuccess('删除成功');
+                } else {
+                    showError(data.message || '删除失败');
+                }
+            } catch (error) {
+                showError('删除失败，请重试');
             }
-        } catch (error) {
-            showError('删除失败，请重试');
         }
-        closeModal();
     });
 }
 

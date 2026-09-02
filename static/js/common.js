@@ -12,7 +12,10 @@ window.addEventListener('pageshow', function(event) {
 function getProjectIdFromUrl() {
     const urlParams = new URLSearchParams(window.location.search);
     const projectId = urlParams.get('project_id');
-    return projectId || null;
+    if (projectId) return projectId;
+    // 支持路径格式 /23/、/23/graph/ 等
+    const pathMatch = window.location.pathname.match(/^\/(\d+)\//);
+    return pathMatch ? pathMatch[1] : null;
 }
 
 /**
@@ -20,19 +23,18 @@ function getProjectIdFromUrl() {
  * @param {string} selector - 返回按钮的选择器
  * @param {string} targetPage - 目标页面，默认为 'project.html'
  */
-function initBackToProjectButton(selector = '.back-btn', targetPage = 'project.html') {
+function initBackToProjectButton(selector = '.back-btn', targetPage = '') {
     const backBtn = document.querySelector(selector);
     if (!backBtn) return;
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const projectId = urlParams.get('project_id');
+    const projectId = getProjectIdFromUrl();
     
     // 移除原有的 onclick 事件
     backBtn.removeAttribute('onclick');
 
     if (projectId) {
         backBtn.onclick = () => {
-            window.location.href = `${targetPage}?project_id=${projectId}`;
+            window.location.href = `/${projectId}/${targetPage}`;
         };
     } else {
         // 如果没有项目ID，使用浏览器后退
@@ -469,33 +471,203 @@ function logout(redirectUrl = null, saveData = false) {
     window.location.href = redirectUrl;
 }
 
-// ==================== 确认弹窗相关 ====================
+// ==================== 弹窗系统 ====================
 
-let modalAction = null;
+// 弹窗层级栈，用于多层弹窗管理和 ESC 关闭
+const _modalStack = [];
 
-// 显示确认弹窗
-function showModal(title, message, action) {
-    document.getElementById('modal-title').textContent = title;
-    document.getElementById('modal-message').textContent = message;
-    // 隐藏可能存在的 modal-input
-    const modalInput = document.getElementById('modal-input');
-    if (modalInput) modalInput.style.display = 'none';
-    document.getElementById('confirm-modal').classList.add('show');
-    modalAction = action;
-}
+/**
+ * 显示通用弹窗（动态创建 DOM，不依赖页面预置 HTML）
+ * @param {Object} options - 配置项
+ * @param {string} options.title - 标题文本
+ * @param {string|HTMLElement} options.body - body 区域内容（HTML 字符串或 DOM 元素）
+ * @param {string|HTMLElement} [options.footer] - footer 区域内容（可选，不传则不显示）
+ * @param {string} [options.width='50%'] - 弹窗宽度
+ * @param {string} [options.height='80vh'] - 弹窗高度
+ * @param {number} [options.level=0] - 层级，z-index = 1000 + level * 100
+ * @param {string} [options.backdrop] - 背景色覆盖
+ * @param {boolean} [options.blur=true] - 是否模糊背景
+ * @param {boolean} [options.closeOnBackdrop=false] - 是否允许点击背景关闭
+ * @param {boolean} [options.closeOnEsc=true] - 是否允许 ESC 关闭
+ * @param {Function} [options.onConfirm] - 确认回调，接收 close 函数作为参数
+ * @param {Function} [options.onCancel] - 取消/关闭回调
+ * @returns {{ close: Function, overlay: HTMLElement, dialog: HTMLElement }}
+ */
+function showModal(options) {
+    const title = options.title || '';
+    const bodyContent = options.body || '';
+    const footerContent = options.footer;
+    const width = options.width || '50%';
+    const height = options.height || '80vh';
+    const minHeight = options.minHeight;
+    const level = options.level || 0;
+    const backdrop = options.backdrop;
+    const blur = options.blur !== false;
+    const closeOnBackdrop = options.closeOnBackdrop === true;
+    const closeOnEsc = options.closeOnEsc !== false;
+    const onConfirm = options.onConfirm;
+    const onCancel = options.onCancel;
 
-// 关闭确认弹窗
-function closeModal() {
-    document.getElementById('confirm-modal').classList.remove('show');
-    modalAction = null;
-    document.body.style.overflow = '';
-}
+    const zIndex = 1000 + level * 100;
 
-// 执行确认弹窗的操作
-function executeModalAction() {
-    if (modalAction) {
-        modalAction();
+    // 创建遮罩层
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay show';
+    overlay.setAttribute('data-modal-managed', 'true');
+    overlay.style.zIndex = zIndex;
+    if (backdrop) overlay.style.background = backdrop;
+    if (blur) {
+        overlay.style.backdropFilter = 'blur(4px)';
+        overlay.style.webkitBackdropFilter = 'blur(4px)';
+    } else {
+        overlay.style.backdropFilter = 'none';
+        overlay.style.webkitBackdropFilter = 'none';
     }
+
+    // 创建弹窗容器
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.style.width = width;
+    dialog.style.height = height;
+    if (minHeight !== undefined) dialog.style.minHeight = minHeight;
+
+    // 创建头部
+    const header = document.createElement('div');
+    header.className = 'dialog-header';
+    header.innerHTML = `<h5>${escapeHtml(title)}</h5>`;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn-close';
+    header.appendChild(closeBtn);
+
+    // 创建内容区
+    const body = document.createElement('div');
+    body.className = 'dialog-body';
+    if (typeof bodyContent === 'string') {
+        body.innerHTML = bodyContent;
+    } else if (bodyContent instanceof HTMLElement) {
+        body.appendChild(bodyContent);
+    }
+
+    dialog.appendChild(header);
+    dialog.appendChild(body);
+
+    // 创建底部（可选）
+    if (footerContent) {
+        const footer = document.createElement('div');
+        footer.className = 'dialog-footer';
+        if (typeof footerContent === 'string') {
+            footer.innerHTML = footerContent;
+        } else if (footerContent instanceof HTMLElement) {
+            footer.appendChild(footerContent);
+        }
+        dialog.appendChild(footer);
+    }
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // 关闭函数
+    function close() {
+        overlay.remove();
+        const idx = _modalStack.indexOf(overlay);
+        if (idx !== -1) _modalStack.splice(idx, 1);
+        if (_modalStack.length === 0) {
+            document.body.style.overflow = '';
+        }
+    }
+
+    // 事件绑定
+    closeBtn.addEventListener('click', function() {
+        close();
+        if (onCancel) onCancel();
+    });
+
+    if (closeOnBackdrop) {
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) {
+                close();
+                if (onCancel) onCancel();
+            }
+        });
+    }
+
+    if (closeOnEsc) {
+        const escHandler = function(e) {
+            if (e.key === 'Escape') {
+                // 只关闭栈顶弹窗
+                if (_modalStack.length > 0 && _modalStack[_modalStack.length - 1] === overlay) {
+                    e.stopPropagation();
+                    close();
+                    if (onCancel) onCancel();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+    }
+
+    // 加入弹窗栈
+    _modalStack.push(overlay);
+    document.body.style.overflow = 'hidden';
+
+    return { close: close, overlay: overlay, dialog: dialog };
+}
+
+/**
+ * 显示确认弹窗（基于 showModal 的快捷方法）
+ * @param {Object} options - 配置项
+ * @param {string} options.title - 标题
+ * @param {string} options.message - 提示文本
+ * @param {Function} [options.onConfirm] - 确认回调，接收 close 函数
+ * @param {Function} [options.onCancel] - 取消回调
+ * @param {string} [options.confirmText='确认'] - 确认按钮文字
+ * @param {string} [options.cancelText='取消'] - 取消按钮文字
+ * @param {boolean} [options.danger=false] - 确认按钮是否用红色危险样式
+ * @returns {{ close: Function, overlay: HTMLElement, dialog: HTMLElement }}
+ */
+function showConfirmModal(options) {
+    const title = options.title || '确认';
+    const message = options.message || '';
+    const confirmText = options.confirmText || '确认';
+    const cancelText = options.cancelText || '取消';
+    const danger = options.danger === true;
+    const onConfirm = options.onConfirm;
+    const onCancel = options.onCancel;
+
+    // 自动计算层级：比当前最高弹窗高一级
+    const currentMaxLevel = _modalStack.length;
+    const level = currentMaxLevel + 1;
+
+    const confirmBtnClass = danger ? 'btn-danger' : 'btn-success';
+    const footerHtml = `<button class="btn-cancel">${escapeHtml(cancelText)}</button><button class="${confirmBtnClass}">${escapeHtml(confirmText)}</button>`;
+
+    const modal = showModal({
+        title: title,
+        body: `<p style="text-align:center;color:var(--text-secondary);font-size:0.95rem;line-height:1.6;">${escapeHtml(message)}</p>`,
+        footer: footerHtml,
+        width: '420px',
+        height: 'auto',
+        minHeight: '0',
+        level: level,
+        closeOnBackdrop: false,
+        closeOnEsc: true,
+        onCancel: onCancel
+    });
+
+    const footer = modal.dialog.querySelector('.dialog-footer');
+    const cancelBtn = footer.children[0];
+    const confirmBtn = footer.children[1];
+
+    cancelBtn.addEventListener('click', function() {
+        modal.close();
+        if (onCancel) onCancel();
+    });
+
+    confirmBtn.addEventListener('click', function() {
+        if (onConfirm) onConfirm(modal.close);
+    });
+
+    return modal;
 }
 
 // ==================== API 请求封装 ====================
@@ -1076,13 +1248,18 @@ function toggleSelectAll() {
 
 function deleteSelectedMessages() {
     if (selectedMessages.size === 0) return;
-    showModal('删除对话', `确定要删除选中的 ${selectedMessages.size} 条对话吗？`, function() {
-        const sorted = Array.from(selectedMessages).sort((a, b) => b - a);
-        sorted.forEach(i => messages.splice(i, 1));
-        selectedMessages.clear();
-        cancelSelection();
-        closeModal();
-        showSuccess('删除成功！');
+    showConfirmModal({
+        title: '删除对话',
+        message: `确定要删除选中的 ${selectedMessages.size} 条对话吗？`,
+        danger: true,
+        onConfirm: function(close) {
+            const sorted = Array.from(selectedMessages).sort((a, b) => b - a);
+            sorted.forEach(i => messages.splice(i, 1));
+            selectedMessages.clear();
+            cancelSelection();
+            close();
+            showSuccess('删除成功！');
+        }
     });
 }
 
@@ -1118,27 +1295,27 @@ async function loadUserInfo(options = {}) {
     const usernameElId = options.usernameEl || 'username';
     const tokenUsageElId = options.tokenUsageEl || 'token-usage';
 
-    try {
-        const data = await api.get('/api/auth/user/');
-        if (data && data.success) {
-            const el = document.getElementById(usernameElId);
-            if (el) el.textContent = data.user.username;
-        }
-    } catch (error) {
-        console.error('Failed to load user info:', error);
-    }
-
-    try {
-        const data = await api.get('/api/token-usage/today/');
-        if (data && data.success) {
-            const total = data.usage.total_tokens || 0;
-            const formatted = formatTokenCount(total);
-            const el = document.getElementById(tokenUsageElId);
-            if (el) el.textContent = '今日 Token: ' + formatted;
-        }
-    } catch (error) {
-        console.error('Failed to load token usage:', error);
-    }
+    // 并行请求，避免串行瀑布延迟
+    await Promise.all([
+        api.get('/api/auth/user/').then(data => {
+            if (data && data.success) {
+                const el = document.getElementById(usernameElId);
+                if (el) el.textContent = data.user.username;
+            }
+        }).catch(error => {
+            console.error('Failed to load user info:', error);
+        }),
+        api.get('/api/token-usage/today/').then(data => {
+            if (data && data.success) {
+                const total = data.usage.total_tokens || 0;
+                const formatted = formatTokenCount(total);
+                const el = document.getElementById(tokenUsageElId);
+                if (el) el.textContent = '今日 Token: ' + formatted;
+            }
+        }).catch(error => {
+            console.error('Failed to load token usage:', error);
+        })
+    ]);
 }
 
 /**
@@ -1233,13 +1410,14 @@ function closeModalById(id) {
 }
 
 // ==================== ESC 键关闭模态框（全局行为） ====================
+// 注：showModal 内部已绑定 ESC 处理（通过 data-modal-managed 标记），
+// 此处仅处理非 showModal 创建的遗留弹窗（如 chapter、note 页面的自定义弹窗）
 
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
-        // 关闭所有打开的模态框
-        const openModals = document.querySelectorAll('.dialog-overlay.show, .modal-overlay.show, .custom-modal-overlay.show');
+        // 关闭非 showModal 管理的遗留弹窗
+        const openModals = document.querySelectorAll('.dialog-overlay.show:not([data-modal-managed]), .modal-overlay.show, .custom-modal-overlay.show');
         openModals.forEach(modal => modal.classList.remove('show'));
-        // 恢复滚动
         document.body.style.overflow = '';
     }
 });

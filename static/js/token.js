@@ -1,6 +1,23 @@
 document.addEventListener('DOMContentLoaded', function() {
     showLoading('加载中...');
-    Promise.all([loadUserInfo(), loadStats('today')]).finally(() => hideLoading());
+    // 3 个请求并行，避免 loadUserInfo 内部串行导致瀑布延迟
+    Promise.all([
+        api.get('/api/auth/user/').then(data => {
+            if (data && data.success) {
+                const el = document.getElementById('username');
+                if (el) el.textContent = data.user.username;
+            }
+        }).catch(() => {}),
+        api.get('/api/token-usage/today/').then(data => {
+            if (data && data.success) {
+                const total = data.usage.total_tokens || 0;
+                const formatted = formatTokenCount(total);
+                const el = document.getElementById('token-usage');
+                if (el) el.textContent = '今日 Token: ' + formatted;
+            }
+        }).catch(() => {}),
+        loadStats('today')
+    ]).finally(() => hideLoading());
 });
 
 async function loadStats(range, btnElement) {

@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
 
     // 使用 common.js 的 initBackToProjectButton 初始化返回按钮
-    initBackToProjectButton('#backBtn', 'worldview.html');
+    initBackToProjectButton('#backBtn', 'worldview/');
 
     const sendBtn = document.getElementById('send-btn');
     const chatInput = document.getElementById('chat-input');

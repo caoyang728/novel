@@ -102,8 +102,7 @@ function getDirtyFields(layerName) {
 
 document.addEventListener('DOMContentLoaded', async function() {
     showLoading('加载中...');
-    const urlParams = new URLSearchParams(window.location.search);
-    const projectId = urlParams.get('project_id');
+    const projectId = getProjectIdFromUrl();
     currentProjectId = projectId;
 
     if (projectId) {

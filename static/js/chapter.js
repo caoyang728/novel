@@ -539,10 +539,16 @@ async function selectChapter(chapterId) {
 
     // 未保存修改警告
     if (isDirty && currentChapterId && currentChapterId !== chapterId) {
-        if (!confirm('当前章节有未保存的修改，切换后将丢失。确定要切换吗？')) {
-            return;
-        }
-        isDirty = false;
+        showConfirmModal({
+            title: '未保存的修改',
+            message: '当前章节有未保存的修改，切换后将丢失。确定要切换吗？',
+            onConfirm: function(close) {
+                close();
+                isDirty = false;
+                selectChapter(chapterId);
+            }
+        });
+        return;
     }
 
     currentChapterId = chapterId;
@@ -680,7 +686,7 @@ async function generateChapterSummaries() {
     }
 
     // 未保存修改警告
-    if (!checkUnsavedChanges('当前有未保存的修改，生成新章节后将丢失。确定要继续吗？')) return;
+    if (!await checkUnsavedChanges('当前有未保存的修改，生成新章节后将丢失。确定要继续吗？')) return;
 
     const btn = document.getElementById('generate-chapters-btn');
     const originalHTML = btn.innerHTML;
@@ -1348,8 +1354,21 @@ async function saveCompareChanges() {
 
 function cancelCompareChanges() {
     if (Object.keys(compareSession.modifications).length > 0) {
-        if (!confirm('确定要取消所有修改吗？未保存的修改将丢失。')) return;
+        showConfirmModal({
+            title: '取消修改',
+            message: '确定要取消所有修改吗？未保存的修改将丢失。',
+            danger: true,
+            onConfirm: function(close) {
+                close();
+                doCancelCompareChanges();
+            }
+        });
+        return;
     }
+    doCancelCompareChanges();
+}
+
+function doCancelCompareChanges() {
 
     compareSession = {
         modifications: {},
@@ -1380,10 +1399,16 @@ async function sendAiMessage() {
 
     // 未保存修改警告
     if (isDirty) {
-        if (!confirm('当前有未保存的修改，AI创作后将丢失。确定要继续吗？')) {
-            return;
-        }
-        isDirty = false;
+        showConfirmModal({
+            title: '未保存的修改',
+            message: '当前有未保存的修改，AI创作后将丢失。确定要继续吗？',
+            onConfirm: function(close) {
+                close();
+                isDirty = false;
+                sendAiMessage();
+            }
+        });
+        return;
     }
 
     const chapter = allChapters.find(c => c.id === currentChapterId);
@@ -1716,14 +1741,23 @@ function checkAdjacentDeleted(chapterId) {
     };
 }
 
-// 检查未保存修改，返回 true 表示可以继续
+// 检查未保存修改，返回 Promise<boolean>，true 表示可以继续
 function checkUnsavedChanges(warningMsg) {
-    if (!isDirty) return true;
-    if (!confirm(warningMsg || '当前有未保存的修改，操作后将丢失。确定要继续吗？')) {
-        return false;
-    }
-    isDirty = false;
-    return true;
+    if (!isDirty) return Promise.resolve(true);
+    return new Promise(function(resolve) {
+        showConfirmModal({
+            title: '未保存的修改',
+            message: warningMsg || '当前有未保存的修改，操作后将丢失。确定要继续吗？',
+            onConfirm: function(close) {
+                close();
+                isDirty = false;
+                resolve(true);
+            },
+            onCancel: function() {
+                resolve(false);
+            }
+        });
+    });
 }
 
 // 检查相邻已删除章节并弹窗提示，如果无需提示则直接执行 onContinue
@@ -2331,7 +2365,7 @@ async function fixVerifyIssues() {
 async function generateSingleChapterContent() {
     if (!currentChapterId) return;
 
-    if (!checkUnsavedChanges('当前有未保存的修改，生成新内容后将丢失。确定要继续吗？')) return;
+    if (!await checkUnsavedChanges('当前有未保存的修改，生成新内容后将丢失。确定要继续吗？')) return;
 
     const chapter = allChapters.find(c => c.id === currentChapterId);
     if (!chapter) return;
@@ -2516,7 +2550,7 @@ async function startBatchCheck() {
     document.getElementById('btn-batch-check-fix').style.display = 'none';
     openModal('batch-check-result-modal');
 
-    const projectId = new URLSearchParams(window.location.search).get('project_id');
+    const projectId = getProjectIdFromUrl();
 
     try {
         await api.streamRequestRaw(
@@ -2694,7 +2728,7 @@ async function fixBatchCheckIssues() {
     closeModalById('batch-check-result-modal');
     showLoading('AI修复中...', 0.3);
 
-    const projectId = new URLSearchParams(window.location.search).get('project_id');
+    const projectId = getProjectIdFromUrl();
 
     try {
         let fixResult = null;

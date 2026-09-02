@@ -265,29 +265,16 @@ class ApiUserView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # 尝试从请求头获取 token
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-            from rest_framework_simplejwt.tokens import AccessToken
-            from rest_framework_simplejwt.exceptions import InvalidToken
-            try:
-                access_token = AccessToken(token)
-                user_id = access_token['user_id']
-                from django.contrib.auth.models import User
-                user = User.objects.get(id=user_id)
-                return JsonResponse({
-                    'success': True,
-                    'user': {
-                        'id': user.id,
-                        'username': user.username,
-                        'email': user.email,
-                        'has_llm_config': LLMConfig.objects.filter(user=user, is_active=True, test_passed=True).exists()
-                    }
-                })
-            except (InvalidToken, User.DoesNotExist):
-                pass
-        return JsonResponse({'success': False, 'error': '未登录'}, status=401)
+        user = request.user
+        return JsonResponse({
+            'success': True,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'has_llm_config': LLMConfig.objects.filter(user=user, is_active=True, test_passed=True).exists()
+            }
+        })
 
 # ============ Token Usage Views ============
 
@@ -324,83 +311,95 @@ class ApiTokenUsageStats(APIView):
             start_of_week = today - timedelta(days=7)
             start_of_month = today.replace(day=1)
 
-            def get_logs_by_range(range_type):
-                if range_type == 'today':
-                    return TokenUsageLog.objects.filter(user=user, created_at__date=today)
-                elif range_type == 'week':
-                    return TokenUsageLog.objects.filter(user=user, created_at__date__gte=start_of_week)
-                elif range_type == 'month':
-                    return TokenUsageLog.objects.filter(user=user, created_at__date__gte=start_of_month)
-                else:
-                    return TokenUsageLog.objects.filter(user=user)
-
-            def aggregate(logs):
-                data = logs.aggregate(
-                    input=models.Sum('input_tokens'),
-                    input_cache_hit=models.Sum('input_cache_hit_tokens'),
-                    input_cache_miss=models.Sum('input_cache_miss_tokens'),
-                    output=models.Sum('output_tokens'),
-                    total=models.Sum('total_tokens'),
-                    cost=models.Sum('cost'),
-                    count=models.Count('id')
-                )
-                return {
-                    'input_tokens': data['input'] or 0,
-                    'input_cache_hit_tokens': data['input_cache_hit'] or 0,
-                    'input_cache_miss_tokens': data['input_cache_miss'] or 0,
-                    'output_tokens': data['output'] or 0,
-                    'total_tokens': data['total'] or 0,
-                    'cost': float(data['cost'] or 0),
-                    'count': data['count'] or 0
-                }
-
-            today_logs = get_logs_by_range('today')
-            week_logs = get_logs_by_range('week')
-            month_logs = get_logs_by_range('month')
-            all_logs = get_logs_by_range('all')
-
-            today_usage = aggregate(today_logs)
-            week_usage = aggregate(week_logs)
-            month_usage = aggregate(month_logs)
-            all_usage = aggregate(all_logs)
-
-            current_logs = get_logs_by_range(time_range)
-            recent_logs = list(current_logs.order_by('-created_at')[:100].values(
-                'created_at', 'task_type', 'project__title',
-                'input_tokens', 'output_tokens', 'total_tokens', 'input_cache_hit_tokens', 'input_cache_miss_tokens', 'cost'
+            # 按日期分桶：用一个查询获取所有日志，Python 端分桶
+            # 比 4 个独立的 DB 聚合查询高效得多
+            all_logs = TokenUsageLog.objects.filter(user=user)
+            logs_data = list(all_logs.values(
+                'created_at', 'project_id',
+                'input_tokens', 'output_tokens', 'total_tokens',
+                'input_cache_hit_tokens', 'input_cache_miss_tokens', 'cost'
             ))
 
-            for log in recent_logs:
+            def _make_empty():
+                return {
+                    'input_tokens': 0, 'input_cache_hit_tokens': 0,
+                    'input_cache_miss_tokens': 0, 'output_tokens': 0,
+                    'total_tokens': 0, 'cost': 0.0, 'count': 0
+                }
+
+            today_usage = _make_empty()
+            week_usage = _make_empty()
+            month_usage = _make_empty()
+            all_usage = _make_empty()
+            recent_logs = []
+
+            for log in logs_data:
+                log_date = timezone.localtime(log['created_at']).date()
+                # 累加 all
+                all_usage['input_tokens'] += log['input_tokens']
+                all_usage['input_cache_hit_tokens'] += log['input_cache_hit_tokens']
+                all_usage['input_cache_miss_tokens'] += log['input_cache_miss_tokens']
+                all_usage['output_tokens'] += log['output_tokens']
+                all_usage['total_tokens'] += log['total_tokens']
+                all_usage['cost'] += float(log['cost'])
+                all_usage['count'] += 1
+                # 累加 today
+                if log_date == today:
+                    today_usage['input_tokens'] += log['input_tokens']
+                    today_usage['input_cache_hit_tokens'] += log['input_cache_hit_tokens']
+                    today_usage['input_cache_miss_tokens'] += log['input_cache_miss_tokens']
+                    today_usage['output_tokens'] += log['output_tokens']
+                    today_usage['total_tokens'] += log['total_tokens']
+                    today_usage['cost'] += float(log['cost'])
+                    today_usage['count'] += 1
+                # 累加 week
+                if log_date >= start_of_week:
+                    week_usage['input_tokens'] += log['input_tokens']
+                    week_usage['input_cache_hit_tokens'] += log['input_cache_hit_tokens']
+                    week_usage['input_cache_miss_tokens'] += log['input_cache_miss_tokens']
+                    week_usage['output_tokens'] += log['output_tokens']
+                    week_usage['total_tokens'] += log['total_tokens']
+                    week_usage['cost'] += float(log['cost'])
+                    week_usage['count'] += 1
+                # 累加 month
+                if log_date >= start_of_month:
+                    month_usage['input_tokens'] += log['input_tokens']
+                    month_usage['input_cache_hit_tokens'] += log['input_cache_hit_tokens']
+                    month_usage['input_cache_miss_tokens'] += log['input_cache_miss_tokens']
+                    month_usage['output_tokens'] += log['output_tokens']
+                    month_usage['total_tokens'] += log['total_tokens']
+                    month_usage['cost'] += float(log['cost'])
+                    month_usage['count'] += 1
+
+            # 最近日志：取 100 条最新记录
+            recent_qs = list(all_logs.order_by('-created_at')[:100].values(
+                'created_at', 'task_type', 'project__title',
+                'input_tokens', 'output_tokens', 'total_tokens',
+                'input_cache_hit_tokens', 'input_cache_miss_tokens', 'cost'
+            ))
+            for log in recent_qs:
                 log['created_at'] = timezone.localtime(log['created_at']).strftime('%Y-%m-%d %H:%M')
                 log['task_type'] = log['task_type'] or 'other'
                 log['project'] = log['project__title'] or '-'
 
-            project_stats = {}
-            project_logs = all_logs.filter(project__isnull=False).select_related('project')
-            for log in project_logs:
-                project_id = log.project_id
-                project_title = log.project.title
-                if project_id not in project_stats:
-                    project_stats[project_id] = {
-                        'project_id': project_id,
-                        'project_title': project_title,
-                        'input_tokens': 0,
-                        'input_cache_hit_tokens': 0,
-                        'input_cache_miss_tokens': 0,
-                        'output_tokens': 0,
-                        'total_tokens': 0,
-                        'cost': 0,
-                        'count': 0
-                    }
-                project_stats[project_id]['input_tokens'] += log.input_tokens
-                project_stats[project_id]['input_cache_hit_tokens'] += log.input_cache_hit_tokens
-                project_stats[project_id]['input_cache_miss_tokens'] += log.input_cache_miss_tokens
-                project_stats[project_id]['output_tokens'] += log.output_tokens
-                project_stats[project_id]['total_tokens'] += log.total_tokens
-                project_stats[project_id]['cost'] += float(log.cost)
-                project_stats[project_id]['count'] += 1
+            # 项目统计：数据库端 GROUP BY 聚合，避免 Python 遍历全表
+            project_agg = list(all_logs.filter(
+                project__isnull=False
+            ).values(
+                'project_id', 'project__title'
+            ).annotate(
+                input_tokens=models.Sum('input_tokens'),
+                input_cache_hit_tokens=models.Sum('input_cache_hit_tokens'),
+                input_cache_miss_tokens=models.Sum('input_cache_miss_tokens'),
+                output_tokens=models.Sum('output_tokens'),
+                total_tokens=models.Sum('total_tokens'),
+                cost=models.Sum('cost'),
+                count=models.Count('id'),
+            ).order_by('-total_tokens'))
 
-            project_list = sorted(project_stats.values(), key=lambda x: x['total_tokens'], reverse=True)
+            for p in project_agg:
+                p['project_title'] = p.pop('project__title') or '-'
+                p['cost'] = float(p['cost'] or 0)
 
             return JsonResponse({
                 'success': True,
@@ -409,8 +408,8 @@ class ApiTokenUsageStats(APIView):
                     'week': week_usage,
                     'month': month_usage,
                     'all': all_usage,
-                    'logs': recent_logs,
-                    'project_stats': project_list
+                    'logs': recent_qs,
+                    'project_stats': project_agg
                 }
             })
         except Exception as e:

@@ -33,10 +33,18 @@ urlpatterns = [
 
     # 时间线路由
     path('', include('apps.timeline.urls')),
+
+    # 图谱路由
+    path('', include('apps.graph.urls')),
 ]
 
 # 静态页面路由
-frontend_files = ['index.html', 'project.html', 'outline.html', 'token.html', 'llm_config.html', 'volume.html', 'login.html', 'worldview_chat.html', 'character.html', 'character_library.html', 'chapter.html', 'register.html', 'reset_password.html', 'worldview.html', 'note.html', 'timeline.html']
+frontend_files = [
+    'index.html', 'project.html', 'outline.html', 'token.html', 'llm_config.html', 
+    'volume.html', 'login.html', 'worldview_chat.html', 'character.html', 'character_library.html', 
+    'chapter.html', 'register.html', 'reset_password.html', 'worldview.html', 'note.html', 
+    'timeline.html', 'graph.html'
+    ]
 for file_name in frontend_files:
     urlpatterns.append(
         path(file_name, serve, {

@@ -150,3 +150,82 @@ class TokenUsageLog(models.Model):
             input_cache_miss_tokens=models.Sum('input_cache_miss_tokens'),
             count=models.Count('id')
         )
+
+
+class UserEmbeddingConfig(models.Model):
+    """用户 Embedding / Rerank 配置"""
+
+    MODE_CHOICES = [
+        ('api_only', '仅云API'),
+        ('docker_only', '仅Docker'),
+        ('api_first', 'API优先，Docker兜底'),
+        ('docker_first', 'Docker优先，API兜底'),
+        ('disabled', '关闭'),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='embedding_config', verbose_name='用户')
+
+    # Embedding 配置
+    embedding_mode = models.CharField(max_length=20, choices=MODE_CHOICES, default='api_only', verbose_name='Embedding模式')
+    embedding_api_key = models.CharField(max_length=500, blank=True, default='', verbose_name='Embedding API密钥')
+    embedding_api_base_url = models.CharField(max_length=500, blank=True, default='', verbose_name='Embedding API地址')
+    embedding_api_model = models.CharField(max_length=200, blank=True, default='', verbose_name='Embedding API模型')
+    embedding_docker_url = models.CharField(max_length=500, blank=True, default='', verbose_name='Embedding Docker地址')
+    embedding_docker_timeout = models.IntegerField(default=30, verbose_name='Embedding Docker超时(秒)')
+
+    # Rerank 配置
+    rerank_mode = models.CharField(max_length=20, choices=MODE_CHOICES, default='disabled', verbose_name='Rerank模式')
+    rerank_api_key = models.CharField(max_length=500, blank=True, default='', verbose_name='Rerank API密钥')
+    rerank_api_base_url = models.CharField(max_length=500, blank=True, default='', verbose_name='Rerank API地址')
+    rerank_api_model = models.CharField(max_length=200, blank=True, default='', verbose_name='Rerank API模型')
+    rerank_docker_url = models.CharField(max_length=500, blank=True, default='', verbose_name='Rerank Docker地址')
+    rerank_docker_timeout = models.IntegerField(default=30, verbose_name='Rerank Docker超时(秒)')
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'user_embedding_config'
+        verbose_name = '用户Embedding配置'
+        verbose_name_plural = '用户Embedding配置'
+
+    def __str__(self):
+        return f'{self.user.username} - Embedding({self.embedding_mode}) / Rerank({self.rerank_mode})'
+
+    @classmethod
+    def get_or_default(cls, user):
+        """获取用户配置，不存在则返回默认值对象（不持久化）"""
+        try:
+            return cls.objects.get(user=user)
+        except cls.DoesNotExist:
+            return cls(user=user)
+
+    def get_embedding_api_key(self):
+        """获取解密后的 Embedding API 密钥"""
+        if not self.embedding_api_key:
+            return ''
+        try:
+            import base64
+            return base64.b64decode(self.embedding_api_key.encode()).decode()
+        except Exception:
+            return self.embedding_api_key
+
+    def set_embedding_api_key(self, key):
+        """加密存储 Embedding API 密钥"""
+        import base64
+        self.embedding_api_key = base64.b64encode(key.encode()).decode() if key else ''
+
+    def get_rerank_api_key(self):
+        """获取解密后的 Rerank API 密钥"""
+        if not self.rerank_api_key:
+            return ''
+        try:
+            import base64
+            return base64.b64decode(self.rerank_api_key.encode()).decode()
+        except Exception:
+            return self.rerank_api_key
+
+    def set_rerank_api_key(self, key):
+        """加密存储 Rerank API 密钥"""
+        import base64
+        self.rerank_api_key = base64.b64encode(key.encode()).decode() if key else ''

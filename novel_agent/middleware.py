@@ -40,9 +40,10 @@ class JWTAuthenticationMiddleware:
     def __call__(self, request):
         path = request.path
 
-        # API 认证路径放行（登录、刷新 token 等）
+        # API 认证路径放行（登录、刷新 token、获取公钥等）
         api_auth_paths = [
             '/api/auth/refresh/',
+            '/api/auth/public-key/',
         ]
         if any(path.startswith(p) for p in api_auth_paths):
             return self.get_response(request)

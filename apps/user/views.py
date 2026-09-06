@@ -1,5 +1,5 @@
 
-from venv import logger
+from loguru import logger
 from django.shortcuts import render, redirect
 from django.views import View
 from django.http import JsonResponse
@@ -17,7 +17,8 @@ from django.db import models
 
 from novel_agent.authentication import JWTAuthentication
 
-from .models import LLMConfig, UserLLMConfig, TokenUsageLog
+from .models import LLMConfig, UserLLMConfig, TokenUsageLog, UserEmbeddingConfig
+from .rsa_utils import get_public_key_pem, decrypt_password
 
 
 def _test_llm_connection(api_key, base_url, model_name):
@@ -101,6 +102,33 @@ def clear_default_task_config(user):
 
 # ============ Auth Views ============
 
+class RSAPublicKeyView(APIView):
+    '''获取 RSA 公钥'''
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        try:
+            public_key = get_public_key_pem()
+            return Response({'success': True, 'public_key': public_key})
+        except Exception as e:
+            logger.error(f'获取RSA公钥失败: {e}')
+            return Response({'success': False, 'message': '获取公钥失败'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _extract_password(request, field='password'):
+    """从请求中提取密码，支持 RSA 加密和明文两种格式"""
+    encrypted = request.data.get(f'{field}_encrypted')
+    if encrypted:
+        try:
+            return decrypt_password(encrypted)
+        except Exception as e:
+            logger.error(f'RSA解密失败: {e}')
+            raise ValueError('密码解密失败')
+    return request.data.get(field)
+
+
 class LoginView(APIView):
     '''登录视图'''
 
@@ -113,7 +141,10 @@ class LoginView(APIView):
     def post(self, request):
         try:
             username = request.data.get('username')
-            password = request.data.get('password')
+            try:
+                password = _extract_password(request)
+            except ValueError as e:
+                return Response({'success': False, 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             user = authenticate(request, username=username, password=password)
             if user:
@@ -164,8 +195,11 @@ class RegisterView(APIView):
         try:
             username = request.data.get('username', '').strip()
             email = request.data.get('email', '').strip()
-            password = request.data.get('password', '')
-            password_confirm = request.data.get('password_confirm', '')
+            try:
+                password = _extract_password(request)
+                password_confirm = _extract_password(request, field='password_confirm')
+            except ValueError as e:
+                return Response({'success': False, 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             if not username or not email or not password:
                 return Response({'success': False, 'message': '请填写所有必填字段'}, status=status.HTTP_400_BAD_REQUEST)
@@ -214,8 +248,11 @@ class ResetPasswordView(APIView):
         try:
             username = request.data.get('username', '').strip()
             email = request.data.get('email', '').strip()
-            password = request.data.get('password', '')
-            password_confirm = request.data.get('password_confirm', '')
+            try:
+                password = _extract_password(request)
+                password_confirm = _extract_password(request, field='password_confirm')
+            except ValueError as e:
+                return Response({'success': False, 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             if not username or not email or not password:
                 return Response({'success': False, 'message': '请填写所有必填字段'}, status=status.HTTP_400_BAD_REQUEST)
@@ -718,3 +755,309 @@ class ApiLLMConfigView(APIView):
             import traceback
             traceback.print_exc()
             return JsonResponse({'success': False, 'error': str(e)})
+
+
+def _test_embedding_api(api_key, base_url, model):
+    """测试 Embedding API 连通性，返回 (success, message)"""
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        response = client.embeddings.create(input="测试文本", model=model)
+        dim = len(response.data[0].embedding)
+        return True, f'连接成功 (维度: {dim})'
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+def _test_embedding_docker(docker_url, timeout):
+    """测试 Embedding Docker 服务连通性，返回 (success, message)"""
+    import requests
+    try:
+        health_url = docker_url.rsplit("/", 1)[0] + "/health"
+        resp = requests.get(health_url, timeout=min(timeout, 5))
+        resp.raise_for_status()
+        info = resp.json()
+        model = info.get('model', 'unknown')
+        # 实际测试 embed
+        resp2 = requests.post(docker_url, json={"texts": ["测试文本"]}, timeout=timeout)
+        resp2.raise_for_status()
+        embeddings = resp2.json().get("embeddings", [])
+        dim = len(embeddings[0]) if embeddings else 0
+        return True, f'连接成功 (模型: {model}, 维度: {dim})'
+    except requests.exceptions.Timeout:
+        return False, '连接超时'
+    except requests.exceptions.ConnectionError:
+        return False, '无法连接到Docker服务'
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+def _test_rerank_api(api_key, base_url, model):
+    """测试 Rerank API 连通性，返回 (success, message)"""
+    import requests
+    try:
+        url = f"{base_url.rstrip('/')}/rerank"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "query": "测试查询",
+            "documents": ["测试文档1", "测试文档2"],
+            "top_n": 2,
+        }
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            results = data.get('results', [])
+            return True, f'连接成功 (返回 {len(results)} 条结果)'
+        else:
+            error_msg = resp.json().get('error', {}).get('message', str(resp.text)[:100])
+            return False, f'请求失败: {error_msg}'
+    except requests.exceptions.Timeout:
+        return False, '连接超时'
+    except requests.exceptions.ConnectionError:
+        return False, '无法连接到API地址'
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+def _test_rerank_docker(docker_url, timeout):
+    """测试 Rerank Docker 服务连通性，返回 (success, message)"""
+    import requests
+    try:
+        health_url = docker_url.rsplit("/", 1)[0] + "/health"
+        resp = requests.get(health_url, timeout=min(timeout, 5))
+        resp.raise_for_status()
+        info = resp.json()
+        model = info.get('model', 'unknown')
+        # 实际测试 rerank
+        resp2 = requests.post(docker_url, json={
+            "query": "测试查询",
+            "documents": ["测试文档1", "测试文档2"],
+            "top_n": 2,
+        }, timeout=timeout)
+        resp2.raise_for_status()
+        return True, f'连接成功 (模型: {model})'
+    except requests.exceptions.Timeout:
+        return False, '连接超时'
+    except requests.exceptions.ConnectionError:
+        return False, '无法连接到Docker服务'
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+class ApiEmbeddingConfigView(APIView):
+    """Embedding / Rerank 配置 API"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """获取当前用户的 Embedding/Rerank 配置"""
+        config = UserEmbeddingConfig.get_or_default(request.user)
+        data = {
+            'embedding_mode': config.embedding_mode,
+            'embedding_api_base_url': config.embedding_api_base_url,
+            'embedding_api_model': config.embedding_api_model,
+            'embedding_docker_url': config.embedding_docker_url,
+            'embedding_docker_timeout': config.embedding_docker_timeout,
+            'rerank_mode': config.rerank_mode,
+            'rerank_api_base_url': config.rerank_api_base_url,
+            'rerank_api_model': config.rerank_api_model,
+            'rerank_docker_url': config.rerank_docker_url,
+            'rerank_docker_timeout': config.rerank_docker_timeout,
+        }
+        # API key 只返回是否已设置（不返回明文）
+        data['has_embedding_api_key'] = bool(config.embedding_api_key)
+        data['has_rerank_api_key'] = bool(config.rerank_api_key)
+        return JsonResponse({'success': True, 'config': data})
+
+    def post(self, request):
+        try:
+            action = request.data.get('action')
+
+            if action == 'save':
+                return self._save_config(request)
+            elif action == 'test':
+                return self._test_connection(request)
+            else:
+                return JsonResponse({'success': False, 'message': '无效的操作'})
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return JsonResponse({'success': False, 'error': str(e)})
+
+    def _save_config(self, request):
+        user = request.user
+        config, _ = UserEmbeddingConfig.objects.get_or_create(user=user)
+
+        # Embedding 配置
+        embedding_mode = request.data.get('embedding_mode', config.embedding_mode)
+        config.embedding_mode = embedding_mode
+        config.embedding_api_base_url = request.data.get('embedding_api_base_url', '')
+        config.embedding_api_model = request.data.get('embedding_api_model', '')
+        config.embedding_docker_url = request.data.get('embedding_docker_url', '')
+        config.embedding_docker_timeout = int(request.data.get('embedding_docker_timeout', 30))
+
+        # 支持 RSA 加密的 API key
+        embedding_api_key_encrypted = request.data.get('embedding_api_key_encrypted', '')
+        if embedding_api_key_encrypted:
+            try:
+                embedding_api_key = decrypt_password(embedding_api_key_encrypted)
+                config.set_embedding_api_key(embedding_api_key)
+            except Exception as e:
+                logger.error(f'解密 Embedding API key 失败: {e}')
+                return JsonResponse({'success': False, 'message': 'API密钥解密失败'})
+        else:
+            embedding_api_key = request.data.get('embedding_api_key', '')
+            if embedding_api_key:
+                config.set_embedding_api_key(embedding_api_key)
+
+        # Rerank 配置
+        rerank_mode = request.data.get('rerank_mode', config.rerank_mode)
+        config.rerank_mode = rerank_mode
+        config.rerank_api_base_url = request.data.get('rerank_api_base_url', '')
+        config.rerank_api_model = request.data.get('rerank_api_model', '')
+        config.rerank_docker_url = request.data.get('rerank_docker_url', '')
+        config.rerank_docker_timeout = int(request.data.get('rerank_docker_timeout', 30))
+
+        # 支持 RSA 加密的 API key
+        rerank_api_key_encrypted = request.data.get('rerank_api_key_encrypted', '')
+        if rerank_api_key_encrypted:
+            try:
+                rerank_api_key = decrypt_password(rerank_api_key_encrypted)
+                config.set_rerank_api_key(rerank_api_key)
+            except Exception as e:
+                logger.error(f'解密 Rerank API key 失败: {e}')
+                return JsonResponse({'success': False, 'message': 'API密钥解密失败'})
+        else:
+            rerank_api_key = request.data.get('rerank_api_key', '')
+            if rerank_api_key:
+                config.set_rerank_api_key(rerank_api_key)
+
+        config.save()
+
+        # 配置变更后清除缓存的 Embedder/Reranker 单例，下次调用会重新创建
+        from apps.knowledge.embedder import EmbedderFactory
+        from apps.knowledge.reranker import RerankerFactory
+        EmbedderFactory.reset()
+        RerankerFactory.reset()
+
+        return JsonResponse({'success': True, 'message': '保存成功'})
+
+    def _test_connection(self, request):
+        """测试 embedding/rerank 连接"""
+        test_type = request.data.get('test_type', 'embedding')
+
+        if test_type == 'embedding':
+            mode = request.data.get('embedding_mode', 'api_only')
+            if mode == 'disabled':
+                return JsonResponse({'success': True, 'message': 'Embedding 已关闭'})
+            # 先保存的配置中读取，或用请求中的临时参数
+            # 支持 RSA 加密的 API key
+            api_key_encrypted = request.data.get('embedding_api_key_encrypted', '')
+            if api_key_encrypted:
+                try:
+                    api_key = decrypt_password(api_key_encrypted)
+                except Exception as e:
+                    logger.error(f'解密 Embedding API key 失败: {e}')
+                    return JsonResponse({'success': False, 'message': 'API密钥解密失败'})
+            else:
+                api_key = request.data.get('embedding_api_key', '')
+            base_url = request.data.get('embedding_api_base_url', '')
+            model = request.data.get('embedding_api_model', '')
+            docker_url = request.data.get('embedding_docker_url', '')
+            docker_timeout = int(request.data.get('embedding_docker_timeout', 30))
+
+            # 如果临时参数为空，尝试从已保存配置读取
+            if not api_key or not base_url or not model or not docker_url:
+                config = UserEmbeddingConfig.get_or_default(request.user)
+                if not api_key and config.embedding_api_key:
+                    api_key = config.get_embedding_api_key()
+                if not base_url and config.embedding_api_base_url:
+                    base_url = config.embedding_api_base_url
+                if not model and config.embedding_api_model:
+                    model = config.embedding_api_model
+                if not docker_url and config.embedding_docker_url:
+                    docker_url = config.embedding_docker_url
+                if docker_timeout == 30 and config.embedding_docker_timeout:
+                    docker_timeout = config.embedding_docker_timeout
+
+            results = {}
+            if mode in ('api_only', 'api_first', 'docker_first'):
+                if api_key and base_url and model:
+                    success, msg = _test_embedding_api(api_key, base_url, model)
+                    results['api'] = {'success': success, 'message': msg}
+                else:
+                    results['api'] = {'success': False, 'message': '缺少 API 配置参数'}
+
+            if mode in ('docker_only', 'docker_first', 'api_first'):
+                if docker_url:
+                    success, msg = _test_embedding_docker(docker_url, docker_timeout)
+                    results['docker'] = {'success': success, 'message': msg}
+                else:
+                    results['docker'] = {'success': False, 'message': '缺少 Docker 地址'}
+
+            # 单一模式返回简洁结果
+            if mode == 'api_only':
+                return JsonResponse(results.get('api', {'success': False, 'message': '未配置'}))
+            elif mode == 'docker_only':
+                return JsonResponse(results.get('docker', {'success': False, 'message': '未配置'}))
+            return JsonResponse({'success': True, 'results': results})
+
+        elif test_type == 'rerank':
+            mode = request.data.get('rerank_mode', 'disabled')
+            if mode == 'disabled':
+                return JsonResponse({'success': True, 'message': 'Rerank 已关闭'})
+
+            # 支持 RSA 加密的 API key
+            api_key_encrypted = request.data.get('rerank_api_key_encrypted', '')
+            if api_key_encrypted:
+                try:
+                    api_key = decrypt_password(api_key_encrypted)
+                except Exception as e:
+                    logger.error(f'解密 Rerank API key 失败: {e}')
+                    return JsonResponse({'success': False, 'message': 'API密钥解密失败'})
+            else:
+                api_key = request.data.get('rerank_api_key', '')
+            base_url = request.data.get('rerank_api_base_url', '')
+            model = request.data.get('rerank_api_model', '')
+            docker_url = request.data.get('rerank_docker_url', '')
+            docker_timeout = int(request.data.get('rerank_docker_timeout', 30))
+
+            if not api_key or not base_url or not model or not docker_url:
+                config = UserEmbeddingConfig.get_or_default(request.user)
+                if not api_key and config.rerank_api_key:
+                    api_key = config.get_rerank_api_key()
+                if not base_url and config.rerank_api_base_url:
+                    base_url = config.rerank_api_base_url
+                if not model and config.rerank_api_model:
+                    model = config.rerank_api_model
+                if not docker_url and config.rerank_docker_url:
+                    docker_url = config.rerank_docker_url
+                if docker_timeout == 30 and config.rerank_docker_timeout:
+                    docker_timeout = config.rerank_docker_timeout
+
+            results = {}
+            if mode in ('api_only', 'api_first', 'docker_first'):
+                if api_key and base_url and model:
+                    success, msg = _test_rerank_api(api_key, base_url, model)
+                    results['api'] = {'success': success, 'message': msg}
+                else:
+                    results['api'] = {'success': False, 'message': '缺少 API 配置参数'}
+
+            if mode in ('docker_only', 'docker_first', 'api_first'):
+                if docker_url:
+                    success, msg = _test_rerank_docker(docker_url, docker_timeout)
+                    results['docker'] = {'success': success, 'message': msg}
+                else:
+                    results['docker'] = {'success': False, 'message': '缺少 Docker 地址'}
+
+            if mode == 'api_only':
+                return JsonResponse(results.get('api', {'success': False, 'message': '未配置'}))
+            elif mode == 'docker_only':
+                return JsonResponse(results.get('docker', {'success': False, 'message': '未配置'}))
+            return JsonResponse({'success': True, 'results': results})
+
+        return JsonResponse({'success': False, 'message': '无效的测试类型'})

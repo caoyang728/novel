@@ -12,6 +12,7 @@ from .views import (
     ApiOutlineFinalizeView,
     ApiOutlineDeleteView,
     ApiOutlineLockView,
+    ApiOutlineUnlockView,
     ApiChatHistoryDeleteView,
 )
 
@@ -29,6 +30,7 @@ urlpatterns = [
     path('api/projects/<int:project_id>/outline/finalize/', ApiOutlineFinalizeView.as_view(), name='api_outline_finalize'),
     path('api/projects/<int:project_id>/outline/delete/', ApiOutlineDeleteView.as_view(), name='api_outline_delete'),
     path('api/projects/<int:project_id>/outline/lock/', ApiOutlineLockView.as_view(), name='api_outline_lock'),
+    path('api/projects/<int:project_id>/outline/unlock/', ApiOutlineUnlockView.as_view(), name='api_outline_unlock'),
     path('api/projects/<int:project_id>/outline/chat-history/delete/', ApiChatHistoryDeleteView.as_view(), name='api_chat_history_delete'),
 
 ]

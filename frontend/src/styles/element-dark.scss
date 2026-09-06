@@ -1,0 +1,448 @@
+// ============================================================
+// Element Plus 暗色 + 玻璃主题变量覆盖
+// ============================================================
+
+// Element Plus CSS 变量覆盖
+:root {
+  // 主色
+  --el-color-primary: #818cf8;
+  --el-color-primary-light-3: #a5b4fc;
+  --el-color-primary-light-5: #c7d2fe;
+  --el-color-primary-light-7: #ddd6fe;
+  --el-color-primary-light-8: #ede9fe;
+  --el-color-primary-light-9: #f5f3ff;
+  --el-color-primary-dark-2: #6366f1;
+
+  // 危险色
+  --el-color-danger: #f87171;
+  --el-color-danger-light-3: #fca5a5;
+
+  // 成功色
+  --el-color-success: #34d399;
+  --el-color-success-light-3: #6ee7b7;
+
+  // 警告色
+  --el-color-warning: #fbbf24;
+
+  // 信息色
+  --el-color-info: #60a5fa;
+
+  // 背景
+  --el-bg-color: #111827;
+  --el-bg-color-page: #0b1020;
+  --el-bg-color-overlay: #1f2937;
+
+  // 文字
+  --el-text-color-primary: rgba(249, 250, 251, 0.96);
+  --el-text-color-regular: rgba(229, 231, 235, 0.78);
+  --el-text-color-secondary: rgba(156, 163, 175, 0.92);
+  --el-text-color-placeholder: rgba(107, 114, 128, 0.85);
+
+  // 边框
+  --el-border-color: rgba(255, 255, 255, 0.10);
+  --el-border-color-light: rgba(255, 255, 255, 0.06);
+  --el-border-color-lighter: rgba(255, 255, 255, 0.04);
+
+  // 圆角
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 12px;
+
+  // 填充
+  --el-fill-color: rgba(255, 255, 255, 0.06);
+  --el-fill-color-light: rgba(255, 255, 255, 0.04);
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.02);
+  --el-fill-color-blank: rgba(255, 255, 255, 0.04);
+
+  // 输入框
+  --el-input-bg-color: rgba(255, 255, 255, 0.04);
+  --el-input-border-color: rgba(255, 255, 255, 0.10);
+  --el-input-hover-border-color: rgba(255, 255, 255, 0.18);
+  --el-input-focus-border-color: #818cf8;
+
+  // 遮罩
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+  --el-mask-color-extra-light: rgba(0, 0, 0, 0.3);
+}
+
+// ============================================================
+// Element Plus 组件样式覆写（玻璃风格）
+// ============================================================
+
+// 按钮
+.el-button {
+  --el-button-bg-color: rgba(255, 255, 255, 0.08);
+  --el-button-border-color: rgba(255, 255, 255, 0.18);
+  --el-button-text-color: var(--text-primary);
+  --el-button-hover-bg-color: rgba(255, 255, 255, 0.14);
+  --el-button-hover-border-color: rgba(255, 255, 255, 0.28);
+  --el-button-hover-text-color: var(--text-primary);
+  --el-button-active-bg-color: rgba(255, 255, 255, 0.10);
+  color: var(--el-button-text-color);
+
+  &.el-button--primary {
+    background: var(--primary-gradient);
+    border-color: transparent;
+    box-shadow: var(--primary-glow);
+
+    &:hover {
+      opacity: 0.9;
+      border-color: transparent;
+    }
+  }
+
+  &.el-button--danger {
+    background: var(--danger-gradient);
+    border-color: transparent;
+
+    &:hover {
+      opacity: 0.9;
+      border-color: transparent;
+    }
+
+    &.is-plain {
+      background: rgba(248, 113, 113, 0.1);
+      border-color: rgba(248, 113, 113, 0.3);
+      color: #f87171;
+
+      &:hover {
+        background: rgba(248, 113, 113, 0.2);
+        border-color: rgba(248, 113, 113, 0.5);
+        color: #f87171;
+      }
+    }
+  }
+
+  &.el-button--warning {
+    background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+    border-color: transparent;
+
+    &:hover {
+      opacity: 0.9;
+      border-color: transparent;
+    }
+  }
+
+  &.el-button--success {
+    background: linear-gradient(135deg, #34d399 0%, #059669 100%);
+    border-color: transparent;
+
+    &:hover {
+      opacity: 0.9;
+      border-color: transparent;
+    }
+  }
+
+  &.el-button--info {
+    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+    border-color: transparent;
+
+    &:hover {
+      opacity: 0.9;
+      border-color: transparent;
+    }
+  }
+}
+
+// 输入框
+.el-input__wrapper {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: none !important;
+  border-radius: var(--radius-sm);
+
+  &:hover {
+    border-color: var(--glass-border-strong) !important;
+  }
+
+  &.is-focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.2) !important;
+  }
+}
+
+.el-input__inner {
+  color: var(--text-primary) !important;
+
+  &::placeholder {
+    color: var(--text-muted) !important;
+  }
+}
+
+// Textarea
+.el-textarea__inner {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--glass-border) !important;
+  color: var(--text-primary) !important;
+  border-radius: var(--radius-sm);
+
+  &:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.2) !important;
+  }
+}
+
+// Input count
+.el-input__count {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--text-muted) !important;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+}
+
+// InputNumber
+.el-input-number {
+  .el-input__wrapper {
+    background: rgba(255, 255, 255, 0.04) !important;
+  }
+
+  .el-input-number__decrease,
+  .el-input-number__increase {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: var(--glass-border) !important;
+    color: var(--text-secondary) !important;
+
+    &:hover {
+      color: var(--text-primary) !important;
+    }
+  }
+}
+
+// Select
+.el-select__wrapper {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: none !important;
+  border-radius: var(--radius-sm);
+}
+
+// 下拉菜单
+.el-select-dropdown,
+.el-dropdown-menu {
+  background: rgba(31, 41, 55, 0.95) !important;
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+.el-select-dropdown__item {
+  color: var(--text-regular) !important;
+
+  &:hover,
+  &.hover {
+    background: rgba(255, 255, 255, 0.06) !important;
+  }
+
+  &.is-selected {
+    color: var(--primary) !important;
+    font-weight: 600;
+  }
+}
+
+// 弹窗（AppModal 全局玻璃皮肤）
+// 蒙层样式：:has() 匹配含 .app-glass-dialog 的 overlay
+.el-overlay:has(.app-glass-dialog) {
+  background: rgba(0, 0, 0, 0.45) !important;
+  backdrop-filter: blur(6px);
+
+  .el-overlay-dialog {
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+// 对话框主体：.app-glass-dialog 直接就是 .el-dialog 元素
+.app-glass-dialog {
+  background: rgba(30, 41, 59, 0.95) !important;
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-lg) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  margin: 0 !important;
+  padding: 0 !important;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+
+  .el-dialog__header {
+    padding: 12px 20px;
+    margin: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    position: relative;
+  }
+
+  .el-dialog__title {
+    color: var(--text-primary) !important;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .el-dialog__body {
+    color: var(--text-regular) !important;
+    padding: 0;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .el-dialog__footer {
+    padding: 10px 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .el-dialog__headerbtn {
+    top: 50%;
+    right: 16px;
+    transform: translateY(-50%);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    .el-dialog__close {
+      color: var(--text-secondary);
+      font-size: 18px;
+
+      &:hover {
+        color: var(--text-primary);
+      }
+    }
+  }
+}
+
+// 消息提示（Toast）
+.el-message {
+  background: rgba(31, 41, 55, 0.95) !important;
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+// Loading
+.el-loading-mask {
+  background: rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(4px);
+}
+
+.el-loading-spinner {
+  .circular {
+    .path {
+      stroke: var(--primary) !important;
+    }
+  }
+}
+
+// Tag
+.el-tag {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xs);
+
+  &.el-tag--primary {
+    background: rgba(129, 140, 248, 0.15);
+    border-color: rgba(129, 140, 248, 0.3);
+    color: var(--primary);
+  }
+
+  &.el-tag--success {
+    background: rgba(52, 211, 153, 0.15);
+    border-color: rgba(52, 211, 153, 0.3);
+    color: var(--success);
+  }
+
+  &.el-tag--danger {
+    background: rgba(248, 113, 113, 0.15);
+    border-color: rgba(248, 113, 113, 0.3);
+    color: var(--danger);
+  }
+}
+
+// Tabs
+.el-tabs__item {
+  color: var(--text-secondary) !important;
+
+  &.is-active {
+    color: var(--primary) !important;
+  }
+
+  &:hover {
+    color: var(--text-primary) !important;
+  }
+}
+
+.el-tabs__active-bar {
+  background-color: var(--primary) !important;
+}
+
+.el-tabs__nav-wrap::after {
+  background-color: var(--glass-border) !important;
+}
+
+// Card
+.el-card {
+  background: var(--glass-bg-1) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+// Form
+.el-form-item__label {
+  color: var(--text-secondary) !important;
+}
+
+// 表格
+.el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(255, 255, 255, 0.04);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.06);
+  --el-table-border-color: var(--glass-border);
+
+  th.el-table__cell {
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: var(--text-secondary) !important;
+    font-weight: 600;
+  }
+
+  td.el-table__cell {
+    color: var(--text-regular) !important;
+  }
+}
+
+// Tooltip
+.el-tooltip__popper {
+  background: rgba(31, 41, 55, 0.95) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: var(--glass-shadow) !important;
+  color: var(--text-primary) !important;
+}
+
+// Divider
+.el-divider {
+  border-color: var(--glass-border) !important;
+}
+
+// Empty
+.el-empty__description p {
+  color: var(--text-muted) !important;
+}
+
+// Skeleton
+.el-skeleton {
+  --el-skeleton-color: rgba(255, 255, 255, 0.04);
+  --el-skeleton-to-color: rgba(255, 255, 255, 0.08);
+}

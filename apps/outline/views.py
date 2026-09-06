@@ -8,8 +8,8 @@ from django.db import transaction
 from apps.project.base import BaseAPIView
 from apps.project.models import ProjectList
 from apps.outline.models import OutlineVersion, OutlineChatHistory
-from agent.llm import stream_llm_response
-from .prompts import OUTLINE_BUILD_SYSTEM_PROMPT, OUTLINE_BUILD_USER_PROMPT
+from agent.llm import stream_llm_response, make_thinking_handler
+from .prompts import OUTLINE_BUILD_SYSTEM_PROMPT, OUTLINE_BUILD_USER_PROMPT, OUTLINE_INCREMENTAL_SYSTEM_PROMPT, OUTLINE_INCREMENTAL_USER_PROMPT
 
 
 class BaseOutlineAPIView(BaseAPIView):
@@ -80,77 +80,118 @@ class ApiChatOutlineView(BaseOutlineAPIView):
             'user_input': user_input,
         }
 
-        # 后处理：解析大纲内容和问题，保存到数据库
+        # 判断是否大纲为空（首次生成 vs 增量修改）
+        is_empty_outline = not current_outline.strip()
+        has_content_start = '════CONTENT_START════' in current_outline
+
+        # 后处理：解析 JSON patches，应用到当前大纲，保存到数据库
         def post_process(full_content):
-            CONTENT_START = '════CONTENT_START════'
-            CONTENT_END = '════CONTENT_END════'
-            QUESTION_START = '════QUESTION_START════'
-            QUESTION_END = '════QUESTION_END════'
+            logger.info(f'[OUTLINE] AI output length: {len(full_content)}, has_think: {"</think>" in full_content}, first 200: {full_content[:200]}')
+            # 去除可能残留的 thinking 标签
+            if '</think>' in full_content:
+                full_content = full_content[full_content.rfind('</think>') + len('</think>'):]
 
-            content_pattern = re.compile(CONTENT_START + r'(.*?)' + CONTENT_END, re.DOTALL)
-            question_pattern = re.compile(QUESTION_START + r'(.*?)' + QUESTION_END, re.DOTALL)
+            # 解析 JSON
+            result = _parse_and_apply_patches(full_content, current_outline, project, version_number, user_input)
+            return result
 
-            content_match = content_pattern.search(full_content)
-            question_match = question_pattern.search(full_content)
+        def _parse_and_apply_patches(full_content, base_outline, project, version_number, user_input):
+            """解析 JSON 格式的 patches，应用到大纲，保存到数据库"""
+            # 解析 JSON
+            json_start = full_content.find('{"patch_list"')
+            if json_start == -1:
+                json_start = full_content.find('{')
+            if json_start == -1:
+                logger.error(f'[OUTLINE] 未找到JSON内容: {full_content[:200]}')
+                return {'error': 'AI输出格式错误，未找到JSON内容', 'question': ''}
 
-            final_content = content_match.group(1).strip() if content_match else ''
-            final_question = question_match.group(1).strip() if question_match else ''
+            json_str = full_content[json_start:]
+            # 尝试找到 JSON 结束位置（最后一个 }）
+            json_end = json_str.rfind('}')
+            if json_end != -1:
+                json_str = json_str[:json_end + 1]
 
-            if not final_content and CONTENT_START in full_content:
-                content_start_idx = full_content.find(CONTENT_START) + len(CONTENT_START)
-                question_start_idx = full_content.find(QUESTION_START)
+            try:
+                data = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                logger.error(f'JSON解析失败: {e}, 内容: {json_str[:500]}')
+                return {'error': f'AI输出JSON格式错误: {str(e)}', 'question': ''}
 
-                if question_start_idx > content_start_idx:
-                    final_content = full_content[content_start_idx:question_start_idx].strip()
-                else:
-                    final_content = full_content[content_start_idx:].strip()
+            patch_list = data.get('patch_list', [])
+            question = data.get('question', '')
+            characters = data.get('characters', [])
 
-            if not final_question and QUESTION_START in full_content:
-                question_start_idx = full_content.find(QUESTION_START) + len(QUESTION_START)
-                final_question = full_content[question_start_idx:].strip()
+            # 应用 patches 到大纲
+            result_text = base_outline
+            applied_count = 0
+            edits_summary = []
 
-            # 保存到数据库
+            for patch in patch_list:
+                old_snippet = patch.get('old_snippet', '')
+                new_snippet = patch.get('new_snippet', '')
+
+                if not old_snippet:
+                    # 新增内容（大纲为空或追加）
+                    if not result_text.strip():
+                        result_text = new_snippet
+                    else:
+                        result_text = result_text.rstrip('\n') + '\n\n' + new_snippet
+                    applied_count += 1
+                    edits_summary.append({'type': 'add', 'preview': new_snippet[:80]})
+                    continue
+
+                count = result_text.count(old_snippet)
+                if count == 0:
+                    logger.warning(f'Patch未匹配: old_snippet={old_snippet[:60]}...')
+                    edits_summary.append({'type': 'failed', 'preview': old_snippet[:60]})
+                    continue
+                if count > 1:
+                    logger.warning(f'Patch多处匹配({count}次): old_snippet={old_snippet[:60]}...')
+                    edits_summary.append({'type': 'ambiguous', 'preview': old_snippet[:60]})
+                    continue
+
+                result_text = result_text.replace(old_snippet, new_snippet, 1)
+                applied_count += 1
+                edits_summary.append({'type': 'replace', 'old': old_snippet[:60], 'new': new_snippet[:80]})
+
+            # 保存到数据库（仅保存聊天记录，大纲内容由用户手动保存）
             try:
                 with transaction.atomic():
                     outline_version = OutlineVersion.objects.filter(project=project, version_number=version_number).first()
-                    if final_content:
-                        if outline_version:
-                            outline_version.content = final_content
-                            outline_version.save()
-                        else:
-                            outline_version = OutlineVersion.objects.create(project=project, version_number=version_number, content=final_content)
-                    else:
-                        logger.error('没有生成大纲')
-                        logger.error(final_content)
-
-                    # 确保 outline_version 存在后再创建聊天记录
                     if not outline_version:
                         outline_version = OutlineVersion.objects.create(
-                            project=project,
-                            version_number=version_number,
-                            content=final_content or ''
+                            project=project, version_number=version_number, content=base_outline
                         )
 
                     OutlineChatHistory.objects.create(outline_version=outline_version, role='user', content=user_input)
-                    OutlineChatHistory.objects.create(outline_version=outline_version, role='assistant', content=final_question)
+                    OutlineChatHistory.objects.create(outline_version=outline_version, role='assistant', content=question)
 
                 return {
                     'project_id': project.id,
                     'version_number': version_number,
-                    'content_length': len(final_content),
-                    'question': final_question,
+                    'content_length': len(result_text),
+                    'question': question,
+                    'edits_applied': applied_count,
+                    'edits_total': len(patch_list),
+                    'edits_summary': edits_summary,
+                    'new_content': result_text,
                 }
             except Exception as e:
                 logger.error(f"大纲保存异常: {e}")
                 return {
-                    'content_length': len(final_content) if final_content else 0,
-                    'question': final_question,
+                    'content_length': len(result_text) if result_text else 0,
+                    'question': question,
+                    'edits_applied': applied_count,
+                    'edits_total': len(patch_list),
                     'save_error': str(e),
                 }
 
+        # 使用增量 prompt + thinking handler
+        thinking_handler = make_thinking_handler()
+
         return stream_llm_response(
-            system_prompt=OUTLINE_BUILD_SYSTEM_PROMPT,
-            user_prompt=OUTLINE_BUILD_USER_PROMPT,
+            system_prompt=OUTLINE_INCREMENTAL_SYSTEM_PROMPT,
+            user_prompt=OUTLINE_INCREMENTAL_USER_PROMPT,
             prompt_vars=prompt_vars,
             user=request.user,
             scene="outline_optimize",
@@ -159,6 +200,7 @@ class ApiChatOutlineView(BaseOutlineAPIView):
             post_process=post_process,
             project=project,
             task_type='outline',
+            chunk_handler=thinking_handler,
         )
 
 
@@ -495,6 +537,38 @@ class ApiOutlineLockView(BaseOutlineAPIView):
             })
         except Exception as e:
             logger.error(f"锁定大纲版本异常: {e}")
+            return JsonResponse({'success': False, 'error': 'internal server error'}, status=500)
+
+
+class ApiOutlineUnlockView(BaseOutlineAPIView):
+
+    def post(self, request, project_id):
+        try:
+            version_id = request.data.get('version_id')
+            project_id = project_id or request.data.get('project_id')
+
+            logger.info(f'[Unlock] user={request.user} project_id={project_id} version_id={version_id} data={request.data}')
+
+            if not version_id or not project_id:
+                return JsonResponse({'success': False, 'error': 'version_id 和 project_id 参数不能为空'}, status=400)
+
+            outline_version = get_object_or_404(
+                OutlineVersion,
+                pk=version_id,
+                project__user=request.user,
+                is_deleted=False
+            )
+            
+            outline_version.is_finalized = False
+            outline_version.save()
+            
+            return JsonResponse({
+                'success': True,
+                'version_id': outline_version.pk,
+                'version_number': outline_version.version_number
+            })
+        except Exception as e:
+            logger.error(f"解锁大纲版本异常: {e}")
             return JsonResponse({'success': False, 'error': 'internal server error'}, status=500)
 
 

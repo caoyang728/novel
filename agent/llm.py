@@ -18,6 +18,53 @@ from apps.user.models import UserLLMConfig
 from .llm_scenes import get_scene_config
 
 
+class ChunkEvent:
+    """流式 chunk 包装，chunk_handler 用它传递自定义事件"""
+    __slots__ = ('content', 'event_data')
+
+    def __init__(self, content='', event_data=None):
+        self.content = content
+        self.event_data = event_data
+
+
+def make_thinking_handler():
+    """创建 thinking 提取器，从 LLM 流中提取 <think> 标签内容并实时推送"""
+    state = {'in_think': False, 'think_content': ''}
+
+    def handler(stream):
+        for chunk in stream:
+            content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+            if not content:
+                yield chunk
+                continue
+
+            if state['in_think']:
+                end_tag = '</think>'
+                end_idx = content.find(end_tag)
+                if end_idx != -1:
+                    state['think_content'] += content[:end_idx]
+                    remaining = content[end_idx + len(end_tag):]
+                    state['in_think'] = False
+                    yield ChunkEvent(event_data={'type': 'thinking_chunk', 'data': state['think_content']})
+                    state['think_content'] = ''
+                    if remaining:
+                        yield ChunkEvent(content=remaining, event_data={'type': 'chunk', 'data': remaining})
+                else:
+                    state['think_content'] += content
+            else:
+                if '<think>' in content:
+                    think_start = content.find('<think>')
+                    before = content[:think_start]
+                    after = content[think_start + len('<think>'):]
+                    if before:
+                        yield ChunkEvent(content=before, event_data={'type': 'chunk', 'data': before})
+                    state['in_think'] = True
+                    state['think_content'] = after
+                else:
+                    yield chunk
+    return handler
+
+
 class LLMConfig:
     """LLM 配置类"""
     def __init__(
@@ -607,7 +654,7 @@ def call_llm_with_retry(chain_or_messages, input_vars=None, stream=False, timeou
     raise Exception(f"LLM调用失败，已重试 {max_retries} 次")
 
 
-def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, timeout=None, error_msg='操作失败，请重试', post_process=None, project=None, task_type=None, enable_cache=False):
+def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, timeout=None, error_msg='操作失败，请重试', post_process=None, project=None, task_type=None, enable_cache=False, chunk_handler=None):
     """通用 LLM 流式调用，返回 StreamingHttpResponse
 
     使用 LCEL (LangChain Expression Language) 构建 chain，system/user 分开定义提示词，
@@ -656,13 +703,21 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
 
             for retry_count in range(max_retries):
                 try:
-                    for chunk in chain.stream(prompt_vars):
+                    stream = chain.stream(prompt_vars)
+                    if chunk_handler:
+                        stream = chunk_handler(stream)
+                    for chunk in stream:
                         last_chunk = chunk
                         if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
                             usage_chunk = chunk
                         chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                        full_content += chunk_content
-                        yield f"data: {json.dumps({'type': 'chunk', 'data': chunk_content}, ensure_ascii=False)}\n\n"
+                        if chunk_content:
+                            full_content += chunk_content
+                        event_data = getattr(chunk, 'event_data', None)
+                        if event_data:
+                            yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'type': 'chunk', 'data': chunk_content}, ensure_ascii=False)}\n\n"
                     break
                 except Exception as e:
                     err = str(e)
@@ -695,7 +750,7 @@ def stream_llm_response(system_prompt, user_prompt, prompt_vars, user, scene, ti
                 cache.set(cache_key, cache_data, timeout=300)
                 logger.info(f"Polish result cached: task_id={task_id}")
 
-            yield f"data: {json.dumps({'type': 'complete', 'data': ''}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'data': data_value or ''}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             logger.error(f"LLM流式调用异常(scene={scene}): {e}")

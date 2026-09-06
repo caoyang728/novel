@@ -1,0 +1,82 @@
+// ============================================================
+// 过渡动画
+// ============================================================
+
+// 淡入淡出
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--transition-normal);
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+// 缩放淡入（弹窗）
+.zoom-fade-enter-active,
+.zoom-fade-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.zoom-fade-enter-from,
+.zoom-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+// 滑入（从下方）
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all var(--transition-normal);
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+// 滑入（从右侧）
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: all var(--transition-normal);
+}
+
+.slide-right-enter-from,
+.slide-right-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+// 列表项过渡
+.list-enter-active,
+.list-leave-active {
+  transition: all var(--transition-normal);
+}
+
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.list-move {
+  transition: transform var(--transition-normal);
+}
+
+// 路由页面切换
+.page-enter-active,
+.page-leave-active {
+  transition: all 0.3s ease;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}

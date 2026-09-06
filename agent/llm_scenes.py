@@ -10,21 +10,21 @@ LLM_SCENES = {
         "group": "worldview",
         "group_name": "世界观",
         "default_temperature": 0.8,
-        "default_max_tokens": 50000,
+        "default_max_tokens": 100000,
     },
     "worldview_deepen": {
         "name": "世界观深化",
         "group": "worldview",
         "group_name": "世界观",
         "default_temperature": 0.5,
-        "default_max_tokens": 12000,
+        "default_max_tokens": 24000,
     },
     "worldview_consistency": {
         "name": "世界观一致性检查",
         "group": "worldview",
         "group_name": "世界观",
         "default_temperature": 0.3,
-        "default_max_tokens": 12000,
+        "default_max_tokens": 24000,
     },
     # ==================== 人物清单 ====================
     "character_design": {
@@ -32,21 +32,21 @@ LLM_SCENES = {
         "group": "character",
         "group_name": "人物清单",
         "default_temperature": 0.75,
-        "default_max_tokens": 32000,
+        "default_max_tokens": 64000,
     },
     "character_polish": {
         "name": "角色润色",
         "group": "character",
         "group_name": "人物清单",
         "default_temperature": 0.5,
-        "default_max_tokens": 4000,
+        "default_max_tokens": 16000,
     },
     "character_check": {
         "name": "角色校验",
         "group": "character",
         "group_name": "人物清单",
         "default_temperature": 0.3,
-        "default_max_tokens": 16000,
+        "default_max_tokens": 32000,
     },
     # ==================== 时间线 ====================
     "timeline_generate": {
@@ -54,21 +54,21 @@ LLM_SCENES = {
         "group": "timeline",
         "group_name": "时间线",
         "default_temperature": 0.7,
-        "default_max_tokens": 32000,
+        "default_max_tokens": 64000,
     },
     "timeline_merge": {
         "name": "时间线合并",
         "group": "timeline",
         "group_name": "时间线",
         "default_temperature": 0.3,
-        "default_max_tokens": 2000,
+        "default_max_tokens": 16000,
     },
     "timeline_check": {
         "name": "时间线检查",
         "group": "timeline",
         "group_name": "时间线",
         "default_temperature": 0.3,
-        "default_max_tokens": 8000,
+        "default_max_tokens": 16000,
     },
     # ==================== 大纲 ====================
     "outline_optimize": {
@@ -76,7 +76,7 @@ LLM_SCENES = {
         "group": "outline",
         "group_name": "大纲",
         "default_temperature": 0.5,
-        "default_max_tokens": 50000,
+        "default_max_tokens": 100000,
     },
     # ==================== 卷 ====================
     "volume_batch_generate": {
@@ -84,28 +84,28 @@ LLM_SCENES = {
         "group": "volume",
         "group_name": "卷",
         "default_temperature": 0.7,
-        "default_max_tokens": 64000,
+        "default_max_tokens": 128000,
     },
     "volume_single_generate": {
         "name": "单卷生成",
         "group": "volume",
         "group_name": "卷",
         "default_temperature": 0.7,
-        "default_max_tokens": 32000,
+        "default_max_tokens": 64000,
     },
     "volume_single_optimize": {
         "name": "单卷优化",
         "group": "volume",
         "group_name": "卷",
         "default_temperature": 0.7,
-        "default_max_tokens": 16000,
+        "default_max_tokens": 32000,
     },
     "volume_chat": {
         "name": "卷对话写作",
         "group": "volume",
         "group_name": "卷",
         "default_temperature": 0.7,
-        "default_max_tokens": 10000,
+        "default_max_tokens": 20000,
     },
     # ==================== 章节 ====================
     "chapter_batch_generate": {
@@ -113,56 +113,56 @@ LLM_SCENES = {
         "group": "chapter",
         "group_name": "章节",
         "default_temperature": 0.7,
-        "default_max_tokens": 100000,
+        "default_max_tokens": 200000,
     },
     "chapter_split": {
         "name": "章节拆分",
         "group": "chapter",
         "group_name": "章节",
         "default_temperature": 0.3,
-        "default_max_tokens": 8000,
+        "default_max_tokens": 16000,
     },
     "chapter_optimize": {
         "name": "章节优化",
         "group": "chapter",
         "group_name": "章节",
         "default_temperature": 0.5,
-        "default_max_tokens": 16000,
+        "default_max_tokens": 32000,
     },
     "chapter_verify": {
         "name": "章节校验",
         "group": "chapter",
         "group_name": "章节",
         "default_temperature": 0.3,
-        "default_max_tokens": 8000,
+        "default_max_tokens": 16000,
     },
     "chapter_batch_content": {
         "name": "章节批次正文生成",
         "group": "chapter",
         "group_name": "章节",
         "default_temperature": 0.7,
-        "default_max_tokens": 16000,
+        "default_max_tokens": 32000,
     },
     "chapter_scoring": {
         "name": "章节多维度评分",
         "group": "chapter",
         "group_name": "章节",
         "default_temperature": 0.3,
-        "default_max_tokens": 4000,
+        "default_max_tokens": 16000,
     },
     "character_state_extract": {
         "name": "角色动态状态提取",
         "group": "character",
         "group_name": "人物清单",
         "default_temperature": 0.3,
-        "default_max_tokens": 4000,
+        "default_max_tokens": 16000,
     },
     "chapter_outline_adjust": {
         "name": "章节概述微调",
         "group": "chapter",
         "group_name": "章节",
         "default_temperature": 0.5,
-        "default_max_tokens": 4000,
+        "default_max_tokens": 16000,
     },
     # ==================== 随手记 ====================
     "note_polish": {
@@ -170,7 +170,7 @@ LLM_SCENES = {
         "group": "note",
         "group_name": "随手记",
         "default_temperature": 0.5,
-        "default_max_tokens": 4000,
+        "default_max_tokens": 16000,
     },
     # ==================== 默认 ====================
     "default": {
@@ -178,7 +178,7 @@ LLM_SCENES = {
         "group": "default",
         "group_name": "默认",
         "default_temperature": 0.7,
-        "default_max_tokens": 4000,
+        "default_max_tokens": 16000,
     },
 }
 

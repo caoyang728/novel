@@ -1635,7 +1635,8 @@ class ApiChapterContentView(BaseChapterAPIView):
         def generate():
             full_response = ""
             try:
-                llm = get_llm(user=request.user, scene="default")
+                llm = get_llm(user=request.user, scene="chapter_batch_content")
+                logger.info(f"单章生成 max_tokens={llm.max_tokens}, model={llm.model_name}")
                 messages = [
                     SystemMessage(content=system_text),
                     HumanMessage(content=user_text),
@@ -1643,7 +1644,7 @@ class ApiChapterContentView(BaseChapterAPIView):
 
                 for chunk_text in call_llm_with_retry(
                     messages,
-                    user=request.user, scene="default",
+                    user=request.user, scene="chapter_batch_content",
                     project=project, task_type='chapter_content',
                     stream=True,
                 ):
@@ -2113,7 +2114,6 @@ class ApiChapterLoadView(BaseChapterAPIView):
                 'id': chap.pk,
                 'chapter_number': chap.chapter_number,
                 'title': chap.title,
-                'summary': chap.summary,
                 'status': chap.status,
                 'state': chap.state,
                 'word_count': chap.word_count,

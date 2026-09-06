@@ -7,6 +7,7 @@ from .views import (
     ResetPasswordView,
     ApiUserView,
     ApiRefreshTokenView,
+    RSAPublicKeyView,
     # Token Usage
     TokenUsageView,
     ApiTokenUsageToday,
@@ -14,6 +15,8 @@ from .views import (
     # LLM Config
     LLMConfigView,
     ApiLLMConfigView,
+    # Embedding Config
+    ApiEmbeddingConfigView,
 )
 
 urlpatterns = [
@@ -28,6 +31,7 @@ urlpatterns = [
     path('llm-config/', LLMConfigView.as_view(), name='llm_config'),
 
     # API Auth
+    path('api/auth/public-key/', RSAPublicKeyView.as_view(), name='api_rsa_public_key'),
     path('api/auth/user/', ApiUserView.as_view(), name='api_user'),
     # path('api/auth/login/', ApiLoginView.as_view(), name='api_login'),
     # path('api/auth/logout/', ApiLogoutView.as_view(), name='api_logout'),
@@ -40,4 +44,7 @@ urlpatterns = [
 
     # API LLM
     path('api/llm-config/', ApiLLMConfigView.as_view(), name='api_llm_config'),
+
+    # API Embedding/Rerank
+    path('api/embedding-config/', ApiEmbeddingConfigView.as_view(), name='api_embedding_config'),
 ]

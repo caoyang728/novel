@@ -5,6 +5,20 @@ staticfiles
 chroma_db
 .vscode
 .CLAUDE.md
+.keys/
 **/__pycache__/
 *.pyc
 milvus_demo.db
+
+# ===== 前端（Vue3 + Vite，frontend/ 目录）=====
+node_modules/
+dist/
+dist-ssr/
+*.local
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/

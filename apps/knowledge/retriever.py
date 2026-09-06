@@ -57,6 +57,8 @@ class KnowledgeRetriever:
     def __init__(self):
         ensure_backend_ready()
         self.embedder = EmbedderFactory.create()
+        from .reranker import RerankerFactory
+        self.reranker = RerankerFactory.create_optional()
 
     # ================================================================
     # 对外 API：与原 Milvus 实现对齐
@@ -124,6 +126,9 @@ class KnowledgeRetriever:
             results = [r for r in results
                        if r.doc_type != 'outline'
                        or r.metadata.get('outline_version_id') == outline_version_id]
+        # Rerank：如果启用了 reranker，用语义重排替换向量距离排序
+        if self.reranker and results:
+            results = self._apply_rerank(query, results, top_k)
         for r in results:
             content = self._content_with_metadata_label(r)
             qs_parts.append((r.doc_type, r.relevance_score, content))
@@ -163,6 +168,23 @@ class KnowledgeRetriever:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Embedding 查询失败: {e}")
             return None
+
+    def _apply_rerank(self, query: str, results: list[KnowledgeSearchResult], top_k: int) -> list[KnowledgeSearchResult]:
+        """用 Reranker 对检索结果进行语义重排"""
+        try:
+            documents = [r.content for r in results]
+            rerank_results = self.reranker.rerank(query, documents, top_n=top_k)
+            # 按 rerank 分数重排
+            reordered = []
+            for rr in rerank_results:
+                if rr.index < len(results):
+                    original = results[rr.index]
+                    original.relevance_score = rr.relevance_score
+                    reordered.append(original)
+            return reordered
+        except Exception as e:
+            logger.warning(f"Rerank 失败 ({e})，使用原始排序")
+            return results
 
     @staticmethod
     def _build_result(row: KnowledgeVector, relevance: float, cos_dist: float | None) -> KnowledgeSearchResult:

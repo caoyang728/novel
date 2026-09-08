@@ -19,7 +19,6 @@ const VolumeView = () => import('@/views/volume/VolumeView.vue')
 const ChapterView = () => import('@/views/chapter/ChapterView.vue')
 const ContentManagerView = () => import('@/views/chapter/ContentManagerView.vue')
 const WorldviewView = () => import('@/views/worldview/WorldviewView.vue')
-const WorldviewChatView = () => import('@/views/worldview/WorldviewChatView.vue')
 const CharacterView = () => import('@/views/character/CharacterView.vue')
 const TimelineView = () => import('@/views/timeline/TimelineView.vue')
 const NoteView = () => import('@/views/note/NoteView.vue')
@@ -119,12 +118,6 @@ const routes = [
         name: 'Worldview',
         component: WorldviewView,
         meta: { title: '世界观' },
-      },
-      {
-        path: 'worldview/chat',
-        name: 'WorldviewChat',
-        component: WorldviewChatView,
-        meta: { title: '世界观聊天' },
       },
 
       {

@@ -62,44 +62,32 @@ class KnowledgeIndexer:
         return self._delete_by_prefix(f"{outline_version.project_id}_outline_{outline_version.pk}")
 
     # ================================================================
-    # 世界观（按 8 类分条写入）
+    # 世界观（Markdown 全文分块索引）
     # ================================================================
     def index_worldview(self, worldview):
-        """索引世界观 — 按 8 类分条，超长字段内部再分块"""
-        categories = {
-            "setting": self._format_worldview_setting(worldview),
-            "foundation": self._format_worldview_section(worldview.foundation),
-            "power": self._format_worldview_section(worldview.power),
-            "races": self._format_worldview_section(worldview.races),
-            "society": self._format_worldview_section(worldview.society),
-            "culture": self._format_worldview_section(worldview.culture),
-            "history": self._format_worldview_section(worldview.history),
-            "special": self._format_worldview_section(worldview.special),
-        }
-        entries, texts = [], []
-        for category, content in categories.items():
-            if not content or not content.strip():
-                continue
-            chunks = self._chunk_text(content) if self._token_count(content) > EMBEDDING_API_MAX_TOKENS else [content]
-            for ci, chunk_text in enumerate(chunks):
-                pk = f"{worldview.project_id}_worldview_{worldview.pk}_{category}"
-                if len(chunks) > 1:
-                    pk += f"_{ci}"
-                entries.append({
-                    "id": pk,
-                    "project_id": worldview.project_id,
-                    "doc_type": "worldview",
-                    "content": chunk_text[:65535],
-                    "metadata": {
-                        "worldview_id": worldview.pk,
-                        "category": category,
-                        "chunk_index": ci,
-                        "total_chunks": len(chunks),
-                    },
-                })
-                texts.append(chunk_text)
-        if not entries:
+        """索引世界观 — 将 Markdown content 分块写入"""
+        content = worldview.content or ''
+        if not content.strip():
             return 0
+
+        chunks = self._chunk_text(content) if self._token_count(content) > EMBEDDING_API_MAX_TOKENS else [content]
+        entries, texts = [], []
+        for ci, chunk_text in enumerate(chunks):
+            pk = f"{worldview.project_id}_worldview_{worldview.pk}_{ci}"
+            entries.append({
+                "id": pk,
+                "project_id": worldview.project_id,
+                "doc_type": "worldview",
+                "content": chunk_text[:65535],
+                "metadata": {
+                    "worldview_id": worldview.pk,
+                    "category": "content",
+                    "chunk_index": ci,
+                    "total_chunks": len(chunks),
+                },
+            })
+            texts.append(chunk_text)
+
         embeddings = self._embed_batch_safe(texts)
         data = []
         for entry, emb in zip(entries, embeddings):
@@ -111,35 +99,6 @@ class KnowledgeIndexer:
 
     def delete_worldview(self, worldview):
         return self._delete_by_prefix(f"{worldview.project_id}_worldview_{worldview.pk}")
-
-    def _format_worldview_setting(self, worldview):
-        setting = worldview.setting or {}
-        if not setting:
-            return ""
-        parts = []
-        for key in ("identity", "position", "overview", "conflict"):
-            val = setting.get(key, "")
-            if isinstance(val, dict):
-                val = json.dumps(val, ensure_ascii=False)
-            if val:
-                parts.append(f"{key}: {val}")
-        return "\n".join(parts)
-
-    @staticmethod
-    def _format_worldview_section(data):
-        if not data:
-            return ""
-        if isinstance(data, str):
-            return data
-        if isinstance(data, dict):
-            parts = []
-            for k, v in data.items():
-                if isinstance(v, dict):
-                    v = json.dumps(v, ensure_ascii=False)
-                if v:
-                    parts.append(f"{k}: {v}")
-            return "\n".join(parts)
-        return str(data)
 
     # ================================================================
     # 角色
@@ -495,11 +454,13 @@ class KnowledgeIndexer:
         for v in versions:
             count += self.index_outline(v) or 0
         logger.info(f"  大纲已索引: {versions.count()} 条")
-        try:
-            worldview = WorldView.objects.get(project_id=project_id)
+        worldview = WorldView.objects.filter(
+            project_id=project_id, is_deleted=False
+        ).order_by('-version').first()
+        if worldview:
             count += self.index_worldview(worldview) or 0
             logger.info("  世界观已索引")
-        except WorldView.DoesNotExist:
+        else:
             logger.info("  世界观不存在, 跳过")
         characters = Character.objects.filter(project_id=project_id, is_deleted=False)
         for c in characters:

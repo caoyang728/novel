@@ -39,10 +39,8 @@ class BaseTimelineAPIView(BaseAPIView):
         return get_object_or_404(ProjectList, pk=project_id, user=self.request.user)
 
     def get_worldview_summary(self, project):
-        worldview, _, _, _, worldview_summary = get_worldview_context(project)
-        if not worldview:
-            return None
-        return worldview_summary
+        """获取世界观文档的 Markdown 内容作为上下文"""
+        return get_worldview_context(project)
 
     def build_sse_response(self, chain, chain_params, user=None, scene="timeline_generate", project=None, task_type=None):
         if user is None:
@@ -128,16 +126,14 @@ class ApiTimelineEventListView(BaseTimelineAPIView):
             'is_active': e.is_active
         } for e in events]
 
-        worldview, _, _, _, _ = get_worldview_context(project)
+        worldview_content = get_worldview_context(project)
         worldview_info = None
-        if worldview:
-            setting = worldview.setting or {}
-            identity = setting.get('identity', {})
-            overview = setting.get('overview', '')
+        if worldview_content:
+            overview = worldview_content[:100] + '...' if len(worldview_content) > 100 else worldview_content
             worldview_info = {
-                'world_name': identity.get('world_name', ''),
-                'genre': identity.get('genre', ''),
-                'overview': overview[:100] + '...' if len(overview) > 100 else overview,
+                'world_name': '',
+                'genre': project.genre or '',
+                'overview': overview,
             }
 
         return Response({
@@ -269,8 +265,8 @@ class ApiTimelineGenerateView(BaseTimelineAPIView):
     def post(self, request, project_id):
         project = self.get_project(project_id)
 
-        worldview, setting_text, history_text, foundation_text, worldview_summary = get_worldview_context(project)
-        if not worldview:
+        worldview_content = get_worldview_context(project)
+        if not worldview_content:
             return Response({
                 'success': False,
                 'error': 'no_worldview',
@@ -286,9 +282,9 @@ class ApiTimelineGenerateView(BaseTimelineAPIView):
         return self.build_sse_response(
             chain=prompt,
             chain_params={
-                "worldview_setting": setting_text,
-                "worldview_history": history_text,
-                "worldview_foundation": foundation_text,
+                "worldview_setting": worldview_content,
+                "worldview_history": '',
+                "worldview_foundation": '',
                 "project_title": project.title,
                 "extra_prompt": extra_prompt
             },

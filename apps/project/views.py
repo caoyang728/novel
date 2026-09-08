@@ -18,7 +18,7 @@ from apps.project.prompts import DESCRIPTION_ENHANCE_USER_PROMPT, DESCRIPTION_EN
 from apps.volume.models import VolumeVersion, VolumeList
 from apps.chapter.models import ChapterList
 from apps.user.models import TokenUsageLog
-from apps.worldview.models import WorldView, WorldviewDoc
+from apps.worldview.models import WorldView
 from agent.llm import get_llm, call_llm_with_retry
 from .prompts import (
     TITLE_SUGGESTION_JSON_PROMPT,
@@ -435,7 +435,7 @@ class ApiProjectDetailView(BaseAPIView):
                 if genre in valid_genres:
                     project.genre = genre
                     # 同步更新世界观文档的题材
-                    WorldviewDoc.objects.filter(project=project).update(genre=genre)
+                    WorldView.objects.filter(project=project, is_deleted=False).update(genre=genre)
             if min_words is not None:
                 try:
                     mw = int(min_words)
@@ -486,7 +486,7 @@ class ApiProjectCreateView(BaseAPIView):
             )
 
             # 同步创建世界观文档（Markdown 新版），关联题材
-            WorldviewDoc.objects.create(project=project, genre=genre)
+            WorldView.objects.create(project=project, version=1, genre=genre)
 
             return JsonResponse({
                 'success': True,
@@ -720,14 +720,11 @@ class ApiEnhanceDescriptionView(BaseAPIView):
                         outline = latest_version.content or ''
 
                     worldview = WorldView.objects.filter(
-                        project=project
-                    ).order_by('-created_at').first()
+                        project=project, is_deleted=False
+                    ).order_by('-version').first()
 
                     if worldview:
-                        if isinstance(worldview, dict):
-                            worldview = json.dumps(worldview, ensure_ascii=False, indent=2)
-                        else:
-                            worldview = str(worldview)
+                        worldview = worldview.content or ''
 
                 except ProjectList.DoesNotExist:
                     return JsonResponse({'success': False, 'error': '项目不存在'})

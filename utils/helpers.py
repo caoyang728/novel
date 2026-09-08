@@ -130,110 +130,15 @@ def safe_parse_json(raw):
 # ========== 上下文格式化 ==========
 
 def format_worldview_context(project):
-    """格式化项目世界观设定为文本"""
+    """格式化项目世界观设定为文本（新版：直接返回 Markdown 内容）"""
     try:
         from apps.worldview.models import WorldView
-        worldview = WorldView.objects.filter(project=project).first()
-        if not worldview:
+        worldview = WorldView.objects.filter(
+            project=project, is_deleted=False
+        ).order_by('-version').first()
+        if not worldview or not worldview.content:
             return '（暂无世界观设定）'
-
-        parts = []
-        # 基础设定
-        setting = worldview.setting or {}
-        identity = setting.get('identity', {})
-        if isinstance(identity, dict):
-            world_name = identity.get('name', '') or identity.get('world_name', '')
-            genre = identity.get('genre', '')
-            if world_name:
-                parts.append(f'世界名称：{world_name}')
-            if genre:
-                parts.append(f'题材类型：{genre}')
-        elif identity:
-            parts.append(f'世界身份：{identity}')
-
-        position = setting.get('position', {})
-        if isinstance(position, dict):
-            tone = position.get('tone', '')
-            if tone:
-                parts.append(f'整体调性：{tone}')
-        elif position:
-            parts.append(f'世界定位：{position}')
-
-        overview = setting.get('overview', '')
-        if overview:
-            parts.append(f'世界简介：{overview}')
-        conflict = setting.get('conflict', '')
-        if conflict:
-            parts.append(f'核心冲突：{conflict}')
-
-        # 世界基础
-        foundation = worldview.foundation or {}
-        geography = foundation.get('geography', {})
-        if isinstance(geography, dict):
-            geo_content = geography.get('continents', '') or geography.get('continent_distribution', '') or geography.get('terrain', '')
-            if geo_content:
-                parts.append(f'地理：{geo_content}')
-        elif geography:
-            parts.append(f'地理：{geography}')
-
-        calendar = foundation.get('calendar', {})
-        if isinstance(calendar, dict):
-            era = calendar.get('era', '')
-            if era:
-                parts.append(f'纪元：{era}')
-
-        rules = foundation.get('rules', {})
-        if isinstance(rules, dict):
-            axioms = rules.get('axioms', [])
-            if axioms:
-                rules_text = '；'.join([r.get('name', str(r)) if isinstance(r, dict) else str(r) for r in axioms[:5]])
-                parts.append(f'核心规则：{rules_text}')
-        elif rules:
-            parts.append(f'核心规则：{rules}')
-
-        # 力量体系
-        power = worldview.power or {}
-        energy = power.get('energy', {})
-        if isinstance(energy, dict):
-            energy_type = energy.get('type', '') or energy.get('types', '')
-            if energy_type:
-                parts.append(f'力量类型：{energy_type}')
-        level = power.get('level', '')
-        if level:
-            parts.append(f'等级体系：{level}')
-
-        # 社会结构
-        society = worldview.society or {}
-        sect = society.get('sect', {})
-        if isinstance(sect, dict):
-            sect_content = sect.get('hierarchy', '') or sect.get('levels', '') or sect.get('description', '')
-            if sect_content:
-                parts.append(f'宗门/势力：{sect_content}')
-        court = society.get('court', {})
-        if isinstance(court, dict):
-            court_content = court.get('system', '') or court.get('political_system', '') or court.get('description', '')
-            if court_content:
-                parts.append(f'政体：{court_content}')
-
-        # 历史
-        history = worldview.history or {}
-        for key, label in [('ancient', '远古历史'), ('modern', '近代历史'), ('crisis', '重大危机'), ('destiny', '命运走向')]:
-            val = history.get(key, '')
-            if val:
-                parts.append(f'{label}：{val}')
-
-        # 特殊规则
-        special = worldview.special or {}
-        for key, label in [('taboo', '禁忌'), ('secret', '秘密'), ('fate', '命运规则'), ('reincarnation', '转世机制')]:
-            val = special.get(key, '')
-            if isinstance(val, dict):
-                val = val.get('description', '') or val.get('type', '')
-            if val:
-                parts.append(f'{label}：{val}')
-
-        if not parts:
-            return '（暂无世界观设定）'
-        return '\n'.join(parts)
+        return worldview.content
     except Exception as e:
         logger.error(f"格式化世界观上下文失败: {e}")
         return '（暂无世界观设定）'

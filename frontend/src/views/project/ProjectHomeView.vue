@@ -33,8 +33,7 @@ onMounted(() => {
 })
 
 const modules = [
-  { name: 'Worldview', label: '世界观', icon: Collection, to: { name: 'Worldview' }, desc: '世界观设定' },
-  { name: 'WorldviewChat', label: '世界观构建', icon: ChatLineRound, to: { name: 'WorldviewChat' }, desc: '与 AI 对话构建世界观' },
+  { name: 'Worldview', label: '世界观构建', icon: ChatLineRound, to: { name: 'Worldview' }, desc: '与 AI 对话构建世界观' },
   { name: 'Character', label: '人物清单', icon: User, to: { name: 'Character' }, desc: '角色管理' },
   { name: 'Graph', label: '知识图谱', icon: Share, to: { name: 'Graph' }, desc: '关系图谱' },
   { name: 'Timeline', label: '故事时间线', icon: Calendar, to: { name: 'Timeline' }, desc: '故事时间线' },

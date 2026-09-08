@@ -36,7 +36,7 @@ def _create_test_data():
         },
         foundation={
             'geography': {'continent_distribution': '三块大陆', 'special_terrain': '无尽深渊'},
-            'calendar': {'era': '星历', 'days_per_year': '360', 'seasons': '四季', 'festivals': '创世节'},
+            'calendar': {'era': '星历', 'days_per_year': '360', 'seasons': '四季'},
             'rules': {'natural_laws': '灵气循环', 'boundaries': '世界壁垒', 'axioms': ['公理一', '公理二']},
             'balance': '天道平衡',
         },
@@ -55,7 +55,7 @@ class WorldviewSerializerTest(TestCase):
         """未知字段应被剥离"""
         dirty = {
             'geography': {'continent_distribution': '亚洲', 'special_terrain': '喜马拉雅', 'garbage': '垃圾'},
-            'calendar': {'era': '公元', 'days_per_year': '365', 'seasons': '四季', 'festivals': ''},
+            'calendar': {'era': '公元', 'days_per_year': '365', 'seasons': '四季'},
             'rules': {'natural_laws': '', 'boundaries': '', 'axioms': ['公理A', '公理B']},
             'balance': '',
         }
@@ -115,10 +115,10 @@ class WorldviewSerializerTest(TestCase):
         self.assertIn('新增公理', base['rules']['axioms'])
 
     def test_clean_worldview_data_all_layers(self):
-        """全层清洗应覆盖所有 8 层"""
+        """全层清洗应覆盖所有 10 层"""
         worldview = WorldView(project_id=1)
         data = clean_worldview_data(vars(worldview))
-        expected_layers = ['setting', 'foundation', 'power', 'races', 'society', 'culture', 'history', 'special']
+        expected_layers = ['setting', 'foundation', 'power', 'races', 'society', 'culture', 'history', 'special', 'military', 'technology']
         for layer in expected_layers:
             self.assertIn(layer, data, f'Missing layer: {layer}')
 
@@ -164,7 +164,6 @@ class WorldviewLayerSaveTest(TestCase):
             'era': '新纪年',
             'days': '',
             'seasons': '',
-            'festivals': '',
             'laws': '',
             'boundary': '',
             'axioms': '公理A\n公理B\n公理C',
@@ -185,7 +184,7 @@ class WorldviewLayerSaveTest(TestCase):
     def test_put_foundation_axioms_split(self):
         """axioms 字符串应按换行拆分为数组"""
         body = {
-            'continent': '', 'terrain': '', 'era': '', 'days': '', 'seasons': '', 'festivals': '',
+            'continent': '', 'terrain': '', 'era': '', 'days': '', 'seasons': '',
             'laws': '', 'boundary': '', 'balance': '',
             'axioms': '第一法则\n第二法则\n第三法则',
         }

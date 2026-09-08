@@ -34,7 +34,6 @@ class CalendarSerializer(serializers.Serializer):
     era = serializers.CharField(allow_blank=True, required=False, default='')
     days_per_year = serializers.CharField(allow_blank=True, required=False, default='')
     seasons = serializers.CharField(allow_blank=True, required=False, default='')
-    festivals = serializers.CharField(allow_blank=True, required=False, default='')
 
 
 class RulesSerializer(serializers.Serializer):
@@ -108,7 +107,7 @@ class SectSerializer(serializers.Serializer):
     relationships = serializers.CharField(allow_blank=True, required=False, default='')
 
 
-class SocietyMartialSerializer(serializers.Serializer):
+class JianghuSerializer(serializers.Serializer):
     factions = serializers.CharField(allow_blank=True, required=False, default='')
     alliances = serializers.CharField(allow_blank=True, required=False, default='')
 
@@ -126,7 +125,7 @@ class CurrencySerializer(serializers.Serializer):
 class SocietySerializer(serializers.Serializer):
     court = CourtSerializer(required=False, default=dict)
     sect = SectSerializer(required=False, default=dict)
-    martial = SocietyMartialSerializer(required=False, default=dict)
+    jianghu = JianghuSerializer(required=False, default=dict)
     external = serializers.CharField(allow_blank=True, required=False, default='')
     strata = StrataSerializer(required=False, default=dict)
     currency = CurrencySerializer(required=False, default=dict)
@@ -194,7 +193,67 @@ class SpecialSerializer(serializers.Serializer):
     reincarnation = ReincarnationSerializer(required=False, default=dict)
     transmigration = serializers.CharField(allow_blank=True, required=False, default='')
     system = serializers.CharField(allow_blank=True, required=False, default='')
+    transmigration_rules = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+# ==================== military 层 ====================
+
+class ForcesSerializer(serializers.Serializer):
+    army_structure = serializers.CharField(allow_blank=True, required=False, default='')
+    elite_units = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+class WeaponsSerializer(serializers.Serializer):
+    types = serializers.CharField(allow_blank=True, required=False, default='')
+    legendary = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+class WarfareSerializer(serializers.Serializer):
     rules = serializers.CharField(allow_blank=True, required=False, default='')
+    history = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+class DefenseSerializer(serializers.Serializer):
+    fortifications = serializers.CharField(allow_blank=True, required=False, default='')
+    strategic_points = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+class MilitarySerializer(serializers.Serializer):
+    forces = ForcesSerializer(required=False, default=dict)
+    weapons = WeaponsSerializer(required=False, default=dict)
+    warfare = WarfareSerializer(required=False, default=dict)
+    defense = DefenseSerializer(required=False, default=dict)
+
+
+# ==================== technology 层 ====================
+
+class TechnologySerializer(serializers.Serializer):
+    level = serializers.CharField(allow_blank=True, required=False, default='')
+    key_tech = serializers.CharField(allow_blank=True, required=False, default='')
+    communication = serializers.CharField(allow_blank=True, required=False, default='')
+    transport = serializers.CharField(allow_blank=True, required=False, default='')
+    ethics = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+# ==================== 结构化列表字段 ====================
+
+class FactionItemSerializer(serializers.Serializer):
+    name = serializers.CharField(allow_blank=True, required=False, default='')
+    position = serializers.CharField(allow_blank=True, required=False, default='')
+    doctrine = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+class LocationItemSerializer(serializers.Serializer):
+    name = serializers.CharField(allow_blank=True, required=False, default='')
+    terrain = serializers.CharField(allow_blank=True, required=False, default='')
+    overview = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+class RelationItemSerializer(serializers.Serializer):
+    source = serializers.CharField(allow_blank=True, required=False, default='')
+    type = serializers.CharField(allow_blank=True, required=False, default='')
+    target = serializers.CharField(allow_blank=True, required=False, default='')
+    description = serializers.CharField(allow_blank=True, required=False, default='')
 
 
 # ==================== 顶层 & 辅助函数 ====================
@@ -208,6 +267,16 @@ _LAYER_SERIALIZERS = {
     'culture': CultureSerializer,
     'history': HistorySerializer,
     'special': SpecialSerializer,
+    'military': MilitarySerializer,
+    'technology': TechnologySerializer,
+}
+
+
+# 结构化列表字段的序列化器
+_LIST_FIELD_SERIALIZERS = {
+    'factions': FactionItemSerializer,
+    'locations': LocationItemSerializer,
+    'relations': RelationItemSerializer,
 }
 
 
@@ -224,12 +293,32 @@ def clean_worldview_layer(layer_name, data):
     return {}
 
 
+def clean_list_field(field_name, data_list):
+    """清洗结构化列表字段（factions/locations/relations）"""
+    if not data_list or not isinstance(data_list, list):
+        return []
+    serializer_class = _LIST_FIELD_SERIALIZERS.get(field_name)
+    if not serializer_class:
+        return data_list
+    cleaned = []
+    for item in data_list:
+        if isinstance(item, dict):
+            serializer = serializer_class(data=item)
+            if serializer.is_valid():
+                cleaned.append(dict(serializer.data))
+    return cleaned
+
+
 def clean_worldview_data(worldview_dict):
-    """清洗完整的世界观数据（8 层）"""
+    """清洗完整的世界观数据（10 层 + 列表字段）"""
     cleaned = {}
     for layer_name in _LAYER_SERIALIZERS:
         layer_data = worldview_dict.get(layer_name, {})
         cleaned[layer_name] = clean_worldview_layer(layer_name, layer_data)
+    # 清洗列表字段
+    for field_name in _LIST_FIELD_SERIALIZERS:
+        field_data = worldview_dict.get(field_name, [])
+        cleaned[field_name] = clean_list_field(field_name, field_data)
     return cleaned
 
 
@@ -240,4 +329,8 @@ def prepare_worldview_for_llm(worldview):
     for layer_name in _LAYER_SERIALIZERS:
         raw = getattr(worldview, layer_name, None) or {}
         data[layer_name] = clean_worldview_layer(layer_name, raw)
+    # 包含列表字段
+    for field_name in _LIST_FIELD_SERIALIZERS:
+        raw = getattr(worldview, field_name, None) or []
+        data[field_name] = clean_list_field(field_name, raw)
     return json.dumps(data, ensure_ascii=False)

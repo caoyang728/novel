@@ -110,6 +110,30 @@ class BaseWorldAPIView(BaseAPIView):
         if worldview.special is None:
             return self.get_default_worldview_data().get('special', {})
         return worldview.special
+
+    def get_worldview_military(self, worldview):
+        """获取 世界观 军事体系"""
+        if worldview.military is None:
+            return self.get_default_worldview_data().get('military', {})
+        return worldview.military
+
+    def get_worldview_technology(self, worldview):
+        """获取 世界观 科技体系"""
+        if worldview.technology is None:
+            return self.get_default_worldview_data().get('technology', {})
+        return worldview.technology
+
+    def get_worldview_factions(self, worldview):
+        """获取 世界观 阵营列表"""
+        return worldview.factions or []
+
+    def get_worldview_locations(self, worldview):
+        """获取 世界观 地点列表"""
+        return worldview.locations or []
+
+    def get_worldview_relations(self, worldview):
+        """获取 世界观 关系列表"""
+        return worldview.relations or []
     
     def error_response(self, message, status=400):
         return JsonResponse({'success': False, 'message': message}, status=status)
@@ -139,7 +163,7 @@ class BaseWorldAPIView(BaseAPIView):
             },
             'foundation': {
                 'geography': {'continent_distribution': '', 'special_terrain': ''},
-                'calendar': {'era': '', 'days_per_year': '', 'seasons': '', 'festivals': ''},
+                'calendar': {'era': '', 'days_per_year': '', 'seasons': ''},
                 'rules': {'natural_laws': '', 'boundaries': '', 'axioms': []},
                 'balance': ''
             },
@@ -159,7 +183,7 @@ class BaseWorldAPIView(BaseAPIView):
             'society': {
                 "court": {"political_system": "", "bureaucracy": ""},
                 "sect": {"levels": "", "relationships": ""},
-                "martial": {"factions": "", "alliances": ""},
+                "jianghu": {"factions": "", "alliances": ""},
                 "external": "",
                 "strata": {"social_classes": "", "mobility": ""},
                 "currency": {"types": "", "rules": ""},
@@ -176,7 +200,20 @@ class BaseWorldAPIView(BaseAPIView):
                 "taboo": "", "secret": "",
                 "fate": {"fortune_rules": "", "destiny_types": ""},
                 "reincarnation": {"soul_rules": "", "mechanics": ""},
-                "transmigration": "", "system": "", "rules": ""
+                "transmigration": "", "system": "", "transmigration_rules": ""
+            },
+            'military': {
+                "forces": {"army_structure": "", "elite_units": ""},
+                "weapons": {"types": "", "legendary": ""},
+                "warfare": {"rules": "", "history": ""},
+                "defense": {"fortifications": "", "strategic_points": ""}
+            },
+            'technology': {
+                "level": "",
+                "key_tech": "",
+                "communication": "",
+                "transport": "",
+                "ethics": ""
             }
         }
 
@@ -205,6 +242,11 @@ class ApiWorldviewDataView(BaseWorldAPIView):
                 'culture': clean_worldview_layer('culture', self.get_worldview_culture(worldview)),
                 'history': clean_worldview_layer('history', self.get_worldview_history(worldview)),
                 'special': clean_worldview_layer('special', self.get_worldview_special(worldview)),
+                'military': clean_worldview_layer('military', self.get_worldview_military(worldview)),
+                'technology': clean_worldview_layer('technology', self.get_worldview_technology(worldview)),
+                'factions': self.get_worldview_factions(worldview),
+                'locations': self.get_worldview_locations(worldview),
+                'relations': self.get_worldview_relations(worldview),
                 'created_at': worldview.created_at.isoformat(),
                 'updated_at': worldview.updated_at.isoformat()
             })
@@ -245,6 +287,16 @@ class ApiWorldviewDataView(BaseWorldAPIView):
             worldview.history = data['history']
         if 'special' in data:
             worldview.special = data['special']
+        if 'military' in data:
+            worldview.military = data['military']
+        if 'technology' in data:
+            worldview.technology = data['technology']
+        if 'factions' in data:
+            worldview.factions = data['factions']
+        if 'locations' in data:
+            worldview.locations = data['locations']
+        if 'relations' in data:
+            worldview.relations = data['relations']
 
         worldview.save()
 
@@ -257,6 +309,11 @@ class ApiWorldviewDataView(BaseWorldAPIView):
             'culture': worldview.culture,
             'history': worldview.history,
             'special': worldview.special,
+            'military': worldview.military,
+            'technology': worldview.technology,
+            'factions': worldview.factions,
+            'locations': worldview.locations,
+            'relations': worldview.relations,
         })
 
     def delete(self, request, project_id, pk):
@@ -544,7 +601,9 @@ class ApiWorldviewConsistencyView(BaseWorldAPIView):
                 'society': self.get_worldview_society(worldview),
                 'culture': self.get_worldview_culture(worldview),
                 'history': self.get_worldview_history(worldview),
-                'special': self.get_worldview_special(worldview)
+                'special': self.get_worldview_special(worldview),
+                'military': self.get_worldview_military(worldview),
+                'technology': self.get_worldview_technology(worldview),
             })
             
             prompt = ChatPromptTemplate.from_messages([
@@ -623,7 +682,9 @@ class ApiWorldviewConsistencyFixView(BaseWorldAPIView):
                 'society': self.get_worldview_society(worldview),
                 'culture': self.get_worldview_culture(worldview),
                 'history': self.get_worldview_history(worldview),
-                'special': self.get_worldview_special(worldview)
+                'special': self.get_worldview_special(worldview),
+                'military': self.get_worldview_military(worldview),
+                'technology': self.get_worldview_technology(worldview),
             }
             
             prompt = ChatPromptTemplate.from_messages([
@@ -670,7 +731,7 @@ class ApiWorldviewOptimizeView(BaseWorldAPIView):
 
     def post(self, request, project_id, pk, layer):
         """AI优化指定层 — 字段级自动判断（有内容→润色，空白→填充）"""
-        valid_layers = ('setting', 'foundation', 'power', 'races', 'society', 'culture', 'history', 'special')
+        valid_layers = ('setting', 'foundation', 'power', 'races', 'society', 'culture', 'history', 'special', 'military', 'technology')
         if layer not in valid_layers:
             return self.error_response('无效的层级参数', status=400)
 
@@ -721,6 +782,8 @@ class ApiWorldviewOptimizeView(BaseWorldAPIView):
             'culture': self.get_worldview_culture(worldview),
             'history': self.get_worldview_history(worldview),
             'special': self.get_worldview_special(worldview),
+            'military': self.get_worldview_military(worldview),
+            'technology': self.get_worldview_technology(worldview),
         })
         full_worldview.pop(layer, None)  # 剔除目标层，LLM 只用 reference 做跨层一致性参考
 
@@ -844,7 +907,6 @@ LAYER_SAVE_CONFIG = {
             ('era', 'calendar.era'),
             ('days', 'calendar.days_per_year'),
             ('seasons', 'calendar.seasons'),
-            ('festivals', 'calendar.festivals'),
             ('laws', 'rules.natural_laws'),
             ('boundary', 'rules.boundaries'),
             ('axioms', 'rules.axioms'),
@@ -881,14 +943,14 @@ LAYER_SAVE_CONFIG = {
         ],
     },
     'society': {
-        'sub_dicts': ['court', 'sect', 'martial', 'strata', 'currency'],
+        'sub_dicts': ['court', 'sect', 'jianghu', 'strata', 'currency'],
         'mappings': [
             ('government', 'court.political_system'),
             ('bureaucracy', 'court.bureaucracy'),
             ('sect_level', 'sect.levels'),
             ('sect_heritage', 'sect.relationships'),
-            ('martial_faction', 'martial.factions'),
-            ('martial_guild', 'martial.alliances'),
+            ('martial_faction', 'jianghu.factions'),
+            ('martial_guild', 'jianghu.alliances'),
             ('external', 'external'),
             ('class_level', 'strata.social_classes'),
             ('class_mobility', 'strata.mobility'),
@@ -939,7 +1001,30 @@ LAYER_SAVE_CONFIG = {
             ('reincarnation', 'reincarnation.mechanics'),
             ('transmigration', 'transmigration'),
             ('system', 'system'),
-            ('rules', 'rules'),
+            ('transmigration_rules', 'transmigration_rules'),
+        ],
+    },
+    'military': {
+        'sub_dicts': ['forces', 'weapons', 'warfare', 'defense'],
+        'mappings': [
+            ('army_structure', 'forces.army_structure'),
+            ('elite_units', 'forces.elite_units'),
+            ('weapon_types', 'weapons.types'),
+            ('weapon_legendary', 'weapons.legendary'),
+            ('warfare_rules', 'warfare.rules'),
+            ('warfare_history', 'warfare.history'),
+            ('fortifications', 'defense.fortifications'),
+            ('strategic_points', 'defense.strategic_points'),
+        ],
+    },
+    'technology': {
+        'sub_dicts': [],
+        'mappings': [
+            ('tech_level', 'level'),
+            ('key_tech', 'key_tech'),
+            ('communication', 'communication'),
+            ('tech_transport', 'transport'),
+            ('tech_ethics', 'ethics'),
         ],
     },
 }
@@ -948,7 +1033,7 @@ LAYER_SAVE_CONFIG = {
 class ApiWorldviewLayerView(BaseWorldAPIView):
     """世界观分层CRUD（通用）- 支持 GET/PUT"""
 
-    valid_layers = ('setting', 'foundation', 'power', 'races', 'society', 'culture', 'history', 'special')
+    valid_layers = ('setting', 'foundation', 'power', 'races', 'society', 'culture', 'history', 'special', 'military', 'technology')
 
     def get(self, request, project_id, pk, layer):
         if layer not in self.valid_layers:
@@ -1100,7 +1185,12 @@ class ApiWorldviewChatOpenView(BaseWorldAPIView):
             _is_json_empty(worldview.society or {}) and
             _is_json_empty(worldview.culture or {}) and
             _is_json_empty(worldview.history or {}) and
-            _is_json_empty(worldview.special or {})
+            _is_json_empty(worldview.special or {}) and
+            _is_json_empty(worldview.military or {}) and
+            _is_json_empty(worldview.technology or {}) and
+            not (worldview.factions or []) and
+            not (worldview.locations or []) and
+            not (worldview.relations or [])
         )
 
         # LLM 分析空缺字段，生成引导问题（仅在有数据时才调用 LLM）
@@ -1291,6 +1381,27 @@ def _build_worldview_markdown_instance(worldview):
             else:
                 md_parts.append('暂无\n')
 
+        # 渲染结构化列表字段
+        list_fields = [
+            ('factions', '阵营列表', ['name', 'position', 'doctrine']),
+            ('locations', '地点列表', ['name', 'terrain', 'overview']),
+            ('relations', '关系列表', ['source', 'type', 'target', 'description']),
+        ]
+        for field_name, field_label, field_keys in list_fields:
+            field_data = getattr(worldview, field_name, None) or []
+            if field_data:
+                md_parts.append(f'\n### {field_label}\n')
+                for item in field_data:
+                    if isinstance(item, dict):
+                        parts = []
+                        for key in field_keys:
+                            val = item.get(key, '')
+                            if val:
+                                label = _get_chinese_label(key)
+                                parts.append(f'{label}：{val}')
+                        if parts:
+                            md_parts.append(f'- {" / ".join(parts)}\n')
+
         return ''.join(md_parts)
 
 
@@ -1360,8 +1471,8 @@ def _get_chinese_label(key):
         'relation': '种族关系',
         # society 层
         'court': '朝廷官制', 'political_system': '政治体制', 'bureaucracy': '官僚体系',
-        'sect': '宗门势力', 'levels': '宗门等级', 'relationships': '宗门关系',
-        'factions': '武林势力', 'alliances': '武林联盟',
+        'sect': '宗门势力', 'relationships': '宗门关系',
+        'jianghu': '江湖势力', 'factions': '武林势力', 'alliances': '商会联盟',
         'external': '外部势力',
         'strata': '社会阶层', 'social_classes': '阶层划分', 'mobility': '阶层流动',
         'currency': '货币经济', 'resource': '资源物产',
@@ -1376,7 +1487,18 @@ def _get_chinese_label(key):
         'taboo': '禁忌', 'secret': '秘密',
         'fate': '命运规则', 'fortune_rules': '运势规则', 'destiny_types': '命运类型',
         'reincarnation': '转世轮回', 'soul_rules': '灵魂规则', 'mechanics': '转世机制',
-        'transmigration': '穿越设定', 'system': '系统设定', 'rules': '特殊规则',
+        'transmigration': '穿越设定', 'system': '系统设定', 'transmigration_rules': '穿越者规矩',
+        # military 层
+        'forces': '军事力量', 'army_structure': '军队编制', 'elite_units': '精锐部队',
+        'weapons': '武器装备', 'weapon_types': '武器类型', 'legendary': '传奇武器',
+        'warfare': '战争规则', 'warfare_rules': '战争法则', 'warfare_history': '战争历史',
+        'defense': '防御体系', 'fortifications': '防御工事', 'strategic_points': '战略要地',
+        # technology 层
+        'tech_level': '科技水平', 'key_tech': '关键技术', 'communication': '通讯技术',
+        'tech_transport': '交通技术', 'tech_ethics': '技术伦理',
+        # 结构化列表字段
+        'name': '名称', 'position': '立场', 'doctrine': '信条',
+        'terrain': '地形', 'source': '主体', 'target': '客体', 'description': '描述',
     }
     return _LABELS.get(key, key.replace('_', ' ').title())
 

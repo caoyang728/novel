@@ -12,13 +12,13 @@ from rest_framework.views import APIView, Response
 from rest_framework import status
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
-from apps.project.models import ProjectList
+from apps.project.models import ProjectList, GENRE_CHOICES
 from apps.outline.models import OutlineVersion, OutlineChatHistory
 from apps.project.prompts import DESCRIPTION_ENHANCE_USER_PROMPT, DESCRIPTION_ENHANCE_SYSTEM_PROMPT
 from apps.volume.models import VolumeVersion, VolumeList
 from apps.chapter.models import ChapterList
 from apps.user.models import TokenUsageLog
-from apps.worldview.models import WorldView
+from apps.worldview.models import WorldView, WorldviewDoc
 from agent.llm import get_llm, call_llm_with_retry
 from .prompts import (
     TITLE_SUGGESTION_JSON_PROMPT,
@@ -287,6 +287,7 @@ class ApiProjectListView(BaseAPIView):
                 'id': project.id,
                 'title': project.title,
                 'description': project.description,
+                'genre': project.genre,
                 'min_words_per_chapter': project.min_words_per_chapter,
                 'status': 'completed' if project.finalized else ('writing' if latest_outline and latest_outline.is_finalized else 'draft'),
                 'version_count': version_count,
@@ -367,6 +368,7 @@ class ApiProjectDetailView(BaseAPIView):
                     'pk': project.pk,
                     'title': project.title,
                     'description': project.description,
+                    'genre': project.genre,
                     'status': project.status,
                     'finalized': project.finalized,
                     'min_words_per_chapter': project.min_words_per_chapter,
@@ -416,6 +418,7 @@ class ApiProjectDetailView(BaseAPIView):
             project = get_object_or_404(ProjectList, pk=pk, user=request.user)
             title = request.data.get('title', '').strip()
             description = request.data.get('description', '')
+            genre = request.data.get('genre')
             min_words = request.data.get('min_words_per_chapter')
 
             if title and title != project.title:
@@ -424,6 +427,15 @@ class ApiProjectDetailView(BaseAPIView):
                 project.title = title
             if description is not None:
                 project.description = description
+            logger.warning(f'=====')
+            if genre is not None:
+                logger.warning(f'=====: {genre}')
+                valid_genres = [g[0] for g in GENRE_CHOICES]
+                logger.warning(f'valid_genres: {valid_genres}')
+                if genre in valid_genres:
+                    project.genre = genre
+                    # 同步更新世界观文档的题材
+                    WorldviewDoc.objects.filter(project=project).update(genre=genre)
             if min_words is not None:
                 try:
                     mw = int(min_words)
@@ -455,21 +467,34 @@ class ApiProjectCreateView(BaseAPIView):
         try:
             title = request.data.get('title', '').strip()
             description = request.data.get('description', '')
+            genre = request.data.get('genre', 'general')
 
             if not title:
                 title = generate_project_title()
+
+            # 验证题材类型
+            valid_genres = [g[0] for g in GENRE_CHOICES]
+            if genre not in valid_genres:
+                genre = 'general'
 
             # 检查同名项目是否存在
             if ProjectList.objects.filter(user=request.user, title=title, is_deleted=False).exists():
                 return JsonResponse({'success': False, 'error': '该项目名称已存在'}, status=400)
 
-            project = ProjectList.objects.create(title=title, description=description, user=request.user)
+            project = ProjectList.objects.create(
+                title=title, description=description, genre=genre, user=request.user
+            )
+
+            # 同步创建世界观文档（Markdown 新版），关联题材
+            WorldviewDoc.objects.create(project=project, genre=genre)
+
             return JsonResponse({
                 'success': True,
                 'project': {
                     'id': project.id,
                     'title': project.title,
                     'description': project.description,
+                    'genre': project.genre,
                     'created_at': project.created_at.strftime('%Y-%m-%d %H:%M')
                 }
             })

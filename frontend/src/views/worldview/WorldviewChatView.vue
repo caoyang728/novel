@@ -1,125 +1,222 @@
 <template>
-  <div class="wv-chat-view">
-    <div class="wv-chat-workspace">
-      <!-- 左：世界观 Markdown 预览 -->
-      <section class="wv-preview glass-panel" v-loading="markdownLoading" element-loading-text="加载世界观...">
-        <div class="wv-preview-header">
-          <span class="wv-preview-title">
-            <el-icon><Reading /></el-icon>
-            世界观预览
-          </span>
-          <el-tag v-if="isStreaming" type="primary" effect="dark" size="small" round>
-            AI 正在更新世界观...
-          </el-tag>
-        </div>
-        <div class="wv-preview-body">
-          <div v-if="markdown" class="markdown-body" v-html="renderedMarkdown"></div>
-          <EmptyState
-            v-else
-            icon="ChatLineSquare"
-            text="还没有世界观数据，在右侧对话框向 AI 描述题材、风格与基本设定，开始构建吧"
-          />
-        </div>
+  <div class="wv-doc-view" v-loading="docLoading">
+    <div class="wv-doc-workspace">
+      <!-- 左：世界观文档编辑/预览 -->
+      <section class="wv-doc-main glass-panel">
+        <template v-if="currentVersion || content">
+          <div class="wv-doc-toolbar">
+            <div class="toolbar-left">
+              <el-tag v-if="currentVersion" size="small" effect="dark" class="version-tag">v{{ currentVersion.version_number }}</el-tag>
+              <span class="word-count">{{ content.length }} 字</span>
+              <template v-if="!locked">
+                <AppButton size="small" variant="warning" :disabled="isStreaming" @click="handleLock">
+                  <el-icon><Lock /></el-icon> 锁定
+                </AppButton>
+                <AppButton size="small" variant="danger" :disabled="isStreaming" @click="handleDeleteVersion">
+                  <el-icon><Delete /></el-icon> 删除
+                </AppButton>
+                <AppButton
+                size="small"
+                variant="accent"
+                :loading="saving"
+                :disabled="isStreaming || !content.trim()"
+                @click="handleSave"
+              >
+                <el-icon><DocumentChecked /></el-icon> 保存
+              </AppButton>
+              </template>
+              <template v-else>
+                <AppButton size="small" variant="grey" @click="handleUnlock">
+                  <el-icon><Lock /></el-icon> 解锁
+                </AppButton>
+              </template>
+              <AppButton
+                size="small"
+                :loading="saving"
+                :disabled="isStreaming || !content.trim()"
+                @click="handleSaveAs"
+              >
+                <el-icon><DocumentCopy /></el-icon> 另存
+              </AppButton>
+            </div>
+            <div class="toolbar-right">
+              <el-radio-group v-model="mode" size="small" class="mode-switch">
+                <el-radio-button value="edit">
+                  <el-icon><EditPen /></el-icon> 编辑
+                </el-radio-button>
+                <el-radio-button value="preview">
+                  <el-icon><View /></el-icon> 预览
+                </el-radio-button>
+              </el-radio-group>
+            </div>
+          </div>
+
+          <div class="wv-doc-body">
+            <el-input
+              v-if="mode === 'edit'"
+              v-model="content"
+              type="textarea"
+              class="wv-doc-textarea"
+              :disabled="locked"
+              resize="none"
+              placeholder="在这里编写世界观文档，或通过右侧 AI 助手描述需求自动生成..."
+            />
+            <div v-else class="wv-doc-preview">
+              <template v-if="content.trim()">
+                <div v-if="!locked && hasUnsavedChanges() && diffHtml" class="markdown-body diff-body" v-html="diffHtml" />
+                <MarkdownRenderer v-else :content="content" />
+              </template>
+              <EmptyState v-else icon="Reading" text="暂无世界观文档" />
+            </div>
+          </div>
+        </template>
+
+        <EmptyState v-else icon="Reading" text="暂无世界观文档版本，在右侧 AI 助手中描述你的故事题材与设定，即可开始构建" class="wv-doc-empty" />
       </section>
 
-      <!-- 右：AI 聊天（参考 outline 页面布局） -->
-      <transition name="chat-slide">
-        <ChatPanel
-          v-if="chatVisible"
-          class="wv-chat"
-          title="世界观构建助手"
-          :messages="messages"
-          :is-streaming="isStreaming"
-          :selection-mode="selectionMode"
-          :selected-count="selectedMessages.size"
-          :is-selected="isSelected"
-          input-placeholder="描述你想要的题材、风格、设定..."
-          input-hint="AI 会根据对话自动整理世界观，并同步到左侧预览"
-          @send="handleSend"
-          @stop="stopStreaming"
-          @clear="clearMessages"
-          @toggle-selection="enterSelectionMode"
-          @exit-selection="exitSelectionMode"
-          @toggle-select="toggleMessageSelect"
-          @copy-selected="handleCopySelected"
-        >
-          <template #header-actions>
-            <el-select v-model="contextCount" size="small" class="context-select" title="对话携带的上下文轮数">
-              <el-option label="全部上下文" value="all" />
-              <el-option label="最近 5 轮" value="5" />
-              <el-option label="最近 10 轮" value="10" />
-              <el-option label="最近 20 轮" value="20" />
-            </el-select>
-          </template>
-          <template #quick-prompts>
-            <div v-if="quickOptions.length && !isStreaming" class="quick-options">
-              <button
-                v-for="(opt, i) in quickOptions"
-                :key="i"
-                class="quick-option-btn"
-                @click="handleSend(opt)"
-              >
-                {{ opt }}
-              </button>
-            </div>
-          </template>
-        </ChatPanel>
-      </transition>
+      <!-- 右：AI 聊天 -->
+      <ChatPanel
+        class="wv-doc-chat"
+        title="世界观构建助手"
+        :messages="messages"
+        :is-streaming="isStreaming"
+        :streaming-msg-id="streamingMsgId"
+        :disabled="locked"
+        :locked="locked"
+        :input-placeholder="locked ? '当前版本已锁定，无法发送消息' : '描述你想要的题材、风格、设定...'"
+        @send="handleSend"
+        @stop="stopStreaming"
+        @new-chat="handleNewChat"
+      >
+        <template #header-actions>
+          <el-select v-model="contextCount" size="small" class="context-select" title="对话携带的上下文轮数">
+            <el-option label="全部上下文" value="all" />
+            <el-option label="最近 5 轮" value="5" />
+            <el-option label="最近 10 轮" value="10" />
+            <el-option label="最近 20 轮" value="20" />
+          </el-select>
+        </template>
+        <template #message-end>
+          <div v-if="quickOptions.length && !isStreaming" class="quick-options">
+            <button
+              v-for="(opt, i) in quickOptions"
+              :key="i"
+              class="quick-option-btn"
+              @click="handleSend(opt)"
+            >
+              {{ opt }}
+            </button>
+          </div>
+        </template>
+      </ChatPanel>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, inject } from 'vue'
-// import { useRouter } from 'vue-router'
-import { /* Back, RefreshLeft, */ Reading } from '@element-plus/icons-vue'
+import { ref, computed, inject, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
+import { EditPen, View, Lock, Delete, DocumentChecked, DocumentCopy } from '@element-plus/icons-vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import AppButton from '@/components/common/AppButton.vue'
+import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
-import { worldviewApi, worldviewUrls } from '@/api/worldview'
+import { worldviewDocApi, worldviewUrls } from '@/api/worldview'
 import { createSseController } from '@/api/sse'
 import { useProjectId } from '@/composables/useProjectId'
 import { useChat } from '@/composables/useChat'
-import { showSuccess, showError } from '@/utils/notify'
+import { showSuccess, showError, showWarning } from '@/utils/notify'
+import { showConfirmModal } from '@/utils/modal'
 import { safeMarkdownParse } from '@/utils/markdown'
 
-// const router = useRouter()
-const { projectId } = useProjectId()
 const setPageHeader = inject('setPageHeader')
 const pageHeaderRightRef = inject('pageHeaderRightRef')
+const { projectId } = useProjectId()
+
+const sseController = createSseController()
 
 const {
   messages,
   isStreaming,
-  selectionMode,
-  selectedMessages,
-  enterSelectionMode,
-  exitSelectionMode,
-  toggleMessageSelect,
-  isSelected,
-  getSelectedContent,
-  addUserMessage,
+  stopStreaming,
   clearMessages,
 } = useChat()
 
-// 流式控制器（支持停止）
-const sseController = createSseController()
+// ---- 版本与内容状态 ----
+const docLoading = ref(false)
+const saving = ref(false)
+const versions = ref([])
+const currentVersion = ref(null)
+const content = ref('')
+const baseline = ref('')
+const mode = ref('preview')
+// 保存时才持久化的最后一条 AI 消息
+const pendingQuestion = ref('')
+const pendingOptions = ref([])
+const contextCount = ref('5')
+const streamingMsgId = ref(null) // 当前正在流式的消息 ID
+const genre = ref('general')
+const syncing = ref(false)
+const welcomeLoading = ref(false)
+let typewriterTimer = null // 打字机效果定时器引用
 
-// ---- 世界观 Markdown 预览 ----
-const markdown = ref('')
-const markdownLoading = ref(false)
-const chatVisible = ref(true)
-const contextCount = ref('all')
+const locked = computed(() => !!currentVersion.value?.is_finalized)
+const hasUnsavedChanges = () => content.value !== baseline.value
 
-const renderedMarkdown = computed(() => safeMarkdownParse(markdown.value))
+// ---- Diff 预览（本轮修改内容绿色高亮） ----
+const diffHtml = computed(() => {
+  const oldText = baseline.value || ''
+  const newText = content.value || ''
+  if (!oldText && !newText) return ''
+  if (oldText === newText) return safeMarkdownParse(newText)
 
-// 最后一条助手消息携带的快捷选项
-const quickOptions = computed(() => {
-  const last = messages.value[messages.value.length - 1]
-  if (last && last.role === 'assistant' && Array.isArray(last.options) && last.options.length) {
-    return last.options
+  // 先将 Markdown 解析为 HTML，再对 HTML 行做 diff
+  const oldHtml = safeMarkdownParse(oldText)
+  const newHtml = safeMarkdownParse(newText)
+  const oldLines = oldHtml.split('\n')
+  const newLines = newHtml.split('\n')
+  const result = []
+  let i = 0, j = 0
+
+  while (i < oldLines.length || j < newLines.length) {
+    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+      // 未修改行：直接输出已解析的 HTML
+      result.push(newLines[j])
+      i++
+      j++
+    } else if (j < newLines.length && (i >= oldLines.length || !oldLines.includes(newLines[j], i))) {
+      // 新增行：绿色高亮
+      result.push(`<div class="diff-added">${newLines[j]}</div>`)
+      j++
+    } else if (i < oldLines.length) {
+      // 删除行：红色删除线（保留在视图中供对比），只递增 i
+      result.push(`<div class="diff-removed">${oldLines[i]}</div>`)
+      i++
+    } else {
+      break
+    }
   }
-  return []
+  return result.join('\n')
 })
+
+// ---- 快捷选项 ----
+const quickOptions = ref([])
+
+function updateQuickOptions() {
+  const last = messages.value[messages.value.length - 1]
+  if (!last || last.role !== 'assistant' || !last.content) {
+    quickOptions.value = []
+    return
+  }
+  // 使用消息自带的 options（深拷贝确保响应式更新）
+  if (Array.isArray(last.options) && last.options.length) {
+    quickOptions.value = [...last.options]
+    return
+  }
+  quickOptions.value = []
+}
+
+watch(messages, updateQuickOptions, { deep: true })
 
 let msgSeq = 0
 function nextMsgId() {
@@ -127,103 +224,542 @@ function nextMsgId() {
   return Date.now() + msgSeq
 }
 
-// ---- 加载世界观 Markdown（毫秒级，先渲染）----
-async function loadMarkdown() {
-  if (!projectId.value) return
-  markdownLoading.value = true
-  try {
-    const res = await worldviewApi.exportMarkdown(projectId.value)
-    const md = res?.data?.markdown || ''
-    if (md && md.trim()) {
-      markdown.value = md
-    }
-  } catch (err) {
-    console.error('加载世界观 Markdown 失败:', err)
-  } finally {
-    markdownLoading.value = false
+/** 根据 id 查找消息在 messages 中的索引（避免 indexOf 对象引用在 Vue 响应式代理中失效） */
+function findMsgIndexById(id) {
+  return messages.value.findIndex((m) => m.id === id)
+}
+
+/** 通过 id 更新消息内容并触发响应式 */
+function updateMsgById(id, patch) {
+  const idx = findMsgIndexById(id)
+  if (idx !== -1) {
+    messages.value[idx] = { ...messages.value[idx], ...patch }
   }
 }
 
-// ---- 加载 AI 引导问题（慢速，LLM 调用）----
+// ---- 版本加载 ----
+async function loadVersions(selectId = null) {
+  docLoading.value = true
+  try {
+    const res = await worldviewDocApi.getVersions(projectId.value)
+    const data = res?.data?.data || res?.data || {}
+    versions.value = data.versions || []
+    if (selectId) {
+      const target = versions.value.find((v) => v.id === selectId)
+      if (target) {
+        await doLoadVersion(target)
+        return
+      }
+    }
+    if (versions.value.length > 0) {
+      await doLoadVersion(versions.value[0])
+    } else {
+      // 无版本时：加载文档内容，显示虚拟 v1
+      currentVersion.value = { id: null, version_number: 1, is_finalized: false }
+      try {
+        const docRes = await worldviewDocApi.get(projectId.value)
+        const docData = docRes?.data?.data || docRes?.data || {}
+        content.value = docData.content || ''
+        baseline.value = docData.content || ''
+      } catch {}
+    }
+  } catch {
+    // request.js 已统一提示
+  } finally {
+    docLoading.value = false
+  }
+}
+
+async function doLoadVersion(version, { reloadChat = false } = {}) {
+  try {
+    const res = await worldviewDocApi.loadVersion(projectId.value, version.id)
+    const data = res?.data?.data || res?.data || {}
+    currentVersion.value = {
+      ...version,
+      version_number: data.version_number ?? version.version_number,
+      is_finalized: data.is_finalized ?? version.is_finalized,
+      last_question: data.last_question || '',
+      last_options: data.last_options || [],
+    }
+    content.value = data.content || ''
+    baseline.value = data.content || ''
+    mode.value = 'preview'
+    // 重置 pending 数据为版本中保存的值
+    pendingQuestion.value = data.last_question || ''
+    pendingOptions.value = data.last_options || []
+    // 聊天重载由 watch(currentVersion) 统一处理，此处不再重复 clearMessages
+  } catch {
+    // 统一提示
+  }
+}
+
+function handleSelectVersion(versionId) {
+  const version = versions.value.find((v) => v.id === versionId)
+  if (!version || version.id === currentVersion.value?.id) return
+  if (isStreaming.value) {
+    showWarning('AI 正在生成内容，请等待完成后再切换版本')
+    return
+  }
+  if (hasUnsavedChanges()) {
+    showConfirmModal({
+      title: '未保存的修改',
+      message: '当前文档有未保存的修改，切换版本将丢失。确定切换吗？',
+      confirmText: '切换',
+      onConfirm: (close) => {
+        close()
+        doLoadVersion(version, { reloadChat: true })
+      },
+      onCancel: () => {
+        // 重置下拉框到当前版本（用户取消切换）
+        refreshHeader()
+      },
+    })
+    return
+  }
+  doLoadVersion(version, { reloadChat: true })
+}
+
+// ---- Header 右侧：版本选择下拉 ----
+/** HTML 转义，防止 XSS */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+// requestAnimationFrame 轮询检测 header 中 <select> 的值变化（v-html 渲染的 select 无法使用 Vue 事件绑定）
+let _lastSelectValue = null
+let _selectPollRaf = null
+
+function startSelectPolling() {
+  const poll = () => {
+    const sel = document.getElementById('wv-version-select')
+    if (sel) {
+      // String() 处理 Vue 3 响应式代理导致 sel.value 返回 Proxy 对象的问题
+      const curVal = String(sel.value)
+      if (curVal !== _lastSelectValue) {
+        _lastSelectValue = curVal
+        const id = parseInt(curVal, 10)
+        if (!isNaN(id)) handleSelectVersion(id)
+      }
+    }
+    _selectPollRaf = requestAnimationFrame(poll)
+  }
+  _selectPollRaf = requestAnimationFrame(poll)
+}
+
+function stopSelectPolling() {
+  if (_selectPollRaf) {
+    cancelAnimationFrame(_selectPollRaf)
+    _selectPollRaf = null
+  }
+}
+
+function refreshHeader() {
+  const v = currentVersion.value
+  const versionOptions = versions.value
+    .map((ver) => `<option value="${ver.id}" ${ver.id === v?.id ? 'selected' : ''}>v${escapeHtml(ver.version_number)}${ver.is_finalized ? ' (已定稿)' : ''}</option>`)
+    .join('')
+  // 清除旧 select 的轮询定时器（HTML 即将被替换）
+  _lastSelectValue = null
+  pageHeaderRightRef.value = `
+    <div style="display:flex;align-items:center;gap:8px;">
+      <select id="wv-version-select" style="height:28px;padding:0 8px;border-radius:6px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;font-size:12px;cursor:pointer;outline:none;">
+        ${versionOptions || '<option value="">暂无版本</option>'}
+      </select>
+    </div>
+  `
+}
+
+watch(currentVersion, (newVal, oldVal) => {
+  refreshHeader()
+  // 版本切换时自动重载聊天
+  if (newVal && oldVal && newVal.id !== oldVal.id && !isStreaming.value) {
+    clearMessages()
+    if (!locked.value) loadWelcome()
+  }
+})
+
+// ---- 版本操作 ----
+async function handleSave() {
+  if (!projectId.value) return
+  if (!content.value.trim()) {
+    showError('文档为空，无法保存')
+    return
+  }
+  saving.value = true
+  try {
+    // 有当前版本则更新，无则创建新版本
+    const saveData = {
+      content: content.value,
+      last_question: pendingQuestion.value,
+      last_options: pendingOptions.value,
+    }
+    if (currentVersion.value?.id) {
+      await worldviewDocApi.updateVersion(projectId.value, saveData)
+    } else {
+      await worldviewDocApi.saveVersion(projectId.value, saveData)
+    }
+    showSuccess('已保存')
+    baseline.value = content.value
+    // 刷新版本列表，保持当前版本选中
+    const verRes = await worldviewDocApi.getVersions(projectId.value)
+    const verData = verRes?.data?.data || verRes?.data || {}
+    versions.value = verData.versions || []
+    // 更新当前版本的最新信息（如 is_finalized 状态）
+    if (currentVersion.value?.id) {
+      const updated = versions.value.find(v => v.id === currentVersion.value.id)
+      if (updated) {
+        currentVersion.value = {
+          ...updated,
+          last_question: currentVersion.value.last_question || '',
+          last_options: currentVersion.value.last_options || [],
+        }
+      }
+    }
+    refreshHeader()
+    // TODO: 自动提取阵营功能暂时关闭，后续重新开启
+    // autoExtractFactions()
+  } catch (err) {
+    showError('保存失败')
+    console.error(err)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function handleSaveAs() {
+  if (!projectId.value) return
+  if (!content.value.trim()) {
+    showError('文档为空，无法保存')
+    return
+  }
+  showConfirmModal({
+    title: '另存为新版本',
+    message: '将当前内容保存为一个新的版本？',
+    confirmText: '确认另存',
+    variant: 'accent',
+    onConfirm: async (close) => {
+      close()
+      saving.value = true
+      try {
+        const res = await worldviewDocApi.saveVersion(projectId.value, {
+          content: content.value,
+          last_question: pendingQuestion.value,
+          last_options: pendingOptions.value,
+        })
+        const data = res?.data?.data || res?.data || {}
+        showSuccess(`已保存为 v${data.version_number || '?'} 版本`)
+        baseline.value = content.value
+        // 刷新版本列表并切换到新版本
+        const verRes = await worldviewDocApi.getVersions(projectId.value)
+        const verData = verRes?.data?.data || verRes?.data || {}
+        versions.value = verData.versions || []
+        currentVersion.value = {
+          id: data.id,
+          version_number: data.version_number,
+          is_finalized: false,
+          last_question: pendingQuestion.value || '',
+          last_options: pendingOptions.value || [],
+        }
+        refreshHeader()
+        // TODO: 自动提取阵营功能暂时关闭，后续重新开启
+        // autoExtractFactions()
+      } catch (err) {
+        showError('另存失败')
+        console.error(err)
+      } finally {
+        saving.value = false
+      }
+    },
+  })
+}
+
+// ---- 自动提取阵营（异步，不阻塞） ----
+async function autoExtractFactions() {
+  if (!projectId.value || !content.value.trim()) return
+  try {
+    await worldviewDocApi.extractFactions(projectId.value)
+  } catch {
+    // 静默失败，不影响主流程
+  }
+}
+
+async function handleLock() {
+  if (!currentVersion.value) return
+  showConfirmModal({
+    title: '锁定版本',
+    message: `确定锁定 v${currentVersion.value.version_number} 版本吗？锁定后将无法修改文档内容和发送聊天消息。`,
+    confirmText: '确认锁定',
+    variant: 'accent',
+    onConfirm: async (close) => {
+      close()
+      try {
+        await worldviewDocApi.lockVersion(projectId.value, currentVersion.value.id)
+        showSuccess('版本已锁定')
+        clearMessages()
+        await loadVersions(currentVersion.value.id)
+      } catch {
+        showError('锁定失败')
+      }
+    },
+  })
+}
+
+async function handleUnlock() {
+  if (!currentVersion.value) return
+  showConfirmModal({
+    title: '解锁版本',
+    message: `确定解锁 v${currentVersion.value.version_number} 版本吗？解锁后可编辑文档内容和发送聊天消息。`,
+    confirmText: '确认解锁',
+    variant: 'accent',
+    onConfirm: async (close) => {
+      close()
+      try {
+        await worldviewDocApi.unlockVersion(projectId.value, currentVersion.value.id)
+        showSuccess('版本已解锁')
+        await loadVersions(currentVersion.value.id)
+        clearMessages()
+        loadWelcome()
+      } catch {
+        showError('解锁失败')
+      }
+    },
+  })
+}
+
+async function handleDeleteVersion() {
+  if (!currentVersion.value) return
+  if (currentVersion.value.is_finalized) {
+    showWarning('已定稿版本不能删除，请先解锁')
+    return
+  }
+  const deletedVersionId = currentVersion.value.id
+  showConfirmModal({
+    title: '删除版本',
+    message: `确定删除 v${currentVersion.value.version_number} 版本吗？此操作不可恢复。`,
+    confirmText: '删除',
+    cancelText: '取消',
+    danger: true,
+    onConfirm: async (close) => {
+      close()
+      try {
+        await worldviewDocApi.deleteVersion(projectId.value, deletedVersionId)
+        showSuccess('版本已删除')
+        // 重新加载版本列表并切换到最新版本（后端已自动切换 is_current）
+        await loadVersions()
+        // loadVersions 会加载 versions[0]（最新版本），确保聊天也重新加载
+        if (currentVersion.value && !locked.value) {
+          clearMessages()
+          loadWelcome()
+        }
+      } catch {
+        showError('删除失败')
+      }
+    },
+  })
+}
+
+// ---- 加载文档（获取题材信息） ----
+async function loadDoc() {
+  if (!projectId.value) return
+  try {
+    const res = await worldviewDocApi.get(projectId.value)
+    const data = res?.data?.data || res?.data || {}
+    genre.value = data.genre || 'general'
+  } catch (err) {
+    console.error('加载世界观文档失败:', err)
+  }
+}
+
+// ---- 开场引导 ----
+const defaultWelcomeText = '你好！我是你的世界观构建助手，可以一步步帮你搭建完整的世界观。\n\n告诉我你想从哪里开始吧——可以描述一个设定构想、补充某个板块的细节，或者直接说说你还想完善哪些部分。'
+
 async function loadWelcome() {
   if (!projectId.value) return
+  welcomeLoading.value = true
+  const placeholderId = nextMsgId()
+
   try {
-    const res = await worldviewApi.openChat(projectId.value)
-    const data = res?.data
-    if (data && data.has_content !== false && data.question) {
+    // 优先从版本数据读取最后一条 AI 问题（随版本保存，无需额外 API 调用）
+    const lastQ = currentVersion.value?.last_question
+    const lastOpts = currentVersion.value?.last_options || []
+    if (lastQ) {
+      // logger.debug('[loadWelcome] 从版本数据加载 last_question')
       messages.value.push({
-        id: nextMsgId(),
+        id: placeholderId,
         role: 'assistant',
-        content: data.question,
-        options: Array.isArray(data.options) ? data.options : [],
+        content: lastQ,
+        thinking: '',
+        options: lastOpts,
         timestamp: new Date().toISOString(),
       })
-    } else {
-      pushDefaultWelcome()
+      welcomeLoading.value = false
+      return
     }
+
+    // 无历史：直接显示通用欢迎语，无需等待 API
+    // 先添加占位消息，typewriterReveal 通过 updateMsgById 更新此消息
+    messages.value.push({
+      id: placeholderId,
+      role: 'assistant',
+      content: '',
+      thinking: '',
+      options: [],
+      timestamp: new Date().toISOString(),
+    })
+    await typewriterReveal(placeholderId, defaultWelcomeText, [])
   } catch (err) {
     console.error('加载引导问题失败:', err)
-    pushDefaultWelcome()
+    // 兜底：显示默认欢迎消息
+    const existing = messages.value.find(m => m.id === placeholderId)
+    if (existing && !existing.content) {
+      await typewriterReveal(placeholderId, defaultWelcomeText, [])
+    }
+  } finally {
+    welcomeLoading.value = false
   }
 }
 
-function pushDefaultWelcome() {
-  messages.value.push({
-    id: nextMsgId(),
-    role: 'assistant',
-    content:
-      '你好！我是你的世界观构建助手。\n\n告诉我你想创作什么类型的故事（玄幻、科幻、都市、末世、古风等），以及大致的世界背景构想，我会一步步帮你搭建完整的世界观体系。',
-    options: [],
-    timestamp: new Date().toISOString(),
+/** 打字机效果：先在思考区逐步显示文本，完成后切换到正文区 */
+function typewriterReveal(msgId, text, options) {
+  return new Promise((resolve) => {
+    // 清除上一次可能残留的打字机定时器
+    if (typewriterTimer) clearInterval(typewriterTimer)
+    // 将思考区清空，开始打字机
+    updateMsgById(msgId, { thinking: '', content: '', options: [] })
+    let idx = 0
+    const chunkSize = 3 // 每次显示3个字符
+    const interval = 16 // 每16ms更新一次（约60fps）
+    typewriterTimer = setInterval(() => {
+      idx += chunkSize
+      const partial = text.slice(0, idx)
+      updateMsgById(msgId, { thinking: partial })
+      if (idx >= text.length) {
+        clearInterval(typewriterTimer)
+        typewriterTimer = null
+        // 打字完成，切换到正文显示
+        updateMsgById(msgId, {
+          content: text,
+          thinking: '',
+          options: options,
+          timestamp: new Date().toISOString(),
+        })
+        resolve()
+      }
+    }, interval)
   })
+}
+
+// ---- 新对话 ----
+async function handleNewChat() {
+  if (isStreaming.value) {
+    showWarning('AI 正在生成内容，请等待完成')
+    return
+  }
+  if (hasUnsavedChanges()) {
+    showConfirmModal({
+      title: '未保存的修改',
+      message: '当前文档有未保存的修改，开始新对话将丢失。确定继续吗？',
+      confirmText: '继续',
+      onConfirm: (close) => {
+        close()
+        content.value = baseline.value
+        pendingQuestion.value = ''
+        pendingOptions.value = []
+        clearMessages()
+        loadWelcome()
+      },
+    })
+    return
+  }
+  pendingQuestion.value = ''
+  pendingOptions.value = []
+  clearMessages()
+  loadWelcome()
 }
 
 // ---- 发送消息 ----
 async function handleSend(rawText) {
   if (isStreaming.value) return
+  if (locked.value) {
+    showWarning('当前版本已锁定，无法发送消息')
+    return
+  }
   const text = (rawText || '').trim()
   if (!text) return
 
-  // 上下文消息（不含思考占位），按设置截取最近轮数
-  const contextAll = messages.value
-    .filter((m) => m.content && m.content !== '正在思考中…')
+  const contextAll = messages.value.filter((m) => m.content)
   const contextSliced = contextCount.value === 'all'
     ? contextAll
     : contextAll.slice(-parseInt(contextCount.value, 10) * 2)
   const context = contextSliced.map((m) => ({ role: m.role, content: m.content }))
 
-  addUserMessage(text)
-
-  // 助手思考占位
-  const placeholder = {
+  // 添加用户消息
+  messages.value.push({
     id: nextMsgId(),
+    role: 'user',
+    content: text,
+    timestamp: new Date().toISOString(),
+  })
+
+  const msgId = nextMsgId()
+  messages.value.push({
+    id: msgId,
     role: 'assistant',
-    content: '正在思考中…',
+    content: '',
+    thinking: '正在思考中…',
     options: [],
     timestamp: new Date().toISOString(),
-  }
-  messages.value.push(placeholder)
+  })
 
+  const oldBaseline = content.value
   isStreaming.value = true
-  let streamMarkdown = ''
+  streamingMsgId.value = msgId
+  let streamReply = ''
+  let streamDoc = ''
   let completed = false
 
   try {
     await sseController.stream(
-      worldviewUrls.chatStream(projectId.value),
+      worldviewUrls.docChatStream(projectId.value),
       {
-        body: { message: text, messages: context },
+        body: { message: text, messages: context, genre: genre.value, current_content: content.value },
         onEvent: (evt) => {
-          if (evt.type === 'chunk' && evt.chunk) {
-            // chunk 是完整新世界观 Markdown 的切片，替换式累积
-            streamMarkdown += evt.chunk
-            markdown.value = streamMarkdown
+          if (evt.type === 'status' && evt.message) {
+            // 后端重试/修复进度提示
+            updateMsgById(msgId, { thinking: evt.message })
+          } else if (evt.type === 'reply_chunk' && evt.chunk) {
+            streamReply += evt.chunk
+            updateMsgById(msgId, { thinking: streamReply })
+          } else if (evt.type === 'doc_chunk' && evt.chunk) {
+            streamDoc += evt.chunk
+            content.value = streamDoc
           } else if (evt.type === 'complete') {
             completed = true
-            if (evt.markdown) markdown.value = evt.markdown
-            placeholder.content = evt.reply || '世界观内容已更新，请查看左侧预览区'
-            placeholder.options = Array.isArray(evt.options) ? evt.options : []
-            placeholder.timestamp = new Date().toISOString()
+            if (evt.content) content.value = evt.content
+            const reply = evt.reply || '世界观文档已更新，请查看左侧预览区'
+            const opts = Array.isArray(evt.options) ? [...evt.options] : []
+            updateMsgById(msgId, {
+              content: reply,
+              thinking: '',
+              options: opts,
+              timestamp: new Date().toISOString(),
+            })
+            // 记录最后一条 AI 消息，保存/另存时才持久化到版本
+            pendingQuestion.value = reply
+            pendingOptions.value = opts
+            // 延迟滚动到底部，确保选项渲染后也能滚到最下面
+            nextTick(() => {
+              setTimeout(() => {
+                const container = document.querySelector('.chat-panel-messages')
+                if (container) container.scrollTop = container.scrollHeight
+              }, 100)
+            })
+          } else if (evt.type === 'error') {
+            updateMsgById(msgId, { content: `抱歉，生成失败：${evt.message || '请重试'}`, thinking: '' })
           }
         },
       },
@@ -231,92 +767,104 @@ async function handleSend(rawText) {
     )
 
     if (!completed) {
-      placeholder.content = '世界观内容已更新，请查看左侧预览区'
+      updateMsgById(msgId, { content: streamReply || '世界观文档已更新，请查看左侧预览区', thinking: '' })
+      nextTick(() => {
+        setTimeout(() => {
+          const container = document.querySelector('.chat-panel-messages')
+          if (container) container.scrollTop = container.scrollHeight
+        }, 100)
+      })
     }
 
-    // 从后端重新拉取最终 Markdown（比流式拼装更可靠）
-    await loadMarkdown()
+    // 注意：不在这里同步 baseline，让 diff 持续显示修改内容
+    // baseline 仅在用户手动保存/另存时同步（见 handleSave）
+    // 只刷新版本列表，不加载版本内容（避免清空聊天）
+    try {
+      const verRes = await worldviewDocApi.getVersions(projectId.value)
+      const verData = verRes?.data?.data || verRes?.data || {}
+      versions.value = verData.versions || []
+      refreshHeader()
+    } catch {}
   } catch (err) {
     if (err.message === '请求已取消或超时') {
-      placeholder.content = '已停止生成，世界观已保存的内容可在左侧预览查看'
+      updateMsgById(msgId, { content: '已停止生成，文档已保存的内容可在左侧预览查看' })
     } else {
-      console.error('世界观聊天流式失败:', err)
-      placeholder.content = `抱歉，生成失败：${err.message || '请重试'}`
+      console.error('世界观文档聊天流式失败:', err)
+      updateMsgById(msgId, { content: `抱歉，生成失败：${err.message || '请重试'}` })
       showError(err.message || '生成失败，请重试')
     }
+    content.value = oldBaseline
   } finally {
     isStreaming.value = false
+    streamingMsgId.value = null
   }
 }
 
-function stopStreaming() {
-  sseController.abort()
-  isStreaming.value = false
-}
-
-async function handleCopySelected() {
-  const text = getSelectedContent()
-  if (!text) return
-  try {
-    await navigator.clipboard.writeText(text)
-    showSuccess('已复制选中消息')
-  } catch {
-    showError('复制失败，请手动选择复制')
+// ---- 生命周期 ----
+function handleBeforeUnload(e) {
+  if (hasUnsavedChanges()) {
+    e.preventDefault()
+    e.returnValue = ''
   }
 }
 
-// function goWorkbench() {
-//   router.push({ name: 'Worldview', params: { projectId: projectId.value } })
-// }
-
-// ---- Header 右侧：上下文轮数选择（参考 outline 布局） ----
-function refreshHeader() {
-  pageHeaderRightRef.value = `
-    <div style="display:flex;align-items:center;gap:8px;">
-      <select id="wv-context-select" style="height:28px;padding:0 8px;border-radius:6px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;font-size:12px;cursor:pointer;outline:none;" onchange="window.__wvContextSelect(this.value)">
-        <option value="all" ${contextCount.value === 'all' ? 'selected' : ''}>全部上下文</option>
-        <option value="5" ${contextCount.value === '5' ? 'selected' : ''}>最近 5 轮</option>
-        <option value="10" ${contextCount.value === '10' ? 'selected' : ''}>最近 10 轮</option>
-        <option value="20" ${contextCount.value === '20' ? 'selected' : ''}>最近 20 轮</option>
-      </select>
-    </div>
-  `
-}
-
-window.__wvContextSelect = (value) => {
-  contextCount.value = value
-}
-
-watch(contextCount, refreshHeader)
-
-onMounted(() => {
-  setPageHeader('世界观构建', '与 AI 对话，逐步搭建完整的世界观体系')
+onMounted(async () => {
+  if (setPageHeader) setPageHeader('世界观构建', '与 AI 对话增量构建世界观文档')
+  // 轮询检测 header 中 <select> 的值变化（v-html 渲染的 select 无法使用 Vue 事件绑定）
+  startSelectPolling()
   refreshHeader()
-  // 并行：Markdown 快速渲染 + LLM 引导问题异步更新
-  loadMarkdown()
+  await loadDoc()
+  await loadVersions()
   loadWelcome()
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+
+onBeforeRouteLeave((to, from, next) => {
+  if (hasUnsavedChanges()) {
+    showConfirmModal({
+      title: '未保存的修改',
+      message: '当前文档有未保存的修改，离开页面将丢失。确定离开吗？',
+      confirmText: '离开',
+      onConfirm: (close) => {
+        close()
+        next()
+      },
+      onCancel: () => {
+        next(false)
+      },
+    })
+  } else {
+    next()
+  }
 })
 
 onBeforeUnmount(() => {
+  // 清除打字机效果定时器
+  if (typewriterTimer) {
+    clearInterval(typewriterTimer)
+    typewriterTimer = null
+  }
+  // 停止 select 轮询
+  stopSelectPolling()
   sseController.abort()
+  window.removeEventListener('beforeunload', handleBeforeUnload)
   pageHeaderRightRef.value = ''
-  delete window.__wvContextSelect
 })
 </script>
 
 <style lang="scss">
-/* 参考 outline 页面布局，覆盖父级布局，锁定为视口高度 */
-.project-layout:has(.wv-chat-view) {
+/* 覆盖父级布局，锁定为视口高度 */
+.project-layout:has(.wv-doc-view) {
   height: 100vh;
   overflow: hidden;
 }
 
-.project-layout:has(.wv-chat-view) .project-topbar {
+.project-layout:has(.wv-doc-view) .project-topbar {
   position: relative;
   flex-shrink: 0;
 }
 
-.project-layout:has(.wv-chat-view) .project-content {
+.project-layout:has(.wv-doc-view) .project-content {
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -326,13 +874,13 @@ onBeforeUnmount(() => {
 </style>
 
 <style lang="scss" scoped>
-.wv-chat-view {
+.wv-doc-view {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
-.wv-chat-workspace {
+.wv-doc-workspace {
   flex: 1;
   display: flex;
   gap: 12px;
@@ -340,44 +888,94 @@ onBeforeUnmount(() => {
   padding: 12px;
 }
 
-// 左：预览
-.wv-preview {
+// ---- 左侧文档区 ----
+.wv-doc-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 16px 20px;
   overflow: hidden;
 }
 
-.wv-preview-header {
+.wv-doc-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 12px;
-  margin-bottom: 12px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--glass-border);
   flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.wv-preview-title {
+.toolbar-left {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.wv-preview-body {
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.version-tag {
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.word-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mode-switch {
+  --el-radio-button-checked-bg: #6366f1;
+  --el-radio-button-checked-border-color: #6366f1;
+}
+
+.wv-doc-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.wv-doc-textarea {
+  height: 100%;
+
+  :deep(.el-textarea__inner) {
+    height: 100% !important;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.7;
+    padding: 16px 20px;
+  }
+}
+
+.wv-doc-preview {
   flex: 1;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 16px 20px;
 }
 
-// 右：聊天
-.wv-chat {
-  width: 360px;
+.wv-doc-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// ---- 右侧聊天区 ----
+.wv-doc-chat {
+  width: 460px;
   flex-shrink: 0;
 }
 
@@ -385,59 +983,77 @@ onBeforeUnmount(() => {
   width: 120px;
 }
 
-.chat-slide-enter-active,
-.chat-slide-leave-active {
-  transition: all var(--transition-normal);
-}
-
-.chat-slide-enter-from,
-.chat-slide-leave-to {
-  opacity: 0;
-  transform: translateX(20px);
-}
-
-// 快捷选项按钮
+// ---- 快捷选项 ----
 .quick-options {
   padding: 8px 12px;
   border-top: 1px solid var(--glass-border);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  max-height: 120px;
+  max-height: 240px;
   overflow-y: auto;
 }
 
 .quick-option-btn {
   padding: 6px 12px;
   font-size: 12px;
-  color: var(--primary);
-  background: rgba(99, 102, 241, 0.1);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #8b9cf7;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
-  white-space: nowrap;
 
   &:hover {
-    background: rgba(99, 102, 241, 0.2);
-    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.4);
     transform: translateY(-1px);
   }
 }
 
-@media (max-width: 1200px) {
-  .wv-chat-workspace {
-    flex-direction: column;
+// ---- Diff 预览样式 ----
+.diff-body {
+  :deep(.diff-added) {
+    color: #5eba8d !important;
+    background: none !important;
   }
-  .wv-chat {
-    width: 100%;
-    max-height: 480px;
+  :deep(.diff-added *) {
+    color: #5eba8d !important;
+    background: none !important;
+  }
+  :deep(.diff-removed) {
+    color: #f87171 !important;
+    text-decoration: line-through;
+    background: none !important;
+  }
+  :deep(.diff-removed *) {
+    color: #f87171 !important;
+    background: none !important;
+    text-decoration: line-through;
   }
 }
 
-@media (max-width: 768px) {
-  // .btn-text {
-  //   display: none;
-  // }
+// ---- 用户消息样式覆盖 ----
+:deep(.wv-doc-chat) {
+  .chat-message--user {
+    .chat-message-avatar {
+      margin-left: 0;
+      margin-right: 0;
+    }
+
+    .chat-message-content {
+      align-items: flex-end;
+    }
+  }
+}
+
+@media (max-width: 1200px) {
+  .wv-doc-workspace {
+    flex-direction: column;
+  }
+  .wv-doc-chat {
+    width: 100%;
+    max-height: 480px;
+  }
 }
 </style>

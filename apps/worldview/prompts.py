@@ -32,7 +32,6 @@ WORLDVIEW_STRUCTURE = {
             'era': ('纪年方式', '年代名称/年号，如"崇祯"、"公元"、"魏景"、"星历"、"康熙"、"贞观"等', 'str'),
             'days_per_year': ('一年天数', '一年的天数', 'number'),
             'seasons': ('季节划分', '季节划分方式', 'str'),
-            'festivals': ('特殊节气/节日', '重要的节气、节日及其意义', 'str'),
         },
         'rules': {
             '_comment': '基本法则',
@@ -91,7 +90,7 @@ WORLDVIEW_STRUCTURE = {
             'levels': ('门派等级', '门派等级划分', 'str'),
             'relationships': ('传承关系', '门派间的师承、联盟、敌对关系', 'str'),
         },
-        'martial': {
+        'jianghu': {
             '_comment': '江湖势力',
             'factions': ('武林帮派', '各大帮派及其特点', 'str'),
             'alliances': ('商会联盟', '商业组织、地下势力', 'str'),
@@ -159,7 +158,66 @@ WORLDVIEW_STRUCTURE = {
         },
         'transmigration': ('穿越规则', '穿越者、重生者的规则限制', 'str'),
         'system': ('系统规则', '金手指、游戏化系统的设定', 'str'),
-        'rules': ('穿越者规矩', '穿越者之间的约定、限制', 'str'),
+        'transmigration_rules': ('穿越者规矩', '穿越者之间的约定、限制', 'str'),
+    },
+    'military': {
+        '_comment': '军事体系',
+        'forces': {
+            '_comment': '军事力量',
+            'army_structure': ('军队编制', '军队的组织结构、兵种划分', 'str'),
+            'elite_units': ('精锐部队', '特殊部队、精英军团', 'str'),
+        },
+        'weapons': {
+            '_comment': '武器装备',
+            'types': ('武器类型', '主要武器种类和特点', 'str'),
+            'legendary': ('传奇武器', '传说中的神兵利器', 'str'),
+        },
+        'warfare': {
+            '_comment': '战争规则',
+            'rules': ('战争法则', '战争的规则、禁忌、惯例', 'str'),
+            'history': ('战争历史', '重大战役、战争传说', 'str'),
+        },
+        'defense': {
+            '_comment': '防御体系',
+            'fortifications': ('防御工事', '城防、要塞、结界', 'str'),
+            'strategic_points': ('战略要地', '关键地理位置、兵家必争之地', 'str'),
+        },
+    },
+    'technology': {
+        '_comment': '科技体系',
+        'level': ('科技水平', '整体科技发展程度', 'str'),
+        'key_tech': ('关键技术', '核心科技、改变世界的技术突破', 'str'),
+        'communication': ('通讯技术', '信息传递方式和技术', 'str'),
+        'transport': ('交通技术', '交通工具和方式', 'str'),
+        'ethics': ('技术伦理', '科技使用的规则和限制', 'str'),
+    },
+    # 结构化列表字段（独立于层级）
+    '_list_fields': {
+        'factions': {
+            '_comment': '阵营列表',
+            'fields': {
+                'name': ('阵营名称', '阵营的名称', 'str'),
+                'position': ('立场定位', '阵营的立场和定位', 'str'),
+                'doctrine': ('信条理念', '阵营的核心理念和信条', 'str'),
+            },
+        },
+        'locations': {
+            '_comment': '地点列表',
+            'fields': {
+                'name': ('地点名称', '地点的名称', 'str'),
+                'terrain': ('地形特征', '地点的地形和环境', 'str'),
+                'overview': ('地点概述', '地点的简要描述', 'str'),
+            },
+        },
+        'relations': {
+            '_comment': '关系列表',
+            'fields': {
+                'source': ('关系主体', '关系的发起方', 'str'),
+                'type': ('关系类型', '关系的种类', 'str'),
+                'target': ('关系客体', '关系的目标方', 'str'),
+                'description': ('关系描述', '关系的具体内容', 'str'),
+            },
+        },
     },
 }
 
@@ -208,7 +266,7 @@ def get_layer_info(layer_key):
 
 def get_layers():
     """返回所有分层的 (字段名, 中文名) 列表，顺序由 WORLDVIEW_STRUCTURE 定义"""
-    return [(k, v['_comment']) for k, v in WORLDVIEW_STRUCTURE.items()]
+    return [(k, v['_comment']) for k, v in WORLDVIEW_STRUCTURE.items() if not k.startswith('_')]
 
 
 # 预渲染的结构字符串

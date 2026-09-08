@@ -2,7 +2,7 @@
  * 聊天 composable — 消息管理、SSE 收发、停止生成、选择模式
  */
 import { ref, nextTick } from 'vue'
-import { streamRequestRaw, createSseController } from '@/api/sse'
+import { createSseController } from '@/api/sse'
 
 export function useChat(options = {}) {
   const {

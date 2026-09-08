@@ -48,6 +48,8 @@ def get_worldview_context(project):
     power_text = json.dumps(worldview.power, ensure_ascii=False, indent=2) if worldview.power else ''
     races_text = json.dumps(worldview.races, ensure_ascii=False, indent=2) if worldview.races else ''
     special_text = json.dumps(worldview.special, ensure_ascii=False, indent=2) if worldview.special else ''
+    military_text = json.dumps(worldview.military, ensure_ascii=False, indent=2) if worldview.military else ''
+    technology_text = json.dumps(worldview.technology, ensure_ascii=False, indent=2) if worldview.technology else ''
 
     worldview_summary = f"""
 基础设定：{setting_text}
@@ -58,6 +60,8 @@ def get_worldview_context(project):
 力量体系：{power_text}
 种族族群：{races_text}
 特殊规则：{special_text}
+军事体系：{military_text}
+科技体系：{technology_text}
 """
     return worldview, setting_text, history_text, foundation_text, worldview_summary
 

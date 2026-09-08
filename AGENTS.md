@@ -73,6 +73,41 @@ python manage.py test apps.<app_name>.tests
 pip install -r requirements.txt
 ```
 
+### Docker Compose 操作
+
+项目使用 Docker Compose 部署，服务包括：redis、postgres（pgvector）、django、celery-worker、celery-beat、nginx。
+
+```bash
+# 重新构建并重启所有服务
+docker compose up -d --build
+
+# 仅重启特定服务（如 django、celery-worker）
+docker compose restart django celery-worker
+
+# 重新构建并重启特定服务
+docker compose up -d --build django
+
+# 查看服务日志
+docker compose logs -f django
+docker compose logs -f celery-worker
+
+# 停止所有服务
+docker compose down
+
+# 停止并删除数据卷（慎用，会清除数据库）
+docker compose down -v
+```
+
+#### 操作规范
+
+1. **需要重新构建/重启前后端时**: 自行操作 Docker Compose，仅限必要服务（如 `django`、`celery-worker`、`nginx`），无需等待用户确认
+2. **修改数据库模型后**: 必须执行迁移命令
+   ```bash
+   docker compose exec django python manage.py makemigrations
+   docker compose exec django python manage.py migrate
+   ```
+3. **修改前端代码后**: 需主动尝试在浏览器中验证效果（如果能力允许），确保修改生效且无明显错误
+
 ## 应用结构
 
 ### 后端应用（`apps/`）
@@ -136,6 +171,10 @@ project/base.py:BaseAPIView (根基类)
 5. **代码审查**: 提交代码前进行自我审查，确保符合项目规范
 
 ## 开发规范
+
+### 语言规范
+
+- **优先使用中文**: AI Agent 的思考过程、回答内容、注释说明等均优先使用中文显示
 
 ### 代码维护规范
 

@@ -9,6 +9,48 @@ import { api } from './request'
 export const worldviewUrls = {
   optimize: (pid, wid, layer) => `/api/projects/${pid}/worldviews/${wid}/optimize/${layer}/`,
   chatStream: (pid) => `/api/projects/${pid}/worldviews/chat/stream/`,
+  // 世界观文档（Markdown 新版）
+  docChatStream: (pid) => `/api/projects/${pid}/worldview-doc/chat/stream/`,
+}
+
+/**
+ * 世界观文档（Markdown 新版）题材选项
+ */
+export const WORLDVIEW_GENRES = [
+  { value: 'xuanhuan', label: '玄幻/仙侠' },
+  { value: 'wuxia', label: '武侠' },
+  { value: 'fantasy', label: '西方奇幻' },
+  { value: 'scifi', label: '科幻' },
+  { value: 'history', label: '历史/架空' },
+  { value: 'urban', label: '都市' },
+  { value: 'apocalypse', label: '末世/灾变' },
+  { value: 'general', label: '通用' },
+]
+
+export const worldviewDocApi = {
+  // 获取世界观文档
+  get: (projectId) => api.get(`/api/projects/${projectId}/worldview-doc/`),
+
+  // 保存文档（手动编辑/切换题材）
+  save: (projectId, data) => api.put(`/api/projects/${projectId}/worldview-doc/`, data),
+
+  // 打开聊天（返回引导问题）
+  openChat: (projectId) => api.post(`/api/projects/${projectId}/worldview-doc/chat/open/`, {}),
+
+  // 获取最近聊天历史
+  getChatHistory: (projectId, limit = 10) => api.get(`/api/projects/${projectId}/worldview-doc/chat/history/?limit=${limit}`),
+
+  // 提取阵营索引（供角色下拉框）
+  extractFactions: (projectId) => api.post(`/api/projects/${projectId}/worldview-doc/factions/extract/`, {}),
+
+  // 版本管理
+  getVersions: (projectId) => api.get(`/api/projects/${projectId}/worldview-doc/versions/`),
+  loadVersion: (projectId, versionId) => api.get(`/api/projects/${projectId}/worldview-doc/versions/${versionId}/load/`),
+  saveVersion: (projectId, data) => api.post(`/api/projects/${projectId}/worldview-doc/versions/save/`, data),
+  updateVersion: (projectId, data) => api.post(`/api/projects/${projectId}/worldview-doc/versions/update/`, data),
+  lockVersion: (projectId, versionId) => api.post(`/api/projects/${projectId}/worldview-doc/versions/${versionId}/lock/`),
+  unlockVersion: (projectId, versionId) => api.post(`/api/projects/${projectId}/worldview-doc/versions/${versionId}/unlock/`),
+  deleteVersion: (projectId, versionId) => api.post(`/api/projects/${projectId}/worldview-doc/versions/${versionId}/delete/`),
 }
 
 export const worldviewApi = {

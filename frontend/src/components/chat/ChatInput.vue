@@ -34,7 +34,6 @@
         </el-button>
       </div>
     </div>
-    <div v-if="hint" class="chat-input-hint">{{ hint }}</div>
   </div>
 </template>
 
@@ -46,7 +45,6 @@ const props = defineProps({
   streaming: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   placeholder: { type: String, default: '输入消息...' },
-  hint: { type: String, default: '' },
 })
 
 const emit = defineEmits(['send', 'stop'])
@@ -109,10 +107,4 @@ defineExpose({ focus })
   padding-bottom: 2px;
 }
 
-.chat-input-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 4px 4px 0;
-  text-align: center;
-}
 </style>

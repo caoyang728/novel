@@ -376,7 +376,6 @@ const LAYERS = [
           { key: 'era', label: '纪年方式', type: 'textarea', path: 'calendar.era', placeholder: '如：灵历、新纪元' },
           { key: 'days', label: '一年天数', type: 'input', path: 'calendar.days_per_year', placeholder: '如：365天' },
           { key: 'seasons', label: '季节划分', type: 'textarea', path: 'calendar.seasons', placeholder: '季节与气候特征' },
-          { key: 'festivals', label: '特殊节气 / 节日', type: 'textarea', path: 'calendar.festivals', placeholder: '重要节日' },
         ],
       },
       {
@@ -479,8 +478,8 @@ const LAYERS = [
         fields: [
           { key: 'sect_level', label: '门派等级', type: 'textarea', path: 'sect.levels', placeholder: '宗门/门派等级划分' },
           { key: 'sect_heritage', label: '传承关系', type: 'textarea', path: 'sect.relationships', placeholder: '门派间的渊源与关系' },
-          { key: 'martial_faction', label: '武林帮派', type: 'textarea', path: 'martial.factions', placeholder: '江湖帮派' },
-          { key: 'martial_guild', label: '商会联盟', type: 'textarea', path: 'martial.alliances', placeholder: '商会、联盟组织' },
+          { key: 'martial_faction', label: '武林帮派', type: 'textarea', path: 'jianghu.factions', placeholder: '江湖帮派' },
+          { key: 'martial_guild', label: '商会联盟', type: 'textarea', path: 'jianghu.alliances', placeholder: '商会、联盟组织' },
         ],
       },
       {
@@ -598,7 +597,69 @@ const LAYERS = [
         fields: [
           { key: 'transmigration', label: '穿越规则', type: 'textarea', placeholder: '穿越者相关规则' },
           { key: 'system', label: '系统规则', type: 'textarea', placeholder: '系统/金手指规则' },
-          { key: 'rules', label: '其他特殊规则', type: 'textarea', placeholder: '其余特殊设定' },
+          { key: 'transmigration_rules', label: '穿越者规矩', type: 'textarea', placeholder: '穿越者之间的约定、限制' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'military',
+    name: '军事体系',
+    icon: 'Flag',
+    groups: [
+      {
+        name: '军事力量',
+        grid: true,
+        fields: [
+          { key: 'army_structure', label: '军队编制', type: 'textarea', path: 'forces.army_structure', placeholder: '军队的组织结构、兵种划分' },
+          { key: 'elite_units', label: '精锐部队', type: 'textarea', path: 'forces.elite_units', placeholder: '特殊部队、精英军团' },
+        ],
+      },
+      {
+        name: '武器装备',
+        grid: true,
+        fields: [
+          { key: 'weapon_types', label: '武器类型', type: 'textarea', path: 'weapons.types', placeholder: '主要武器种类和特点' },
+          { key: 'weapon_legendary', label: '传奇武器', type: 'textarea', path: 'weapons.legendary', placeholder: '传说中的神兵利器' },
+        ],
+      },
+      {
+        name: '战争规则',
+        grid: true,
+        fields: [
+          { key: 'warfare_rules', label: '战争法则', type: 'textarea', path: 'warfare.rules', placeholder: '战争的规则、禁忌、惯例' },
+          { key: 'warfare_history', label: '战争历史', type: 'textarea', path: 'warfare.history', placeholder: '重大战役、战争传说' },
+        ],
+      },
+      {
+        name: '防御体系',
+        grid: true,
+        fields: [
+          { key: 'fortifications', label: '防御工事', type: 'textarea', path: 'defense.fortifications', placeholder: '城防、要塞、结界' },
+          { key: 'strategic_points', label: '战略要地', type: 'textarea', path: 'defense.strategic_points', placeholder: '关键地理位置、兵家必争之地' },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'technology',
+    name: '科技体系',
+    icon: 'Cpu',
+    groups: [
+      {
+        name: '科技水平',
+        fields: [
+          { key: 'tech_level', label: '科技水平', type: 'textarea', path: 'level', placeholder: '整体科技发展程度' },
+          { key: 'key_tech', label: '关键技术', type: 'textarea', placeholder: '核心科技、改变世界的技术突破' },
+        ],
+      },
+      {
+        name: '应用技术',
+        grid: true,
+        fields: [
+          { key: 'communication', label: '通讯技术', type: 'textarea', placeholder: '信息传递方式和技术' },
+          { key: 'tech_transport', label: '交通技术', type: 'textarea', path: 'transport', placeholder: '交通工具和方式' },
+          { key: 'tech_ethics', label: '技术伦理', type: 'textarea', path: 'ethics', placeholder: '科技使用的规则和限制' },
         ],
       },
     ],
@@ -621,6 +682,8 @@ const LAYER_NAMES = {
   culture: '文化人文',
   history: '历史进程',
   special: '特殊规则',
+  military: '军事体系',
+  technology: '科技体系',
 }
 
 const PATH_TERMS = {
@@ -634,7 +697,7 @@ const PATH_TERMS = {
   category: '分类', value: '价值观', trait: '特征', lifespan: '寿命', reproduction: '繁衍', physique: '体质', relation: '关系',
   court: '朝堂', political_system: '政治体制', bureaucracy: '官僚体系',
   sect: '宗门', relationships: '关系', factions: '帮派', alliances: '联盟',
-  external: '外部势力', strata: '阶层', social_classes: '社会等级', mobility: '阶层流动',
+  jianghu: '江湖', external: '外部势力', strata: '阶层', social_classes: '社会等级', mobility: '阶层流动',
   currency: '货币', resource: '资源',
   custom: '风俗', rituals: '仪式',
   language: '语言', languages: '语言', writing_system: '书写系统',
@@ -643,7 +706,15 @@ const PATH_TERMS = {
   ancient: '上古', modern: '近代', crisis: '隐患', destiny: '宿命', future: '未来',
   fate: '命运', fortune_rules: '运势规则', destiny_types: '命运类型',
   reincarnation: '轮回', soul_rules: '灵魂规则', mechanics: '机制',
-  taboo: '禁忌', secret: '秘密', transmigration: '穿越', system: '系统',
+  taboo: '禁忌', secret: '秘密', transmigration: '穿越', system: '系统', transmigration_rules: '穿越者规矩',
+  // military 层
+  forces: '军事力量', army_structure: '军队编制', elite_units: '精锐部队',
+  weapons: '武器装备', weapon_types: '武器类型', legendary: '传奇武器',
+  warfare: '战争规则', warfare_rules: '战争法则', warfare_history: '战争历史',
+  defense: '防御体系', fortifications: '防御工事', strategic_points: '战略要地',
+  // technology 层
+  tech_level: '科技水平', key_tech: '关键技术', communication: '通讯技术',
+  tech_transport: '交通技术', tech_ethics: '技术伦理',
 }
 
 // ========== 状态 ==========

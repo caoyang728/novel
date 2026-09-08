@@ -126,6 +126,7 @@ const routes = [
         component: WorldviewChatView,
         meta: { title: '世界观聊天' },
       },
+
       {
         path: 'character',
         name: 'Character',

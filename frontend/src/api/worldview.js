@@ -28,15 +28,6 @@ export const worldviewApi = {
   // 获取世界观文档
   get: (projectId) => api.get(`/api/projects/${projectId}/worldviews/`),
 
-  // 保存文档（手动编辑/切换题材）
-  save: (projectId, data) => api.put(`/api/projects/${projectId}/worldviews/`, data),
-
-  // 打开聊天（返回引导问题）
-  open: (projectId) => api.post(`/api/projects/${projectId}/worldviews/open/`, {}),
-
-  // 获取最近聊天历史
-  getChatHistory: (projectId, limit = 10) => api.get(`/api/projects/${projectId}/worldviews/chat/history/?limit=${limit}`),
-
   // 提取阵营索引（供角色下拉框）
   extractFactions: (projectId) => api.post(`/api/projects/${projectId}/worldviews/factions/extract/`, {}),
 

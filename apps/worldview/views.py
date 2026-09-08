@@ -28,7 +28,6 @@ from .prompts import (
     WORLDVIEW_SYSTEM_PROMPT,
     WORLDVIEW_BUILD_PROMPT,
     WORLDVIEW_JSON_REPAIR_PROMPT,
-    WORLDVIEW_WELCOME_PROMPT,
     WORLDVIEW_FACTION_EXTRACT_PROMPT,
     GENRE_LABELS,
     get_genre_guide,
@@ -47,11 +46,21 @@ class BaseWorldAPIView(BaseAPIView):
 
 
 def _get_or_create_doc(project):
-    """获取项目的世界观文档（当前版本），不存在则创建 v1"""
-    doc, created = WorldView.objects.get_or_create(
+    """获取项目的世界观文档（当前版本），不存在则创建"""
+    doc = WorldView.objects.filter(
+        project=project, is_deleted=False
+    ).first()  # Meta.ordering = ['-version']，first() 即最新版本
+    if doc:
+        return doc
+    # 没有未删除的文档，计算下一个版本号（避免与已删除版本冲突）
+    max_v = WorldView.objects.filter(project=project).aggregate(
+        models.Max('version'))['version__max'] or 0
+    doc = WorldView.objects.create(
         project=project,
-        version=1,
-        defaults={'genre': project.genre or 'general', 'content': '', 'title': ''},
+        version=max_v + 1,
+        genre=project.genre or 'general',
+        content='',
+        title='',
     )
     return doc
 
@@ -279,6 +288,7 @@ class ApiWorldviewView(BaseWorldAPIView):
         genre = request.data.get('genre')
         title = request.data.get('title')
         content = request.data.get('content')
+        truncated = False
 
         if genre is not None:
             genre = str(genre).strip()
@@ -288,13 +298,16 @@ class ApiWorldviewView(BaseWorldAPIView):
         if title is not None:
             doc.title = str(title).strip()[:200]
         if content is not None:
-            doc.content = str(content)[:500000]  # 限制文档最大 500KB
+            raw = str(content)
+            if len(raw) > 500000:
+                truncated = True
+                logger.warning(f'[WV_DOC] 文档内容被截断: 原始长度={len(raw)}, 限制=500000')
+            doc.content = raw[:500000]
             doc.version = (doc.version or 1) + 1
 
-        close_old_connections()
         doc.save()
 
-        return self.success_response({
+        resp = {
             'exists': True,
             'id': doc.id,
             'genre': doc.genre,
@@ -302,72 +315,11 @@ class ApiWorldviewView(BaseWorldAPIView):
             'title': doc.title,
             'content': doc.content,
             'version': doc.version,
-        })
-
-
-class ApiWorldviewOpenView(BaseWorldAPIView):
-    """打开世界观文档聊天：返回开场引导问题（非流式）"""
-
-    def post(self, request, project_id):
-        project = self.get_project_or_404(request, project_id)
-        doc = _get_or_create_doc(project)
-
-        has_content = bool((doc.content or '').strip())
-
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "你是一位资深小说世界观架构师，协助作者构建世界观。"),
-            ("human", WORLDVIEW_WELCOME_PROMPT),
-        ])
-
-        try:
-            llm = get_llm(user=request.user, scene="worldview_chat")
-            chain = prompt | llm
-            current_doc_section = ''
-            if has_content and doc.content:
-                current_doc_section = f'当前文档内容（前 3000 字）：\n---\n{doc.content[:3000]}\n---'
-
-            result = chain.invoke({
-                "genre_label": get_genre_label(doc.genre),
-                "doc_status": "已有内容" if has_content else "空白（尚未开始构建）",
-                "current_doc_section": current_doc_section,
-            })
-            self.log_token_usage('worldview_welcome', result=result,
-                                 user=request.user, project=project)
-
-            text = result.content if hasattr(result, 'content') else str(result)
-
-            question = ''
-            options = []
-            try:
-                m = re.search(r'```(?:json)?\s*(\{[\s\S]*\})\s*```', text, re.DOTALL)
-                if m:
-                    data = json.loads(m.group(1))
-                else:
-                    m = re.search(r'\{[\s\S]*\}', text, re.DOTALL)
-                    data = json.loads(m.group(0)) if m else {}
-                question = data.get('question', '')
-                options = data.get('options', [])
-            except Exception:
-                logger.warning(f'世界观文档开场 JSON 解析失败: {text[:200]}')
-                question = text
-
-            return self.success_response({
-                'has_content': has_content,
-                'genre': doc.genre,
-                'genre_label': get_genre_label(doc.genre),
-                'question': question,
-                'options': options,
-            })
-        except Exception as e:
-            logger.error(f'世界观文档开场问题失败: {e}')
-            logger.error(traceback.format_exc())
-            return self.success_response({
-                'has_content': has_content,
-                'genre': doc.genre,
-                'genre_label': get_genre_label(doc.genre),
-                'question': '',
-                'options': [],
-            })
+        }
+        if truncated:
+            resp['truncated'] = True
+            resp['truncated_message'] = '文档内容超过 500KB 限制，已自动截断'
+        return self.success_response(resp)
 
 
 class ApiWorldviewStreamView(BaseWorldAPIView):
@@ -646,7 +598,6 @@ class ApiWorldviewFactionExtractView(BaseWorldAPIView):
                     })
 
             doc.faction_index = cleaned
-            close_old_connections()
             doc.save(update_fields=['faction_index'])
 
             return self.success_response({'faction_index': cleaned})
@@ -824,28 +775,4 @@ class ApiWorldviewVersionDeleteView(BaseWorldAPIView):
         return self.success_response({'deleted': True})
 
 
-class ApiWorldviewChatHistoryView(BaseWorldAPIView):
-    """获取最近的聊天历史"""
 
-    def get(self, request, project_id):
-        project = self.get_project_or_404(request, project_id)
-        doc = WorldView.objects.filter(project=project, is_deleted=False).first()
-        if not doc:
-            return self.success_response({'messages': []})
-
-        try:
-            limit = max(1, min(50, int(request.query_params.get('limit', 10))))
-        except (ValueError, TypeError):
-            limit = 10
-        histories = WorldViewChatHistory.objects.filter(
-            worldview=doc, is_deleted=False
-        ).order_by('-created_at')[:limit]
-
-        messages = []
-        for h in reversed(list(histories)):
-            msg = {'role': h.role, 'content': h.content}
-            if h.role == 'assistant' and h.options:
-                msg['options'] = h.options
-            messages.append(msg)
-
-        return self.success_response({'messages': messages})

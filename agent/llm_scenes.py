@@ -26,6 +26,21 @@ LLM_SCENES = {
         "default_temperature": 0.3,
         "default_max_tokens": 24000,
     },
+    # ==================== 世界观文档（Markdown 新版） ====================
+    "worldview_doc_build": {
+        "name": "世界观文档构建",
+        "group": "worldview",
+        "group_name": "世界观",
+        "default_temperature": 0.8,
+        "default_max_tokens": 100000,
+    },
+    "worldview_doc_chat": {
+        "name": "世界观文档对话",
+        "group": "worldview",
+        "group_name": "世界观",
+        "default_temperature": 0.7,
+        "default_max_tokens": 16000,
+    },
     # ==================== 人物清单 ====================
     "character_design": {
         "name": "角色设计",

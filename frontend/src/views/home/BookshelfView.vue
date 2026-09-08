@@ -109,6 +109,7 @@ async function handleFormSubmit(formData) {
       await projectStore.updateProject(editingProject.value.id, {
         title: formData.title,
         description: formData.description,
+        genre: formData.genre,
         min_words_per_chapter: formData.min_words_per_chapter,
       })
       showSuccess('项目已更新')
@@ -116,6 +117,7 @@ async function handleFormSubmit(formData) {
       await projectStore.createProject({
         title: formData.title,
         description: formData.description,
+        genre: formData.genre,
       })
       showSuccess('项目已创建')
     }

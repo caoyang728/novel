@@ -10,11 +10,24 @@ def generate_project_title():
     return f"小说{count}"
 
 
+GENRE_CHOICES = [
+    ('xuanhuan', '玄幻/仙侠'),
+    ('wuxia', '武侠'),
+    ('fantasy', '西方奇幻'),
+    ('scifi', '科幻'),
+    ('history', '历史/架空'),
+    ('urban', '都市'),
+    ('apocalypse', '末世/灾变'),
+    ('general', '通用'),
+]
+
+
 class ProjectList(models.Model):
     """项目列表"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='project_lists', verbose_name='用户')
     title = models.CharField(max_length=255, default=generate_project_title, verbose_name='项目名称')
     description = models.TextField(blank=True, verbose_name='项目描述')
+    genre = models.CharField(max_length=20, choices=GENRE_CHOICES, default='general', verbose_name='题材类型')
     status = models.CharField(max_length=50, default='draft', verbose_name='状态')
     finalized = models.BooleanField(default=False, verbose_name='是否定稿')
     is_deleted = models.BooleanField(default=False, verbose_name='是否删除')

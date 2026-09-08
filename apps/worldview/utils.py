@@ -1,6 +1,6 @@
 import json
 from django.http import StreamingHttpResponse
-from .models import WorldView
+
 
 def create_stream_response(generator_func):
     response = StreamingHttpResponse(generator_func(), content_type='text/event-stream')
@@ -35,35 +35,12 @@ def make_error_message(message):
 
 
 def get_worldview_context(project):
-    """获取项目的世界观数据作为上下文，返回 (worldview, setting_text, history_text, foundation_text, worldview_summary)"""
-    worldview = WorldView.objects.filter(project=project).first()
-    if not worldview:
-        return {}, '', '', '', ''
-
-    setting_text = json.dumps(worldview.setting, ensure_ascii=False, indent=2) if worldview.setting else ''
-    history_text = json.dumps(worldview.history, ensure_ascii=False, indent=2) if worldview.history else ''
-    foundation_text = json.dumps(worldview.foundation, ensure_ascii=False, indent=2) if worldview.foundation else ''
-    society_text = json.dumps(worldview.society, ensure_ascii=False, indent=2) if worldview.society else ''
-    culture_text = json.dumps(worldview.culture, ensure_ascii=False, indent=2) if worldview.culture else ''
-    power_text = json.dumps(worldview.power, ensure_ascii=False, indent=2) if worldview.power else ''
-    races_text = json.dumps(worldview.races, ensure_ascii=False, indent=2) if worldview.races else ''
-    special_text = json.dumps(worldview.special, ensure_ascii=False, indent=2) if worldview.special else ''
-
-    worldview_summary = f"""
-基础设定：{setting_text}
-世界历史：{history_text}
-世界基础：{foundation_text}
-社会结构：{society_text}
-文化人文：{culture_text}
-力量体系：{power_text}
-种族族群：{races_text}
-特殊规则：{special_text}
-"""
-    return worldview, setting_text, history_text, foundation_text, worldview_summary
-
-
-def get_core_conflict(worldview):
-    """获取世界观的核心冲突"""
-    if hasattr(worldview, 'structure') and worldview.structure:
-        return worldview.structure.get('profile', {}).get('core_conflict', '未设定')
-    return '未设定'
+    """
+    获取项目的世界观文档上下文，用于 AI 对话时提供背景信息。
+    返回最新的世界观文档 Markdown 内容，无则返回 None。
+    """
+    from .models import WorldView
+    doc = WorldView.objects.filter(project=project, is_deleted=False).order_by('-version').first()
+    if not doc or not doc.content:
+        return None
+    return doc.content

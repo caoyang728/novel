@@ -1,31 +1,39 @@
 from django.urls import path
 from .views import (
-    ApiWorldviewDataView,
-    ApiWorldviewDeepeningQuestionsView,
-    ApiWorldviewDeepeningSubmitView,
-    ApiWorldviewDeepeningApplyView,
-    ApiWorldviewConsistencyView,
-    ApiWorldviewConsistencyFixView,
-    ApiWorldviewOptimizeView,
-    ApiWorldviewLayerView,
-    ApiWorldviewExportMarkdownView,
-    ApiWorldviewChatStreamView,
-    ApiWorldviewChatOpenView
+    # 文档 CRUD
+    ApiWorldviewView,
+    # 会话
+    ApiWorldviewOpenView,
+    ApiWorldviewStreamView,
+    ApiWorldviewChatHistoryView,
+    # 阵营提取
+    ApiWorldviewFactionExtractView,
+    # 版本管理
+    ApiWorldviewVersionsView,
+    ApiWorldviewVersionSaveView,
+    ApiWorldviewVersionUpdateView,
+    ApiWorldviewVersionLoadView,
+    ApiWorldviewVersionLockView,
+    ApiWorldviewVersionUnlockView,
+    ApiWorldviewVersionDeleteView,
 )
 
 urlpatterns = [
-    path('api/projects/<int:project_id>/worldviews/', ApiWorldviewDataView.as_view(), name='api_worldview_data'),
-    # 无需 pk 的路由（一个项目只有一个世界观，用 project_id 查询即可）—— 必须在 <int:pk>/ 之前
-    path('api/projects/<int:project_id>/worldviews/chat/open/', ApiWorldviewChatOpenView.as_view(), name='api_worldview_chat_open'),
-    path('api/projects/<int:project_id>/worldviews/export/markdown/', ApiWorldviewExportMarkdownView.as_view(), name='api_worldview_export_markdown'),
-    # 需要 pk 的路由
-    path('api/projects/<int:project_id>/worldviews/<int:pk>/', ApiWorldviewDataView.as_view(), name='api_worldview_data_by_id'),
-    path('api/projects/<int:project_id>/worldviews/<int:pk>/deepening/questions/', ApiWorldviewDeepeningQuestionsView.as_view(), name='api_worldview_deepening_questions'),
-    path('api/projects/<int:project_id>/worldviews/<int:pk>/deepening/submit/', ApiWorldviewDeepeningSubmitView.as_view(), name='api_worldview_deepening_submit'),
-    path('api/projects/<int:project_id>/worldviews/<int:pk>/deepening/apply/', ApiWorldviewDeepeningApplyView.as_view(), name='api_worldview_deepening_apply'),
-    path('api/projects/<int:project_id>/worldviews/<int:pk>/consistency/check/', ApiWorldviewConsistencyView.as_view(), name='api_worldview_consistency'),
-    path('api/projects/<int:project_id>/worldviews/<int:pk>/consistency/fix/', ApiWorldviewConsistencyFixView.as_view(), name='api_worldview_consistency_fix'),
-    path('api/projects/<int:project_id>/worldviews/<int:pk>/optimize/<str:layer>/', ApiWorldviewOptimizeView.as_view(), name='api_worldview_optimize'),
-    path('api/projects/<int:project_id>/worldviews/<int:pk>/layer/<str:layer>/', ApiWorldviewLayerView.as_view(), name='api_worldview_layer'),
-    path('api/projects/<int:project_id>/worldviews/chat/stream/', ApiWorldviewChatStreamView.as_view(), name='api_worldview_chat_stream'),
+    # 文档 CRUD
+    path('api/projects/<int:project_id>/worldviews/', ApiWorldviewView.as_view(), name='api_worldview'),
+    # 会话
+    path('api/projects/<int:project_id>/worldviews/open/', ApiWorldviewOpenView.as_view(), name='api_worldview_open'),
+    path('api/projects/<int:project_id>/worldviews/stream/', ApiWorldviewStreamView.as_view(), name='api_worldview_stream'),
+    path('api/projects/<int:project_id>/worldviews/chat/history/', ApiWorldviewChatHistoryView.as_view(), name='api_worldview_chat_history'),
+    # 阵营提取
+    path('api/projects/<int:project_id>/worldviews/factions/extract/', ApiWorldviewFactionExtractView.as_view(), name='api_worldview_faction_extract'),
+    # 版本管理（save/update 无 id，需排在 <int:version_id>/ 之前）
+    path('api/projects/<int:project_id>/worldviews/versions/', ApiWorldviewVersionsView.as_view(), name='api_worldview_versions'),
+    path('api/projects/<int:project_id>/worldviews/versions/save/', ApiWorldviewVersionSaveView.as_view(), name='api_worldview_version_save'),
+    path('api/projects/<int:project_id>/worldviews/versions/update/', ApiWorldviewVersionUpdateView.as_view(), name='api_worldview_version_update'),
+    # 单个版本操作
+    path('api/projects/<int:project_id>/worldviews/versions/<int:version_id>/load/', ApiWorldviewVersionLoadView.as_view(), name='api_worldview_version_load'),
+    path('api/projects/<int:project_id>/worldviews/versions/<int:version_id>/lock/', ApiWorldviewVersionLockView.as_view(), name='api_worldview_version_lock'),
+    path('api/projects/<int:project_id>/worldviews/versions/<int:version_id>/unlock/', ApiWorldviewVersionUnlockView.as_view(), name='api_worldview_version_unlock'),
+    path('api/projects/<int:project_id>/worldviews/versions/<int:version_id>/delete/', ApiWorldviewVersionDeleteView.as_view(), name='api_worldview_version_delete'),
 ]

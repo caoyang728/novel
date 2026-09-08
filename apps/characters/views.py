@@ -76,29 +76,11 @@ class BaseCharacterAPIView(BaseAPIView):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     def _get_worldview_str(self, project):
-        """获取项目世界观描述字符串（不使用向量库，直接格式化）"""
+        """获取项目世界观描述字符串"""
         worldview_text = self.get_worldview_context(project)
         if worldview_text and '暂无' not in worldview_text:
             return worldview_text
-
-        # 回退：直接从世界观模型读取
-        worldview_str = '暂无世界观设定'
-        wv = project.worldview
-        if wv:
-            worldview_parts = []
-            if wv.setting:
-                foundation = wv.setting.get('foundation', {})
-                if foundation.get('world_name'):
-                    worldview_parts.append(f"世界名称: {foundation['world_name']}")
-                if foundation.get('genre'):
-                    worldview_parts.append(f"题材类型: {foundation['genre']}")
-            if wv.power:
-                worldview_parts.append(f"力量体系: {json.dumps(wv.power, ensure_ascii=False)[:500]}")
-            if wv.society:
-                worldview_parts.append(f"社会结构: {json.dumps(wv.society, ensure_ascii=False)[:500]}")
-            if worldview_parts:
-                worldview_str = '\n'.join(worldview_parts)
-        return worldview_str
+        return '暂无世界观设定'
 
     # 角色字段→LLM 显示标签映射
     _CHARACTER_FIELD_DISPLAY = [

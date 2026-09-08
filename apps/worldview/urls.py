@@ -3,9 +3,7 @@ from .views import (
     # 文档 CRUD
     ApiWorldviewView,
     # 会话
-    ApiWorldviewOpenView,
     ApiWorldviewStreamView,
-    ApiWorldviewChatHistoryView,
     # 阵营提取
     ApiWorldviewFactionExtractView,
     # 版本管理
@@ -22,9 +20,7 @@ urlpatterns = [
     # 文档 CRUD
     path('api/projects/<int:project_id>/worldviews/', ApiWorldviewView.as_view(), name='api_worldview'),
     # 会话
-    path('api/projects/<int:project_id>/worldviews/open/', ApiWorldviewOpenView.as_view(), name='api_worldview_open'),
     path('api/projects/<int:project_id>/worldviews/stream/', ApiWorldviewStreamView.as_view(), name='api_worldview_stream'),
-    path('api/projects/<int:project_id>/worldviews/chat/history/', ApiWorldviewChatHistoryView.as_view(), name='api_worldview_chat_history'),
     # 阵营提取
     path('api/projects/<int:project_id>/worldviews/factions/extract/', ApiWorldviewFactionExtractView.as_view(), name='api_worldview_faction_extract'),
     # 版本管理（save/update 无 id，需排在 <int:version_id>/ 之前）

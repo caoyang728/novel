@@ -63,8 +63,12 @@
             />
             <div v-else class="wv-doc-preview">
               <template v-if="content.trim()">
-                <div v-if="!locked && hasUnsavedChanges() && diffHtml" class="markdown-body diff-body" v-html="diffHtml" />
-                <MarkdownRenderer v-else :content="content" />
+                <MarkdownRenderer
+                  :content="content"
+                  :highlight-new="!locked && hasUnsavedChanges()"
+                  :show-removed="!locked && hasUnsavedChanges()"
+                  :baseline="baseline"
+                />
               </template>
               <EmptyState v-else icon="Reading" text="暂无世界观文档" />
             </div>
@@ -127,7 +131,6 @@ import { useProjectId } from '@/composables/useProjectId'
 import { useChat } from '@/composables/useChat'
 import { showSuccess, showError, showWarning } from '@/utils/notify'
 import { showConfirmModal } from '@/utils/modal'
-import { safeMarkdownParse } from '@/utils/markdown'
 
 const setPageHeader = inject('setPageHeader')
 const pageHeaderRightRef = inject('pageHeaderRightRef')
@@ -155,68 +158,40 @@ const pendingQuestion = ref('')
 const pendingOptions = ref([])
 const contextCount = ref('5')
 const streamingMsgId = ref(null) // 当前正在流式的消息 ID
-const genre = ref('general')
-const syncing = ref(false)
-const welcomeLoading = ref(false)
 let typewriterTimer = null // 打字机效果定时器引用
 
 const locked = computed(() => !!currentVersion.value?.is_finalized)
 const hasUnsavedChanges = () => content.value !== baseline.value
 
-// ---- Diff 预览（本轮修改内容绿色高亮） ----
-const diffHtml = computed(() => {
-  const oldText = baseline.value || ''
-  const newText = content.value || ''
-  if (!oldText && !newText) return ''
-  if (oldText === newText) return safeMarkdownParse(newText)
+/** 滚动聊天面板到底部 */
+function scrollChatToBottom() {
+  nextTick(() => {
+    setTimeout(() => {
+      const container = document.querySelector('.chat-panel-messages')
+      if (container) container.scrollTop = container.scrollHeight
+    }, 100)
+  })
+}
 
-  // 先将 Markdown 解析为 HTML，再对 HTML 行做 diff
-  const oldHtml = safeMarkdownParse(oldText)
-  const newHtml = safeMarkdownParse(newText)
-  const oldLines = oldHtml.split('\n')
-  const newLines = newHtml.split('\n')
-  const result = []
-  let i = 0, j = 0
-
-  while (i < oldLines.length || j < newLines.length) {
-    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
-      // 未修改行：直接输出已解析的 HTML
-      result.push(newLines[j])
-      i++
-      j++
-    } else if (j < newLines.length && (i >= oldLines.length || !oldLines.includes(newLines[j], i))) {
-      // 新增行：绿色高亮
-      result.push(`<div class="diff-added">${newLines[j]}</div>`)
-      j++
-    } else if (i < oldLines.length) {
-      // 删除行：红色删除线（保留在视图中供对比），只递增 i
-      result.push(`<div class="diff-removed">${oldLines[i]}</div>`)
-      i++
-    } else {
-      break
-    }
-  }
-  return result.join('\n')
-})
+// ---- Diff 预览：由 MarkdownRenderer 组件内置处理 ----
 
 // ---- 快捷选项 ----
 const quickOptions = ref([])
 
-function updateQuickOptions() {
-  const last = messages.value[messages.value.length - 1]
-  if (!last || last.role !== 'assistant' || !last.content) {
-    quickOptions.value = []
-    return
+const lastAssistantOptions = computed(() => {
+  const msgs = messages.value
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]
+    if (m.role === 'assistant' && m.content && Array.isArray(m.options) && m.options.length) {
+      return [...m.options]
+    }
   }
-  // 使用消息自带的 options（深拷贝确保响应式更新）
-  if (Array.isArray(last.options) && last.options.length) {
-    quickOptions.value = [...last.options]
-    return
-  }
-  quickOptions.value = []
-}
+  return []
+})
 
-watch(messages, updateQuickOptions, { deep: true })
+watch(lastAssistantOptions, (opts) => {
+  quickOptions.value = opts
+})
 
 let msgSeq = 0
 function nextMsgId() {
@@ -261,7 +236,7 @@ async function loadVersions(selectId = null) {
         const docData = docRes || {}
         content.value = docData.content || ''
         baseline.value = docData.content || ''
-      } catch {}
+      } catch (e) { console.warn('加载文档内容失败:', e) }
     }
   } catch {
     // request.js 已统一提示
@@ -320,57 +295,49 @@ function handleSelectVersion(versionId) {
 }
 
 // ---- Header 右侧：版本选择下拉 ----
-/** HTML 转义，防止 XSS */
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-// requestAnimationFrame 轮询检测 header 中 <select> 的值变化（v-html 渲染的 select 无法使用 Vue 事件绑定）
-let _lastSelectValue = null
-let _selectPollRaf = null
-
-function startSelectPolling() {
-  const poll = () => {
-    const sel = document.getElementById('wv-version-select')
-    if (sel) {
-      // String() 处理 Vue 3 响应式代理导致 sel.value 返回 Proxy 对象的问题
-      const curVal = String(sel.value)
-      if (curVal !== _lastSelectValue) {
-        _lastSelectValue = curVal
-        const id = parseInt(curVal, 10)
-        if (!isNaN(id)) handleSelectVersion(id)
-      }
-    }
-    _selectPollRaf = requestAnimationFrame(poll)
-  }
-  _selectPollRaf = requestAnimationFrame(poll)
-}
-
-function stopSelectPolling() {
-  if (_selectPollRaf) {
-    cancelAnimationFrame(_selectPollRaf)
-    _selectPollRaf = null
-  }
-}
+// 使用全局回调处理 v-html 渲染的 select 事件（v-html 无法绑定 Vue 事件）
 
 function refreshHeader() {
   const v = currentVersion.value
   const versionOptions = versions.value
-    .map((ver) => `<option value="${ver.id}" ${ver.id === v?.id ? 'selected' : ''}>v${escapeHtml(ver.version_number)}${ver.is_finalized ? ' (已定稿)' : ''}</option>`)
+    .map((ver) => `<option value="${ver.id}" ${ver.id === v?.id ? 'selected' : ''}>v${ver.version_number}${ver.is_finalized ? ' (已定稿)' : ''}</option>`)
     .join('')
-  // 清除旧 select 的轮询定时器（HTML 即将被替换）
-  _lastSelectValue = null
   pageHeaderRightRef.value = `
     <div style="display:flex;align-items:center;gap:8px;">
-      <select id="wv-version-select" style="height:28px;padding:0 8px;border-radius:6px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;font-size:12px;cursor:pointer;outline:none;">
+      <select id="wv-version-select" onchange="window.__wvVersionSelect(parseInt(this.value))" style="height:28px;padding:0 8px;border-radius:6px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;font-size:12px;cursor:pointer;outline:none;">
         ${versionOptions || '<option value="">暂无版本</option>'}
       </select>
     </div>
   `
+}
+
+/** 刷新版本列表元数据（不重新加载版本内容，避免清空聊天） */
+async function refreshVersionList(switchToId = null) {
+  const res = await worldviewApi.getList(projectId.value)
+  const data = res || {}
+  versions.value = data.versions || []
+  // 切换到指定版本（如另存后跳转到新版本）
+  if (switchToId) {
+    const target = versions.value.find(v => v.id === switchToId)
+    if (target) {
+      currentVersion.value = {
+        ...target,
+        last_question: pendingQuestion.value || '',
+        last_options: pendingOptions.value || [],
+      }
+    }
+  } else if (currentVersion.value?.id) {
+    // 保持当前版本，同步最新状态（如 is_finalized）
+    const updated = versions.value.find(v => v.id === currentVersion.value.id)
+    if (updated) {
+      currentVersion.value = {
+        ...updated,
+        last_question: currentVersion.value.last_question || '',
+        last_options: currentVersion.value.last_options || [],
+      }
+    }
+  }
+  refreshHeader()
 }
 
 watch(currentVersion, (newVal, oldVal) => {
@@ -405,24 +372,10 @@ async function handleSave() {
     }
     showSuccess('已保存')
     baseline.value = content.value
-    // 刷新版本列表，保持当前版本选中
-    const verRes = await worldviewApi.getList(projectId.value)
-    const verData = verRes?.data?.data || verRes?.data || {}
-    versions.value = verData.versions || []
-    // 更新当前版本的最新信息（如 is_finalized 状态）
-    if (currentVersion.value?.id) {
-      const updated = versions.value.find(v => v.id === currentVersion.value.id)
-      if (updated) {
-        currentVersion.value = {
-          ...updated,
-          last_question: currentVersion.value.last_question || '',
-          last_options: currentVersion.value.last_options || [],
-        }
-      }
-    }
-    refreshHeader()
-    // TODO: 自动提取阵营功能暂时关闭，后续重新开启
-    // autoExtractFactions()
+    // 刷新版本列表，保持当前版本选中（刷新失败不影响保存结果）
+    try {
+      await refreshVersionList()
+    } catch (e) { console.warn('刷新版本列表失败:', e) }
   } catch (err) {
     showError('保存失败')
     console.error(err)
@@ -454,20 +407,10 @@ async function handleSaveAs() {
         const data = res || {}
         showSuccess(`已保存为 v${data.version_number || '?'} 版本`)
         baseline.value = content.value
-        // 刷新版本列表并切换到新版本
-        const verRes = await worldviewApi.getList(projectId.value)
-        const verData = verRes || {}
-        versions.value = verData.versions || []
-        currentVersion.value = {
-          id: data.id,
-          version_number: data.version_number,
-          is_finalized: false,
-          last_question: pendingQuestion.value || '',
-          last_options: pendingOptions.value || [],
-        }
-        refreshHeader()
-        // TODO: 自动提取阵营功能暂时关闭，后续重新开启
-        // autoExtractFactions()
+        // 刷新版本列表并切换到新版本（刷新失败不影响保存结果）
+        try {
+          await refreshVersionList(data.id)
+        } catch (e) { console.warn('刷新版本列表失败:', e) }
       } catch (err) {
         showError('另存失败')
         console.error(err)
@@ -476,16 +419,6 @@ async function handleSaveAs() {
       }
     },
   })
-}
-
-// ---- 自动提取阵营（异步，不阻塞） ----
-async function autoExtractFactions() {
-  if (!projectId.value || !content.value.trim()) return
-  try {
-    await worldviewApi.extractFactions(projectId.value)
-  } catch {
-    // 静默失败，不影响主流程
-  }
 }
 
 async function handleLock() {
@@ -563,25 +496,11 @@ async function handleDeleteVersion() {
   })
 }
 
-// ---- 加载文档（获取题材信息） ----
-async function loadDoc() {
-  console.log('[WorldviewView] loadDoc called, projectId:', projectId.value)
-  if (!projectId.value) return
-  try {
-    const res = await worldviewApi.get(projectId.value)
-    const data = res || {}
-    genre.value = data.genre || 'general'
-  } catch (err) {
-    console.error('加载世界观文档失败:', err)
-  }
-}
-
 // ---- 开场引导 ----
 const defaultWelcomeText = '你好！我是你的世界观构建助手，可以一步步帮你搭建完整的世界观。\n\n告诉我你想从哪里开始吧——可以描述一个设定构想、补充某个板块的细节，或者直接说说你还想完善哪些部分。'
 
 async function loadWelcome() {
   if (!projectId.value) return
-  welcomeLoading.value = true
   const placeholderId = nextMsgId()
 
   try {
@@ -589,7 +508,6 @@ async function loadWelcome() {
     const lastQ = currentVersion.value?.last_question
     const lastOpts = currentVersion.value?.last_options || []
     if (lastQ) {
-      // logger.debug('[loadWelcome] 从版本数据加载 last_question')
       messages.value.push({
         id: placeholderId,
         role: 'assistant',
@@ -598,7 +516,6 @@ async function loadWelcome() {
         options: lastOpts,
         timestamp: new Date().toISOString(),
       })
-      welcomeLoading.value = false
       return
     }
 
@@ -620,8 +537,6 @@ async function loadWelcome() {
     if (existing && !existing.content) {
       await typewriterReveal(placeholderId, defaultWelcomeText, [])
     }
-  } finally {
-    welcomeLoading.value = false
   }
 }
 
@@ -728,7 +643,7 @@ async function handleSend(rawText) {
     await sseController.stream(
       worldviewUrls.stream(projectId.value),
       {
-        body: { message: text, messages: context, genre: genre.value, current_content: content.value },
+        body: { message: text, messages: context, current_content: content.value },
         onEvent: (evt) => {
           if (evt.type === 'status' && evt.message) {
             // 后端重试/修复进度提示
@@ -753,13 +668,7 @@ async function handleSend(rawText) {
             // 记录最后一条 AI 消息，保存/另存时才持久化到版本
             pendingQuestion.value = reply
             pendingOptions.value = opts
-            // 延迟滚动到底部，确保选项渲染后也能滚到最下面
-            nextTick(() => {
-              setTimeout(() => {
-                const container = document.querySelector('.chat-panel-messages')
-                if (container) container.scrollTop = container.scrollHeight
-              }, 100)
-            })
+            scrollChatToBottom()
           } else if (evt.type === 'error') {
             updateMsgById(msgId, { content: `抱歉，生成失败：${evt.message || '请重试'}`, thinking: '' })
           }
@@ -770,23 +679,15 @@ async function handleSend(rawText) {
 
     if (!completed) {
       updateMsgById(msgId, { content: streamReply || '世界观文档已更新，请查看左侧预览区', thinking: '' })
-      nextTick(() => {
-        setTimeout(() => {
-          const container = document.querySelector('.chat-panel-messages')
-          if (container) container.scrollTop = container.scrollHeight
-        }, 100)
-      })
+      scrollChatToBottom()
     }
 
     // 注意：不在这里同步 baseline，让 diff 持续显示修改内容
     // baseline 仅在用户手动保存/另存时同步（见 handleSave）
     // 只刷新版本列表，不加载版本内容（避免清空聊天）
     try {
-      const verRes = await worldviewApi.getList(projectId.value)
-      const verData = verRes?.data?.data || verRes?.data || {}
-      versions.value = verData.versions || []
-      refreshHeader()
-    } catch {}
+      await refreshVersionList()
+    } catch (e) { console.warn('刷新版本列表失败:', e) }
   } catch (err) {
     if (err.message === '请求已取消或超时') {
       updateMsgById(msgId, { content: '已停止生成，文档已保存的内容可在左侧预览查看' })
@@ -812,10 +713,9 @@ function handleBeforeUnload(e) {
 
 onMounted(async () => {
   if (setPageHeader) setPageHeader('世界观构建', '与 AI 对话增量构建世界观文档')
-  // 轮询检测 header 中 <select> 的值变化（v-html 渲染的 select 无法使用 Vue 事件绑定）
-  startSelectPolling()
+  // 注册全局回调处理 v-html 渲染的 select 的 onchange 事件
+  window.__wvVersionSelect = handleSelectVersion
   refreshHeader()
-  await loadDoc()
   await loadVersions()
   loadWelcome()
   window.addEventListener('beforeunload', handleBeforeUnload)
@@ -846,8 +746,8 @@ onBeforeUnmount(() => {
     clearInterval(typewriterTimer)
     typewriterTimer = null
   }
-  // 停止 select 轮询
-  stopSelectPolling()
+  // 清理全局回调
+  delete window.__wvVersionSelect
   sseController.abort()
   window.removeEventListener('beforeunload', handleBeforeUnload)
   pageHeaderRightRef.value = ''
@@ -1010,28 +910,6 @@ onBeforeUnmount(() => {
     background: rgba(99, 102, 241, 0.15);
     border-color: rgba(99, 102, 241, 0.4);
     transform: translateY(-1px);
-  }
-}
-
-// ---- Diff 预览样式 ----
-.diff-body {
-  :deep(.diff-added) {
-    color: #5eba8d !important;
-    background: none !important;
-  }
-  :deep(.diff-added *) {
-    color: #5eba8d !important;
-    background: none !important;
-  }
-  :deep(.diff-removed) {
-    color: #f87171 !important;
-    text-decoration: line-through;
-    background: none !important;
-  }
-  :deep(.diff-removed *) {
-    color: #f87171 !important;
-    text-decoration: line-through;
-    background: none !important;
   }
 }
 

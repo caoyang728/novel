@@ -9,19 +9,19 @@
 
 文件职责：
 - 本文件存放提示词模板和工具函数
-- 题材相关的提示词数据存放在 prompts_genre.py
+- 题材相关的提示词数据存放在 prompts_worldview_genre.py
 """
 
 from .models import GENRE_CHOICES  # noqa: F401 — 唯一定义源在 models.py
-from .prompts_genre import GENRE_BASE_PROMPT, GENRE_GUIDE_PROMPTS_DICT  # noqa: F401
+from .prompts_worldview_genre import WORLDVIEW_GENRE_BASE_PROMPT, WORLDVIEW_GENRE_PROMPTS_DICT  # noqa: F401
 
 # ============ 题材元数据 ============
 GENRE_LABELS = dict(GENRE_CHOICES)
 
 
 # ============ 系统提示词（patch_list 增量补丁协议） ============
-# 系统提示词 = 通用基础（GENRE_BASE_PROMPT），由 prompts_genre.py 提供
-WORLDVIEW_SYSTEM_PROMPT = GENRE_BASE_PROMPT
+# 系统提示词 = 通用基础（WORLDVIEW_GENRE_BASE_PROMPT），由 prompts_worldview_genre.py 提供
+WORLDVIEW_SYSTEM_PROMPT = WORLDVIEW_GENRE_BASE_PROMPT
 
 
 # ============ 构建/修改文档的用户提示词 ============
@@ -109,16 +109,16 @@ def get_genre_guide(genre):
     例：'history/chuan_yue' → 'history' → 'general'
     """
     # 1. 精确匹配
-    if genre in GENRE_GUIDE_PROMPTS_DICT:
-        return GENRE_GUIDE_PROMPTS_DICT[genre]
+    if genre in WORLDVIEW_GENRE_PROMPTS_DICT:
+        return WORLDVIEW_GENRE_PROMPTS_DICT[genre]
 
     # 2. 回退到父题材（取 / 前的部分）
     parent = genre.split('/')[0]
-    if parent in GENRE_GUIDE_PROMPTS_DICT:
-        return GENRE_GUIDE_PROMPTS_DICT[parent]
+    if parent in WORLDVIEW_GENRE_PROMPTS_DICT:
+        return WORLDVIEW_GENRE_PROMPTS_DICT[parent]
 
     # 3. 兜底
-    return GENRE_GUIDE_PROMPTS_DICT['general']
+    return WORLDVIEW_GENRE_PROMPTS_DICT['general']
 
 
 def get_genre_label(genre):

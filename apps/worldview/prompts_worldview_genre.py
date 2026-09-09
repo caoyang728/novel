@@ -3,13 +3,13 @@
 
 结构说明：
 - 每个题材一个 *_BASE_PROMPT 变量，包含该题材的基础指引（骨架 + 关注点）
-- 子题材变量基于父题材拼接，如 XUANHUAN_BASE_PROMPT + XUANHUAN_CHUAN_YUE_PROMPT
-- GENRE_GUIDE_PROMPTS_DICT 为扁平字典，key 支持 "父题材" 和 "父题材/子题材" 两种
+- 子题材变量基于父题材拼接，如 WORLDVIEW_XUANHUAN_BASE_PROMPT + WORLDVIEW_XUANHUAN_CHUAN_YUE_PROMPT
+- WORLDVIEW_GENRE_PROMPTS_DICT 为扁平字典，key 支持 "父题材" 和 "父题材/子题材" 两种
 - get_genre_guide() 按 精确匹配 → 父题材 → general 三级 fallback
 """
 
 # ============ 通用基础（适用于所有题材） ============
-GENRE_BASE_PROMPT = """\
+WORLDVIEW_GENRE_BASE_PROMPT = """\
 你是一位资深的小说世界观架构师，通过对话帮助作者从零构建或逐步完善小说世界观。
 
 ## 工作方式
@@ -76,7 +76,7 @@ JSON 结构：
 #  玄幻/仙侠
 # ================================================================
 
-XUANHUAN_BASE_PROMPT = """\
+WORLDVIEW_XUANHUAN_BASE_PROMPT = """\
 本世界观为【玄幻/仙侠】题材，构建时重点关注：
 - 天地法则：灵气/仙气的来源与运转规则、世界边界、天道公理
 - 修炼体系：境界划分（如练气→筑基→金丹→元婴...）、突破条件、寿元变化
@@ -101,28 +101,28 @@ XUANHUAN_BASE_PROMPT = """\
 ## 历史纪元（上古、近代、当前危机）
 ## 特殊规则（气运、轮回、禁忌、穿越/系统设定）"""
 
-XUANHUAN_CHUAN_YUE_PROMPT = """\
+WORLDVIEW_XUANHUAN_CHUAN_YUE_PROMPT = """\
 额外关注：
 - 穿越设定：穿越方式（魂穿/身穿/意识穿越）、时间线、原身身份与处境
 - 金手指类型：系统/面板/功法传承/前世记忆/特殊体质
 - 两世界关联：是否可往返、记忆保留程度、现代知识的利用与限制
 - 蝴蝶效应：穿越者对原世界历史轨迹的影响"""
 
-XUANHUAN_XIULIAN_PROMPT = """\
+WORLDVIEW_XUANHUAN_XIULIAN_PROMPT = """\
 额外关注：
 - 修炼节奏：前期修炼的困难与机遇、中期瓶颈、后期突破
 - 天赋设定：灵根/资质的等级划分、天赋对修炼的影响
 - 闭关与历练：突破方式、秘境探索、实战对修炼的促进
 - 丹药辅助：丹药对修炼的作用、副作用、禁忌"""
 
-XUANHUAN_JIDI_PROMPT = """\
+WORLDVIEW_XUANHUAN_JIDI_PROMPT = """\
 额外关注：
 - 宗门结构：掌门/长老/真传/内门/外门/杂役弟子体系
 - 宗门资源：灵脉、功法殿、丹药阁、试炼场
 - 宗门竞争：与其他宗门的恩怨、宗门排名、大比
 - 宗门内部：派系之争、传承之争、叛徒与卧底"""
 
-XUANHUAN_XITONG_PROMPT = """\
+WORLDVIEW_XUANHUAN_XITONG_PROMPT = """\
 额外关注：
 - 系统设定：系统来源（天道/外星/神秘存在）、系统功能（面板/任务/商城/抽奖）
 - 升级机制：经验值/功德/气运等数值化成长体系
@@ -133,7 +133,7 @@ XUANHUAN_XITONG_PROMPT = """\
 #  武侠
 # ================================================================
 
-WUXIA_BASE_PROMPT = """\
+WORLDVIEW_WUXIA_BASE_PROMPT = """\
 本世界观为【武侠】题材，构建时重点关注：
 - 时代背景：朝代（可架空）、江湖与朝廷的关系
 - 江湖格局：名门正派、邪道魔教、帮会镖局、隐士高人
@@ -155,13 +155,13 @@ WUXIA_BASE_PROMPT = """\
 ## 历史恩怨（门派宿怨、武林往事）
 ## 核心冲突"""
 
-WUXIA_JIANGHU_PROMPT = """\
+WORLDVIEW_WUXIA_JIANGHU_PROMPT = """\
 额外关注：
 - 江湖规矩：镖路规矩、武林盟主制度、英雄帖
 - 江湖奇遇：坠崖得宝、高人传功、偶得秘籍
 - 江湖恩怨：门派宿怨、情仇纠葛、复仇与宽恕"""
 
-WUXIA_LINGXIA_PROMPT = """\
+WORLDVIEW_WUXIA_LINGXIA_PROMPT = """\
 额外关注：
 - 朝堂与江湖的博弈：锦衣卫/东厂对江湖的管控
 - 江湖人的身份：游侠/镖师/赏金猎人/刺客
@@ -172,7 +172,7 @@ WUXIA_LINGXIA_PROMPT = """\
 #  西方奇幻
 # ================================================================
 
-FANTASY_BASE_PROMPT = """\
+WORLDVIEW_FANTASY_BASE_PROMPT = """\
 本世界观为【西方奇幻】题材，构建时重点关注：
 - 神系与信仰：诸神、教会、神术、神迹与信仰冲突
 - 种族：人类、精灵、矮人、兽人、龙族等种族的文化与关系
@@ -195,18 +195,18 @@ FANTASY_BASE_PROMPT = """\
 ## 历史纪元（创世、上古战争、失落文明）
 ## 预言与危机"""
 
-FANTASY_LONG_PROMPT = """\
+WORLDVIEW_FANTASY_LONG_PROMPT = """\
 额外关注：
 - 龙族设定：龙的种类（元素龙/古龙/龙裔）、龙骑士契约、龙巢与宝藏
 - 龙族与世界的关系：龙族的兴衰史、龙灾、屠龙传说"""
 
-FANTASY_MOFA_PROMPT = """\
+WORLDVIEW_FANTASY_MOFA_PROMPT = """\
 额外关注：
 - 魔法分类：元素魔法/召唤/亡灵/神圣/暗黑
 - 魔法代价：寿命消耗/身体损伤/精神污染/契约约束
 - 魔法组织：法师塔等级、魔法议会、禁忌魔法"""
 
-FANTASY_MAOXIAN_PROMPT = """\
+WORLDVIEW_FANTASY_MAOXIAN_PROMPT = """\
 额外关注：
 - 冒险者体系：等级划分（F→SSS）、公会任务分级
 - 地下城与副本：地下城生成机制、Boss 设定、掉落规则
@@ -217,7 +217,7 @@ FANTASY_MAOXIAN_PROMPT = """\
 #  科幻
 # ================================================================
 
-SCIFI_BASE_PROMPT = """\
+WORLDVIEW_SCIFI_BASE_PROMPT = """\
 本世界观为【科幻】题材，构建时重点关注：
 - 时代背景：年代/星际纪元、人类文明发展阶段
 - 科技水平：关键技术（AI、星际航行、基因工程、义体、虚拟世界）、技术瓶颈
@@ -240,19 +240,19 @@ SCIFI_BASE_PROMPT = """\
 ## 科技伦理与禁忌
 ## 历史与危机"""
 
-SCIFI_XINGJI_PROMPT = """\
+WORLDVIEW_SCIFI_XINGJI_PROMPT = """\
 额外关注：
 - 星际航行方式：曲速/虫洞/超光速的原理与限制
 - 星际殖民：殖民星球的环境改造、殖民者与原住民的冲突
 - 外星接触：第一次接触协议、外星文明的威胁等级"""
 
-SCIFI_JIQI_PROMPT = """\
+WORLDVIEW_SCIFI_JIQI_PROMPT = """\
 额外关注：
 - AI 设定：强AI/弱AI 的界限、AI 权利运动、AI 叛乱
 - 赛博朋克元素：巨型企业的控制、底层社会、黑客与网络空间
 - 义体与改造：义体等级、改造人歧视、身体与机械的融合"""
 
-SCIFI_JIYIN_PROMPT = """\
+WORLDVIEW_SCIFI_JIYIN_PROMPT = """\
 额外关注：
 - 基因改造：增强人种、基因歧视、基因武器
 - 克隆技术：克隆人的权利、记忆复制、身份认同
@@ -263,7 +263,7 @@ SCIFI_JIYIN_PROMPT = """\
 #  历史/架空历史
 # ================================================================
 
-HISTORY_BASE_PROMPT = """\
+WORLDVIEW_HISTORY_BASE_PROMPT = """\
 本世界观为【历史/架空历史】题材，构建时重点关注：
 - 朝代纪元：年号、纪年方式、历代重大事件
 - 官制政体：朝廷架构、官职体系、选官制度、权力制衡
@@ -287,26 +287,26 @@ HISTORY_BASE_PROMPT = """\
 ## 势力阵营（国家/割据势力及内部派系）
 ## 外患与危机"""
 
-HISTORY_CHUAN_YUE_PROMPT = """\
+WORLDVIEW_HISTORY_CHUAN_YUE_PROMPT = """\
 额外关注：
 - 穿越设定：穿越到哪个朝代/时期、原身身份（皇帝/官员/平民/士兵）
 - 蝴蝶效应：穿越者引入的现代知识对历史进程的影响
 - 历史约束：不能脱离时代太远，技术/思想的引入需要合理过渡
 - 目标与冲突：穿越者的终极目标（改变历史/生存/回家）"""
 
-HISTORY_JIA_KONG_PROMPT = """\
+WORLDVIEW_HISTORY_JIA_KONG_PROMPT = """\
 额外关注：
 - 偏离节点：历史在哪一刻发生变化、虚构的朝代/事件体系
 - 新秩序：架空后的政治格局、与真实历史的差异点
 - 文化延续：保留哪些真实历史元素、替换哪些设定"""
 
-HISTORY_QUNXIONG_PROMPT = """\
+WORLDVIEW_HISTORY_QUNXIONG_PROMPT = """\
 额外关注：
 - 群雄割据：各方势力的地盘、兵力、核心人物
 - 合纵连横：势力间的结盟、背叛、外交策略
 - 战争设定：著名战役、战略要地、军事天才"""
 
-HISTORY_GONGDOU_PROMPT = """\
+WORLDVIEW_HISTORY_GONGDOU_PROMPT = """\
 额外关注：
 - 后宫/宫廷设定：后妃等级、嫔妃间的明争暗斗、宫规礼仪
 - 前朝与后宫的联动：外戚干政、妃嫔家族势力、子嗣之争
@@ -317,7 +317,7 @@ HISTORY_GONGDOU_PROMPT = """\
 #  都市
 # ================================================================
 
-URBAN_BASE_PROMPT = """\
+WORLDVIEW_URBAN_BASE_PROMPT = """\
 本世界观为【都市】题材，构建时重点关注：
 - 现代背景：城市设定（可虚构）、时代、社会面貌
 - 表层世界：正常的现代社会结构、行业生态
@@ -338,25 +338,25 @@ URBAN_BASE_PROMPT = """\
 ## 社会生态（行业、市井、灰色地带）
 ## 历史渊源（隐秘世界的往事）"""
 
-URBAN_YAN_QING_PROMPT = """\
+WORLDVIEW_URBAN_YAN_QING_PROMPT = """\
 额外关注：
 - 感情线设定：主角与核心角色的关系发展脉络
 - 都市日常：职场、校园、社交圈中的互动场景
 - 情感冲突：身份差距、误会、三角关系、家族反对"""
 
-URBAN_XIAO_YUAN_PROMPT = """\
+WORLDVIEW_URBAN_XIAO_YUAN_PROMPT = """\
 额外关注：
 - 校园设定：学校类型（重点/贵族/普通）、年级班级、社团
 - 校园势力：学生会、社团联盟、校内帮派、体育特长生
 - 校园日常：考试、竞赛、运动会、校园传说"""
 
-URBAN_YI_NENG_PROMPT = """\
+WORLDVIEW_URBAN_YI_NENG_PROMPT = """\
 额外关注：
 - 异能觉醒：觉醒条件（基因/事件/年龄）、觉醒率
 - 异能分类：元素/精神/身体强化/空间/时间等类别
 - 异能者社会：异能者等级认证、异能者管理机构、异能者犯罪"""
 
-URBAN_SHANGZHAN_PROMPT = """\
+WORLDVIEW_URBAN_SHANGZHAN_PROMPT = """\
 额外关注：
 - 商业体系：行业分布、企业层级、商业模式
 - 财阀势力：大家族企业的内部斗争、继承权之争
@@ -367,7 +367,7 @@ URBAN_SHANGZHAN_PROMPT = """\
 #  末世/灾变
 # ================================================================
 
-APOCALYPSE_BASE_PROMPT = """\
+WORLDVIEW_APOCALYPSE_BASE_PROMPT = """\
 本世界观为【末世/灾变】题材，构建时重点关注：
 - 灾变起因：病毒/核战/天灾/异兽入侵/灵气复苏，爆发时间线
 - 世界现状：环境变化、废墟城市、安全区分布
@@ -389,19 +389,19 @@ APOCALYPSE_BASE_PROMPT = """\
 ## 生存规则
 ## 核心危机与希望"""
 
-APOCALYPSE_SANGSHI_PROMPT = """\
+WORLDVIEW_APOCALYPSE_SANGSHI_PROMPT = """\
 额外关注：
 - 丧尸设定：丧尸种类（普通/变异/精英/丧尸王）、进化机制
 - 丧尸潮：大规模尸潮的形成规律、应对策略
 - 感染规则：感染途径、潜伏期、免疫者"""
 
-APOCALYPSE_LINGQI_PROMPT = """\
+WORLDVIEW_APOCALYPSE_LINGQI_PROMPT = """\
 额外关注：
 - 灵气复苏：灵气复苏的原因、灵气浓度分布
 - 复苏影响：动植物变异、人类觉醒、旧文明崩塌
 - 新秩序：修炼者与普通人的分化、新势力的崛起"""
 
-APOCALYPSE_SHENGCUN_PROMPT = """\
+WORLDVIEW_APOCALYPSE_SHENGCUN_PROMPT = """\
 额外关注：
 - 资源争夺：食物/水源/弹药/药品的稀缺程度
 - 据点建设：避难所选址、防御工事、内部管理
@@ -412,7 +412,7 @@ APOCALYPSE_SHENGCUN_PROMPT = """\
 #  言情
 # ================================================================
 
-ROMANCE_BASE_PROMPT = """\
+WORLDVIEW_ROMANCE_BASE_PROMPT = """\
 本世界观为【言情】题材，构建时重点关注：
 - 时代背景：古代/现代/架空/民国等不同时代设定
 - 人物关系：主角情感线、核心配角关系网、情感羁绊
@@ -432,25 +432,25 @@ ROMANCE_BASE_PROMPT = """\
 ## 日常场景与氛围
 ## 配角定位（情敌、助攻、阻碍）"""
 
-ROMANCE_GUDAI_PROMPT = """\
+WORLDVIEW_ROMANCE_GUDAI_PROMPT = """\
 额外关注：
 - 古代社会设定：朝代背景、礼教规矩、婚嫁制度
 - 后宅/宫廷：妻妾关系、嫡庶之争、婆媳关系
 - 古代日常：衣食住行、节日习俗、主仆关系"""
 
-ROMANCE_XIANDAI_PROMPT = """\
+WORLDVIEW_ROMANCE_XIANDAI_PROMPT = """\
 额外关注：
 - 现代都市背景：职业设定（娱乐圈/职场/校园/豪门）
 - 现代社交：社交媒体、网络互动、现代恋爱方式
 - 职业与感情：工作场景中的相遇、事业与爱情的平衡"""
 
-ROMANCE_GONGDOU_PROMPT = """\
+WORLDVIEW_ROMANCE_GONGDOU_PROMPT = """\
 额外关注：
 - 宫斗/宅斗体系：等级森严的后宫/后宅、位份晋升
 - 权谋与情感：争宠手段、家族联姻、子嗣继承
 - 生存策略：在高压环境中保全自身与所爱之人"""
 
-ROMANCE_ZHONGTIAN_PROMPT = """\
+WORLDVIEW_ROMANCE_ZHONGTIAN_PROMPT = """\
 额外关注：
 - 种田经商：从零开始的积累过程、经商发家路线
 - 家庭经营：家族成员关系、分家/立户、教育子女
@@ -461,7 +461,7 @@ ROMANCE_ZHONGTIAN_PROMPT = """\
 #  悬疑/推理
 # ================================================================
 
-MYSTERY_BASE_PROMPT = """\
+WORLDVIEW_MYSTERY_BASE_PROMPT = """\
 本世界观为【悬疑/推理】题材，构建时重点关注：
 - 案件体系：核心案件、连环案件、案件之间的关联
 - 真相结构：核心秘密、层层揭秘、反转设计
@@ -482,19 +482,19 @@ MYSTERY_BASE_PROMPT = """\
 ## 地理环境（案发地特征、封闭空间设定）
 ## 氛围基调（悬疑风格、节奏感）"""
 
-MYSTERY_BENGE_PROMPT = """\
+WORLDVIEW_MYSTERY_BENGE_PROMPT = """\
 额外关注：
 - 密室推理：密室类型（机械密室/心理密室/自然密室）、解谜逻辑
 - 不在场证明：时间线诡计、多重时间线、证言矛盾
 - 侦探体系：名侦探人设、推理方法（逻辑推理/演绎/归纳）"""
 
-MYSTERY_SHEHUI_PROMPT = """\
+WORLDVIEW_MYSTERY_SHEHUI_PROMPT = """\
 额外关注：
 - 社会背景：案件背后的社会问题（阶层矛盾/制度缺陷/人性扭曲）
 - 人物群像：多视角叙事、每个人物的秘密
 - 现实主义：真实的刑侦流程、法医鉴定、证据链"""
 
-MYSTERY_JINGSONG_PROMPT = """\
+WORLDVIEW_MYSTERY_JINGSONG_PROMPT = """\
 额外关注：
 - 恐怖元素：灵异现象（是否有超自然/还是人为制造恐惧）
 - 心理恐惧：密闭空间、未知威胁、信任崩塌
@@ -505,7 +505,7 @@ MYSTERY_JINGSONG_PROMPT = """\
 #  游戏
 # ================================================================
 
-GAME_BASE_PROMPT = """\
+WORLDVIEW_GAME_BASE_PROMPT = """\
 本世界观为【游戏】题材，构建时重点关注：
 - 游戏类型：MMORPG/单机/竞技/沙盒/生存等类型定位
 - 世界规则：游戏系统（等级/属性/技能/装备）、物理规则与现实的差异
@@ -528,19 +528,19 @@ GAME_BASE_PROMPT = """\
 ## NPC与怪物生态
 ## 特殊机制（任务、赛季、活动）"""
 
-GAME_XUNI_PROMPT = """\
+WORLDVIEW_GAME_XUNI_PROMPT = """\
 额外关注：
 - 虚拟现实技术：VR/全息/脑机接口的技术设定
 - 现实与虚拟的交织：游戏内事件对现实的影响、游戏成瘾问题
 - 游戏公司设定：运营商、游戏管理员（GM）、外挂与反外挂"""
 
-GAME_YIJIE_PROMPT = """\
+WORLDVIEW_GAME_YIJIE_PROMPT = """\
 额外关注：
 - 穿越到游戏世界：穿越方式、原游戏设定的保留与变化
 - NPC 觉醒：NPC 是否有自我意识、NPC 与玩家的关系
 - 世界真实化：游戏数值变为真实感受、死亡的真实后果"""
 
-GAME_XITONG_PROMPT = """\
+WORLDVIEW_GAME_XITONG_PROMPT = """\
 额外关注：
 - 系统界面：面板显示（属性/任务/背包/商城）、系统提示音
 - 系统来源：系统从何而来、系统的目的、系统背后的操控者
@@ -551,7 +551,7 @@ GAME_XITONG_PROMPT = """\
 #  军事
 # ================================================================
 
-MILITARY_BASE_PROMPT = """\
+WORLDVIEW_MILITARY_BASE_PROMPT = """\
 本世界观为【军事】题材，构建时重点关注：
 - 战争背景：年代、参战方、战争起因、战略目标
 - 军事编制：军队组织架构（军/师/旅/团/营...）、兵种划分
@@ -573,19 +573,19 @@ MILITARY_BASE_PROMPT = """\
 ## 军人文化（荣誉、牺牲、战友之情）
 ## 核心战役"""
 
-MILITARY_JIAKONG_PROMPT = """\
+WORLDVIEW_MILITARY_JIAKONG_PROMPT = """\
 额外关注：
 - 架空国家体系：虚构国家的军事实力对比、地缘政治
 - 虚构武器：基于现实但有创新的武器装备设定
 - 架空战役：原创战役的战术设计与战略意义"""
 
-MILITARY_JUNLV_PROMPT = """\
+WORLDVIEW_MILITARY_JUNLV_PROMPT = """\
 额外关注：
 - 部队日常：训练生活、军营文化、等级纪律
 - 个人成长：从新兵到老兵/军官的成长历程
 - 退伍与转业：退伍后的困境、军人融入社会的过程"""
 
-MILITARY_DIEZHAN_PROMPT = """\
+WORLDVIEW_MILITARY_DIEZHAN_PROMPT = """\
 额外关注：
 - 情报组织：间谍网络、情报传递方式、反间谍
 - 谍战手段：身份伪装、密码破译、策反与反策反
@@ -596,7 +596,7 @@ MILITARY_DIEZHAN_PROMPT = """\
 #  灵异/恐怖
 # ================================================================
 
-SUPERNATURAL_BASE_PROMPT = """\
+WORLDVIEW_SUPERNATURAL_BASE_PROMPT = """\
 本世界观为【灵异/恐怖】题材，构建时重点关注：
 - 灵异规则：鬼魂/妖怪/邪祟的存在形式、能力等级、弱点
 - 世界法则：阴阳两界的关系、因果报应、功德罪业
@@ -617,19 +617,19 @@ SUPERNATURAL_BASE_PROMPT = """\
 ## 势力阵营（驱邪组织/邪教/妖族）
 ## 核心威胁"""
 
-SUPERNATURAL_DUSHI_PROMPT = """\
+WORLDVIEW_SUPERNATURAL_DUSHI_PROMPT = """\
 额外关注：
 - 都市灵异：现代城市中的灵异现象（电梯/医院/地铁/高楼）
 - 都市传说：校园怪谈、午夜凶铃式都市传说的起源与真相
 - 现代与灵异的碰撞：手机/监控/互联网在灵异事件中的作用"""
 
-SUPERNATURAL_MINSU_PROMPT = """\
+WORLDVIEW_SUPERNATURAL_MINSU_PROMPT = """\
 额外关注：
 - 民间禁忌：各地独特禁忌习俗、犯忌的后果
 - 乡村灵异：村庄传说、古老仪式、宗族与灵异的关系
 - 乩童/跳大神/问米等民间通灵方式"""
 
-SUPERNATURAL_DAOMU_PROMPT = """\
+WORLDVIEW_SUPERNATURAL_DAOMU_PROMPT = """\
 额外关注：
 - 墓葬体系：古墓结构（封土/墓道/棺椁/陪葬坑）、风水选址
 - 盗墓规则：行规暗语、盗墓工具、粽子/尸变等危险
@@ -640,7 +640,7 @@ SUPERNATURAL_DAOMU_PROMPT = """\
 #  体育/竞技
 # ================================================================
 
-SPORTS_BASE_PROMPT = """\
+WORLDVIEW_SPORTS_BASE_PROMPT = """\
 本世界观为【体育/竞技】题材，构建时重点关注：
 - 竞技项目：具体运动项目（篮球/足球/格斗/赛车/田径等）
 - 赛事体系：联赛等级、赛制规则（常规赛/季后赛/淘汰赛/杯赛）
@@ -661,19 +661,19 @@ SPORTS_BASE_PROMPT = """\
 ## 行业黑幕与争议
 ## 核心赛事与目标"""
 
-SPORTS_DIANJING_PROMPT = """\
+WORLDVIEW_SPORTS_DIANJING_PROMPT = """\
 额外关注：
 - 电竞体系：游戏项目（MOBA/FPS/RTS）、战队架构、教练分析师
 - 电竞生态：训练基地、青训体系、退役转型、选手寿命
 - 赛事文化：世界赛、联赛、转会期、选手人气"""
 
-SPORTS_QIULEI_PROMPT = """\
+WORLDVIEW_SPORTS_QIULEI_PROMPT = """\
 额外关注：
 - 球类运动：具体球类规则（篮球/足球/排球/乒乓球）
 - 国际赛事：世界杯/奥运会/洲际赛的参赛机制与荣誉
 - 俱乐部运营：转会市场、薪资体系、青训营"""
 
-SPORTS_GEDOU_PROMPT = """\
+WORLDVIEW_SPORTS_GEDOU_PROMPT = """\
 额外关注：
 - 格斗体系：具体格斗类型（拳击/MMA/综合格斗/传统武术）
 - 赛事规则：量级划分、比赛规则、裁判体系
@@ -684,7 +684,7 @@ SPORTS_GEDOU_PROMPT = """\
 #  轻小说/二次元
 # ================================================================
 
-LIGHTNOVEL_BASE_PROMPT = """\
+WORLDVIEW_LIGHTNOVEL_BASE_PROMPT = """\
 本世界观为【轻小说/二次元】题材，构建时重点关注：
 - 世界观类型：异世界/现代日本/未来/平行世界
 - 角色设定：萌属性（傲娇/天然呆/三无/病娇等）、角色关系网
@@ -705,20 +705,20 @@ LIGHTNOVEL_BASE_PROMPT = """\
 ## 情感线与事件
 ## 幽默与吐槽体系"""
 
-LIGHTNOVEL_YISHIJIE_PROMPT = """\
+WORLDVIEW_LIGHTNOVEL_YISHIJIE_PROMPT = """\
 额外关注：
 - 异世界设定：异世界的种族/魔法/社会体系
 - 转生/召唤方式：异世界转生/召唤/穿越的方式与条件
 - 现代知识的利用：现代常识在异世界的差异化优势
 - 回归条件：是否可以返回地球、回归的代价"""
 
-LIGHTNOVEL_XIAOYUAN_PROMPT = """\
+WORLDVIEW_LIGHTNOVEL_XIAOYUAN_PROMPT = """\
 额外关注：
 - 校园设定：学校类型、班级、社团活动
 - 学园事件：文化祭/体育祭/修学旅行/校园传说
 - 校园恋爱：告白场景、约会、校园情侣的日常"""
 
-LIGHTNOVEL_HOUGONG_PROMPT = """\
+WORLDVIEW_LIGHTNOVEL_HOUGONG_PROMPT = """\
 额外关注：
 - 后宫成员：每个角色的独特属性与魅力点
 - 互动模式：角色间的化学反应、日常互动场景
@@ -729,7 +729,7 @@ LIGHTNOVEL_HOUGONG_PROMPT = """\
 #  无限流/诸天万界
 # ================================================================
 
-INFINITE_BASE_PROMPT = """\
+WORLDVIEW_INFINITE_BASE_PROMPT = """\
 本世界观为【无限流/诸天万界】题材，构建时重点关注：
 - 世界规则：副本/世界的进入机制、通关条件、失败惩罚
 - 主世界：主世界设定（空间/组织/日常生活）、副本间的过渡
@@ -750,13 +750,13 @@ INFINITE_BASE_PROMPT = """\
 ## 真相线索（世界的本质、终极目标）
 ## 经典副本设定"""
 
-INFINITE_KONGBU_PROMPT = """\
+WORLDVIEW_INFINITE_KONGBU_PROMPT = """\
 额外关注：
 - 恐怖副本：副本类型（鬼屋/诅咒/怪谈/密室）、恐怖氛围
 - 求生规则：副本内特殊规则、存活条件、禁忌行为
 - 死亡方式：各种死法的设定、死亡预告与伏笔"""
 
-INFINITE_ZHUTIAN_PROMPT = """\
+WORLDVIEW_INFINITE_ZHUTIAN_PROMPT = """\
 额外关注：
 - 诸天穿越：穿越到不同影视/小说/动漫世界的方式
 - 剧情介入：如何在原有剧情中行动、蝴蝶效应
@@ -767,7 +767,7 @@ INFINITE_ZHUTIAN_PROMPT = """\
 #  通用（兜底）
 # ================================================================
 
-GENERAL_BASE_PROMPT = """\
+WORLDVIEW_GENERAL_BASE_PROMPT = """\
 本世界观未指定特定题材，按通用虚构世界框架构建，可根据作者的题材描述灵活调整章节。
 
 建议文档骨架：
@@ -788,99 +788,99 @@ GENERAL_BASE_PROMPT = """\
 #  key 格式：'父题材' 或 '父题材/子题材'
 # ================================================================
 
-GENRE_GUIDE_PROMPTS_DICT = {
+WORLDVIEW_GENRE_PROMPTS_DICT = {
     # --- 玄幻/仙侠 ---
-    'xuanhuan': XUANHUAN_BASE_PROMPT,
-    'xuanhuan/chuan_yue': XUANHUAN_BASE_PROMPT + XUANHUAN_CHUAN_YUE_PROMPT,
-    'xuanhuan/xiulian': XUANHUAN_BASE_PROMPT + XUANHUAN_XIULIAN_PROMPT,
-    'xuanhuan/jidi': XUANHUAN_BASE_PROMPT + XUANHUAN_JIDI_PROMPT,
-    'xuanhuan/xitong': XUANHUAN_BASE_PROMPT + XUANHUAN_XITONG_PROMPT,
+    'xuanhuan': WORLDVIEW_XUANHUAN_BASE_PROMPT,
+    'xuanhuan/chuan_yue': WORLDVIEW_XUANHUAN_BASE_PROMPT + WORLDVIEW_XUANHUAN_CHUAN_YUE_PROMPT,
+    'xuanhuan/xiulian': WORLDVIEW_XUANHUAN_BASE_PROMPT + WORLDVIEW_XUANHUAN_XIULIAN_PROMPT,
+    'xuanhuan/jidi': WORLDVIEW_XUANHUAN_BASE_PROMPT + WORLDVIEW_XUANHUAN_JIDI_PROMPT,
+    'xuanhuan/xitong': WORLDVIEW_XUANHUAN_BASE_PROMPT + WORLDVIEW_XUANHUAN_XITONG_PROMPT,
 
     # --- 武侠 ---
-    'wuxia': WUXIA_BASE_PROMPT,
-    'wuxia/jianghu': WUXIA_BASE_PROMPT + WUXIA_JIANGHU_PROMPT,
-    'wuxia/lingxia': WUXIA_BASE_PROMPT + WUXIA_LINGXIA_PROMPT,
+    'wuxia': WORLDVIEW_WUXIA_BASE_PROMPT,
+    'wuxia/jianghu': WORLDVIEW_WUXIA_BASE_PROMPT + WORLDVIEW_WUXIA_JIANGHU_PROMPT,
+    'wuxia/lingxia': WORLDVIEW_WUXIA_BASE_PROMPT + WORLDVIEW_WUXIA_LINGXIA_PROMPT,
 
     # --- 西方奇幻 ---
-    'fantasy': FANTASY_BASE_PROMPT,
-    'fantasy/long': FANTASY_BASE_PROMPT + FANTASY_LONG_PROMPT,
-    'fantasy/mofa': FANTASY_BASE_PROMPT + FANTASY_MOFA_PROMPT,
-    'fantasy/maoxian': FANTASY_BASE_PROMPT + FANTASY_MAOXIAN_PROMPT,
+    'fantasy': WORLDVIEW_FANTASY_BASE_PROMPT,
+    'fantasy/long': WORLDVIEW_FANTASY_BASE_PROMPT + WORLDVIEW_FANTASY_LONG_PROMPT,
+    'fantasy/mofa': WORLDVIEW_FANTASY_BASE_PROMPT + WORLDVIEW_FANTASY_MOFA_PROMPT,
+    'fantasy/maoxian': WORLDVIEW_FANTASY_BASE_PROMPT + WORLDVIEW_FANTASY_MAOXIAN_PROMPT,
 
     # --- 科幻 ---
-    'scifi': SCIFI_BASE_PROMPT,
-    'scifi/xingji': SCIFI_BASE_PROMPT + SCIFI_XINGJI_PROMPT,
-    'scifi/jiqi': SCIFI_BASE_PROMPT + SCIFI_JIQI_PROMPT,
-    'scifi/jiyin': SCIFI_BASE_PROMPT + SCIFI_JIYIN_PROMPT,
+    'scifi': WORLDVIEW_SCIFI_BASE_PROMPT,
+    'scifi/xingji': WORLDVIEW_SCIFI_BASE_PROMPT + WORLDVIEW_SCIFI_XINGJI_PROMPT,
+    'scifi/jiqi': WORLDVIEW_SCIFI_BASE_PROMPT + WORLDVIEW_SCIFI_JIQI_PROMPT,
+    'scifi/jiyin': WORLDVIEW_SCIFI_BASE_PROMPT + WORLDVIEW_SCIFI_JIYIN_PROMPT,
 
     # --- 历史/架空 ---
-    'history': HISTORY_BASE_PROMPT,
-    'history/chuan_yue': HISTORY_BASE_PROMPT + HISTORY_CHUAN_YUE_PROMPT,
-    'history/jia_kong': HISTORY_BASE_PROMPT + HISTORY_JIA_KONG_PROMPT,
-    'history/qunxiong': HISTORY_BASE_PROMPT + HISTORY_QUNXIONG_PROMPT,
-    'history/gongdou': HISTORY_BASE_PROMPT + HISTORY_GONGDOU_PROMPT,
+    'history': WORLDVIEW_HISTORY_BASE_PROMPT,
+    'history/chuan_yue': WORLDVIEW_HISTORY_BASE_PROMPT + WORLDVIEW_HISTORY_CHUAN_YUE_PROMPT,
+    'history/jia_kong': WORLDVIEW_HISTORY_BASE_PROMPT + WORLDVIEW_HISTORY_JIA_KONG_PROMPT,
+    'history/qunxiong': WORLDVIEW_HISTORY_BASE_PROMPT + WORLDVIEW_HISTORY_QUNXIONG_PROMPT,
+    'history/gongdou': WORLDVIEW_HISTORY_BASE_PROMPT + WORLDVIEW_HISTORY_GONGDOU_PROMPT,
 
     # --- 都市 ---
-    'urban': URBAN_BASE_PROMPT,
-    'urban/yan_qing': URBAN_BASE_PROMPT + URBAN_YAN_QING_PROMPT,
-    'urban/xiao_yuan': URBAN_BASE_PROMPT + URBAN_XIAO_YUAN_PROMPT,
-    'urban/yi_neng': URBAN_BASE_PROMPT + URBAN_YI_NENG_PROMPT,
-    'urban/shangzhan': URBAN_BASE_PROMPT + URBAN_SHANGZHAN_PROMPT,
+    'urban': WORLDVIEW_URBAN_BASE_PROMPT,
+    'urban/yan_qing': WORLDVIEW_URBAN_BASE_PROMPT + WORLDVIEW_URBAN_YAN_QING_PROMPT,
+    'urban/xiao_yuan': WORLDVIEW_URBAN_BASE_PROMPT + WORLDVIEW_URBAN_XIAO_YUAN_PROMPT,
+    'urban/yi_neng': WORLDVIEW_URBAN_BASE_PROMPT + WORLDVIEW_URBAN_YI_NENG_PROMPT,
+    'urban/shangzhan': WORLDVIEW_URBAN_BASE_PROMPT + WORLDVIEW_URBAN_SHANGZHAN_PROMPT,
 
     # --- 末世/灾变 ---
-    'apocalypse': APOCALYPSE_BASE_PROMPT,
-    'apocalypse/sangshi': APOCALYPSE_BASE_PROMPT + APOCALYPSE_SANGSHI_PROMPT,
-    'apocalypse/lingqi': APOCALYPSE_BASE_PROMPT + APOCALYPSE_LINGQI_PROMPT,
-    'apocalypse/shengcun': APOCALYPSE_BASE_PROMPT + APOCALYPSE_SHENGCUN_PROMPT,
+    'apocalypse': WORLDVIEW_APOCALYPSE_BASE_PROMPT,
+    'apocalypse/sangshi': WORLDVIEW_APOCALYPSE_BASE_PROMPT + WORLDVIEW_APOCALYPSE_SANGSHI_PROMPT,
+    'apocalypse/lingqi': WORLDVIEW_APOCALYPSE_BASE_PROMPT + WORLDVIEW_APOCALYPSE_LINGQI_PROMPT,
+    'apocalypse/shengcun': WORLDVIEW_APOCALYPSE_BASE_PROMPT + WORLDVIEW_APOCALYPSE_SHENGCUN_PROMPT,
 
     # --- 言情 ---
-    'romance': ROMANCE_BASE_PROMPT,
-    'romance/gudai': ROMANCE_BASE_PROMPT + ROMANCE_GUDAI_PROMPT,
-    'romance/xiandai': ROMANCE_BASE_PROMPT + ROMANCE_XIANDAI_PROMPT,
-    'romance/gongdou': ROMANCE_BASE_PROMPT + ROMANCE_GONGDOU_PROMPT,
-    'romance/zhongtian': ROMANCE_BASE_PROMPT + ROMANCE_ZHONGTIAN_PROMPT,
+    'romance': WORLDVIEW_ROMANCE_BASE_PROMPT,
+    'romance/gudai': WORLDVIEW_ROMANCE_BASE_PROMPT + WORLDVIEW_ROMANCE_GUDAI_PROMPT,
+    'romance/xiandai': WORLDVIEW_ROMANCE_BASE_PROMPT + WORLDVIEW_ROMANCE_XIANDAI_PROMPT,
+    'romance/gongdou': WORLDVIEW_ROMANCE_BASE_PROMPT + WORLDVIEW_ROMANCE_GONGDOU_PROMPT,
+    'romance/zhongtian': WORLDVIEW_ROMANCE_BASE_PROMPT + WORLDVIEW_ROMANCE_ZHONGTIAN_PROMPT,
 
     # --- 悬疑/推理 ---
-    'mystery': MYSTERY_BASE_PROMPT,
-    'mystery/benge': MYSTERY_BASE_PROMPT + MYSTERY_BENGE_PROMPT,
-    'mystery/shehui': MYSTERY_BASE_PROMPT + MYSTERY_SHEHUI_PROMPT,
-    'mystery/jingsong': MYSTERY_BASE_PROMPT + MYSTERY_JINGSONG_PROMPT,
+    'mystery': WORLDVIEW_MYSTERY_BASE_PROMPT,
+    'mystery/benge': WORLDVIEW_MYSTERY_BASE_PROMPT + WORLDVIEW_MYSTERY_BENGE_PROMPT,
+    'mystery/shehui': WORLDVIEW_MYSTERY_BASE_PROMPT + WORLDVIEW_MYSTERY_SHEHUI_PROMPT,
+    'mystery/jingsong': WORLDVIEW_MYSTERY_BASE_PROMPT + WORLDVIEW_MYSTERY_JINGSONG_PROMPT,
 
     # --- 游戏 ---
-    'game': GAME_BASE_PROMPT,
-    'game/xuni': GAME_BASE_PROMPT + GAME_XUNI_PROMPT,
-    'game/yijie': GAME_BASE_PROMPT + GAME_YIJIE_PROMPT,
-    'game/xitong': GAME_BASE_PROMPT + GAME_XITONG_PROMPT,
+    'game': WORLDVIEW_GAME_BASE_PROMPT,
+    'game/xuni': WORLDVIEW_GAME_BASE_PROMPT + WORLDVIEW_GAME_XUNI_PROMPT,
+    'game/yijie': WORLDVIEW_GAME_BASE_PROMPT + WORLDVIEW_GAME_YIJIE_PROMPT,
+    'game/xitong': WORLDVIEW_GAME_BASE_PROMPT + WORLDVIEW_GAME_XITONG_PROMPT,
 
     # --- 军事 ---
-    'military': MILITARY_BASE_PROMPT,
-    'military/jiakong': MILITARY_BASE_PROMPT + MILITARY_JIAKONG_PROMPT,
-    'military/junlv': MILITARY_BASE_PROMPT + MILITARY_JUNLV_PROMPT,
-    'military/diezhàn': MILITARY_BASE_PROMPT + MILITARY_DIEZHAN_PROMPT,
+    'military': WORLDVIEW_MILITARY_BASE_PROMPT,
+    'military/jiakong': WORLDVIEW_MILITARY_BASE_PROMPT + WORLDVIEW_MILITARY_JIAKONG_PROMPT,
+    'military/junlv': WORLDVIEW_MILITARY_BASE_PROMPT + WORLDVIEW_MILITARY_JUNLV_PROMPT,
+    'military/diezhan': WORLDVIEW_MILITARY_BASE_PROMPT + WORLDVIEW_MILITARY_DIEZHAN_PROMPT,
 
     # --- 灵异/恐怖 ---
-    'supernatural': SUPERNATURAL_BASE_PROMPT,
-    'supernatural/dushi': SUPERNATURAL_BASE_PROMPT + SUPERNATURAL_DUSHI_PROMPT,
-    'supernatural/minsu': SUPERNATURAL_BASE_PROMPT + SUPERNATURAL_MINSU_PROMPT,
-    'supernatural/daomu': SUPERNATURAL_BASE_PROMPT + SUPERNATURAL_DAOMU_PROMPT,
+    'supernatural': WORLDVIEW_SUPERNATURAL_BASE_PROMPT,
+    'supernatural/dushi': WORLDVIEW_SUPERNATURAL_BASE_PROMPT + WORLDVIEW_SUPERNATURAL_DUSHI_PROMPT,
+    'supernatural/minsu': WORLDVIEW_SUPERNATURAL_BASE_PROMPT + WORLDVIEW_SUPERNATURAL_MINSU_PROMPT,
+    'supernatural/daomu': WORLDVIEW_SUPERNATURAL_BASE_PROMPT + WORLDVIEW_SUPERNATURAL_DAOMU_PROMPT,
 
     # --- 体育/竞技 ---
-    'sports': SPORTS_BASE_PROMPT,
-    'sports/dianjing': SPORTS_BASE_PROMPT + SPORTS_DIANJING_PROMPT,
-    'sports/qiulei': SPORTS_BASE_PROMPT + SPORTS_QIULEI_PROMPT,
-    'sports/gedou': SPORTS_BASE_PROMPT + SPORTS_GEDOU_PROMPT,
+    'sports': WORLDVIEW_SPORTS_BASE_PROMPT,
+    'sports/dianjing': WORLDVIEW_SPORTS_BASE_PROMPT + WORLDVIEW_SPORTS_DIANJING_PROMPT,
+    'sports/qiulei': WORLDVIEW_SPORTS_BASE_PROMPT + WORLDVIEW_SPORTS_QIULEI_PROMPT,
+    'sports/gedou': WORLDVIEW_SPORTS_BASE_PROMPT + WORLDVIEW_SPORTS_GEDOU_PROMPT,
 
     # --- 轻小说/二次元 ---
-    'lightnovel': LIGHTNOVEL_BASE_PROMPT,
-    'lightnovel/yishijie': LIGHTNOVEL_BASE_PROMPT + LIGHTNOVEL_YISHIJIE_PROMPT,
-    'lightnovel/xiaoyuan': LIGHTNOVEL_BASE_PROMPT + LIGHTNOVEL_XIAOYUAN_PROMPT,
-    'lightnovel/hougong': LIGHTNOVEL_BASE_PROMPT + LIGHTNOVEL_HOUGONG_PROMPT,
+    'lightnovel': WORLDVIEW_LIGHTNOVEL_BASE_PROMPT,
+    'lightnovel/yishijie': WORLDVIEW_LIGHTNOVEL_BASE_PROMPT + WORLDVIEW_LIGHTNOVEL_YISHIJIE_PROMPT,
+    'lightnovel/xiaoyuan': WORLDVIEW_LIGHTNOVEL_BASE_PROMPT + WORLDVIEW_LIGHTNOVEL_XIAOYUAN_PROMPT,
+    'lightnovel/hougong': WORLDVIEW_LIGHTNOVEL_BASE_PROMPT + WORLDVIEW_LIGHTNOVEL_HOUGONG_PROMPT,
 
     # --- 无限流/诸天万界 ---
-    'infinite': INFINITE_BASE_PROMPT,
-    'infinite/kongbu': INFINITE_BASE_PROMPT + INFINITE_KONGBU_PROMPT,
-    'infinite/zhutian': INFINITE_BASE_PROMPT + INFINITE_ZHUTIAN_PROMPT,
+    'infinite': WORLDVIEW_INFINITE_BASE_PROMPT,
+    'infinite/kongbu': WORLDVIEW_INFINITE_BASE_PROMPT + WORLDVIEW_INFINITE_KONGBU_PROMPT,
+    'infinite/zhutian': WORLDVIEW_INFINITE_BASE_PROMPT + WORLDVIEW_INFINITE_ZHUTIAN_PROMPT,
 
     # --- 通用 ---
-    'general': GENERAL_BASE_PROMPT,
+    'general': WORLDVIEW_GENERAL_BASE_PROMPT,
 }

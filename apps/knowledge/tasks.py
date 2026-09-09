@@ -41,11 +41,11 @@ def _enqueue(task_fn, *args, **kwargs):
     name='knowledge.index_outline',
 )
 def index_outline_task(self, outline_version_id: int):  # noqa: ARG001
-    from apps.outline.models import OutlineVersion
+    from apps.outline.models import Outline
     from .indexer import KnowledgeIndexer
     try:
-        obj = OutlineVersion.objects.get(pk=outline_version_id)
-    except OutlineVersion.DoesNotExist:
+        obj = Outline.objects.get(pk=outline_version_id)
+    except Outline.DoesNotExist:
         logger.warning(f"index_outline: 版本 {outline_version_id} 已删除，跳过")
         return 0
     return KnowledgeIndexer().index_outline(obj)
@@ -53,11 +53,11 @@ def index_outline_task(self, outline_version_id: int):  # noqa: ARG001
 
 @shared_task(bind=True, autoretry_for=(Exception,), max_retries=2, name='knowledge.delete_outline')
 def delete_outline_task(self, outline_version_id: int):  # noqa: ARG001
-    from apps.outline.models import OutlineVersion
+    from apps.outline.models import Outline
     from .indexer import KnowledgeIndexer
     try:
-        obj = OutlineVersion.objects.get(pk=outline_version_id)
-    except OutlineVersion.DoesNotExist:
+        obj = Outline.objects.get(pk=outline_version_id)
+    except Outline.DoesNotExist:
         return 0
     return KnowledgeIndexer().delete_outline(obj)
 

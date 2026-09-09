@@ -40,7 +40,7 @@ def on_character_deleted(sender, instance, **kwargs):  # noqa: ARG001
 # ====================================================================
 # 大纲（只有 finalized=True 且未删才索引，否则删索引）
 # ====================================================================
-@receiver(post_save, sender='outline.OutlineVersion')
+@receiver(post_save, sender='outline.Outline')
 def on_outline_saved(sender, instance, created, **kwargs):  # noqa: ARG001
     if instance.is_finalized and not instance.is_deleted:
         _tasks._enqueue(_tasks.index_outline_task, instance.pk)

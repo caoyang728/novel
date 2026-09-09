@@ -10,7 +10,6 @@
     complete     完成（含引导问题、选项、补丁统计）
     error        错误
 """
-import json
 import re
 import traceback
 
@@ -20,18 +19,17 @@ from langchain_core.prompts import ChatPromptTemplate
 from loguru import logger
 
 from agent.llm import get_llm
-from agent.memory import compress_history
 
 from apps.project.base import BaseAPIView
 from .models import WorldView, WorldViewChatHistory
 from .prompts import (
-    WORLDVIEW_SYSTEM_PROMPT,
-    WORLDVIEW_BUILD_PROMPT,
-    WORLDVIEW_JSON_REPAIR_PROMPT,
+    WORLDVIEW_CONTEXT_TEMPLATE,
+    WORLDVIEW_BUILD_USER_PROMPT,
     WORLDVIEW_FACTION_EXTRACT_PROMPT,
-    GENRE_LABELS,
-    get_genre_guide,
-    get_genre_label,
+    WORLDVIEW_GENRE_PROMPTS_DICT,
+)
+from apps.project.utils import (
+    get_genre_guide, get_genre_label, run_retry_loop,
 )
 
 
@@ -65,134 +63,7 @@ def _get_or_create_doc(project):
     return doc
 
 
-def _strip_think(full_content):
-    """去除可能残留的 thinking 标签"""
-    if '</think>' in full_content:
-        full_content = full_content[full_content.rfind('</think>') + len('</think>'):]
-    return full_content
-
-
-def _extract_json_str(full_content):
-    """从 LLM 输出中定位并提取 JSON 文本，返回 json_str 或 None"""
-    full_content = _strip_think(full_content)
-
-    json_start = full_content.find('{"patch_list"')
-    if json_start == -1:
-        json_start = full_content.find('{')
-    if json_start == -1:
-        return None
-
-    json_str = full_content[json_start:]
-    json_end = json_str.rfind('}')
-    if json_end != -1:
-        json_str = json_str[:json_end + 1]
-    return json_str.strip()
-
-
-def _strict_parse(json_str):
-    """标准 json.loads 解析，成功返回 data，失败返回 None"""
-    if not json_str:
-        return None
-    try:
-        return json.loads(json_str)
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.debug(f'[WV_DOC] json.loads 失败: {e}')
-        return None
-
-
-def _validate_patch_data(data):
-    """结构校验：JSON 语法正确后，校验业务结构是否完整合法"""
-    if not isinstance(data, dict):
-        return False
-    patch_list = data.get('patch_list')
-    if not isinstance(patch_list, list):
-        return False
-    for p in patch_list:
-        if not isinstance(p, dict):
-            return False
-        if not isinstance(p.get('old_snippet', ''), str):
-            return False
-        if not isinstance(p.get('new_snippet', ''), str):
-            return False
-    if data.get('question') is not None and not isinstance(data.get('question'), str):
-        return False
-    if data.get('options') is not None and not isinstance(data.get('options'), list):
-        return False
-    return True
-
-
-def _detect_truncated(json_str, finish_reason=None):
-    """截断判定：
-    1. finish_reason/stop_reason == 'length'（上游 token 上限截断，最权威）
-    2. 括号/引号配平检查（字符串状态机扫描，忽略转义）
-    """
-    if finish_reason == 'length':
-        return True
-    if not json_str:
-        return False
-    depth = 0
-    in_str = False
-    escape = False
-    for ch in json_str:
-        if escape:
-            escape = False
-            continue
-        if ch == '\\':
-            escape = True
-            continue
-        if ch == '"':
-            in_str = not in_str
-        elif not in_str:
-            if ch in '{[':
-                depth += 1
-            elif ch in '}]':
-                depth -= 1
-    return in_str or depth != 0
-
-
-def _llm_repair_json(repair_llm, raw_content, error_msg):
-    """让修复 LLM 修复损坏的 JSON（单次调用）。
-
-    返回 (data, status)：
-    - (data, 'ok')：修复成功且结构校验通过
-    - (None, 'truncated')：LLM 判定内容被截断
-    - (None, 'failed')：无法修复 / 修复后仍不合法
-    """
-    try:
-        prompt = ChatPromptTemplate.from_messages([
-            ("human", WORLDVIEW_JSON_REPAIR_PROMPT),
-        ])
-        chain = prompt | repair_llm
-        resp = chain.invoke({
-            "error": str(error_msg)[:500],
-            "raw_content": raw_content[:20000],
-        })
-        text = resp.content if hasattr(resp, 'content') else str(resp)
-        text = _strip_think(text)
-
-        data = _strict_parse(text.strip())
-        if data is None:
-            # 修复结果可能被 Markdown 代码块等包裹，再提取一次
-            repaired_str = _extract_json_str(text)
-            data = _strict_parse(repaired_str) if repaired_str else None
-
-        if data is None:
-            return None, 'failed'
-
-        # LLM 明确返回状态标记
-        if isinstance(data.get('status'), str):
-            if data['status'] == 'truncated':
-                return None, 'truncated'
-            return None, 'failed'
-
-        if _validate_patch_data(data):
-            logger.info('[WV_DOC] LLM 修复 JSON 成功')
-            return data, 'ok'
-        return None, 'failed'
-    except Exception as e:
-        logger.warning(f'[WV_DOC] LLM 修复调用异常: {e}')
-        return None, 'failed'
-
+# ============ 补丁应用 ============
 
 def _apply_patch_data(data, base_content):
     """将已校验的 patch data 应用到基准文档，返回结果 dict"""
@@ -271,8 +142,8 @@ class ApiWorldviewView(BaseWorldAPIView):
         return self.success_response({
             'exists': True,
             'id': doc.id,
-            'genre': doc.genre,
-            'genre_label': get_genre_label(doc.genre),
+            'genre': project.genre or 'general',
+            'genre_label': get_genre_label(project.genre),
             'title': doc.title,
             'content': doc.content,
             'version': doc.version,
@@ -281,20 +152,14 @@ class ApiWorldviewView(BaseWorldAPIView):
         })
 
     def put(self, request, project_id):
-        """手动保存文档（编辑/切换题材）"""
+        """手动保存文档"""
         project = self.get_project_or_404(request, project_id)
         doc = _get_or_create_doc(project)
 
-        genre = request.data.get('genre')
         title = request.data.get('title')
         content = request.data.get('content')
         truncated = False
 
-        if genre is not None:
-            genre = str(genre).strip()
-            if genre not in GENRE_LABELS:
-                return self.error_response('不支持的题材类型')
-            doc.genre = genre
         if title is not None:
             doc.title = str(title).strip()[:200]
         if content is not None:
@@ -310,8 +175,8 @@ class ApiWorldviewView(BaseWorldAPIView):
         resp = {
             'exists': True,
             'id': doc.id,
-            'genre': doc.genre,
-            'genre_label': get_genre_label(doc.genre),
+            'genre': project.genre or 'general',
+            'genre_label': get_genre_label(project.genre),
             'title': doc.title,
             'content': doc.content,
             'version': doc.version,
@@ -337,178 +202,76 @@ class ApiWorldviewStreamView(BaseWorldAPIView):
         if not user_input:
             return self.error_response('消息不能为空')
 
-        history_messages = request.data.get('messages') or []
-        genre = (request.data.get('genre') or '').strip()
         # 前端传来的当前工作内容（未持久化的最新版本），作为补丁基准
         current_content = request.data.get('current_content')
+
+        # 前端传来的历史对话消息（避免从数据库读取已放弃的对话）
+        history_messages = request.data.get('messages', [])
+
+        # 题材统一从 project 获取
+        effective_genre = project.genre or 'general'
 
         def generate():
             try:
                 close_old_connections()
                 doc = _get_or_create_doc(project)
 
-                # 题材：请求指定 > 文档已存 > 通用
-                # 仅在本地变量中使用，待生成成功后再持久化（避免用户中断时产生副作用）
-                if genre and genre in GENRE_LABELS and doc.genre != genre:
-                    effective_genre = genre
-                else:
-                    effective_genre = doc.genre
-
                 # 持久化用户消息
                 WorldViewChatHistory.objects.create(
                     worldview=doc, role='user', content=user_input
                 )
 
-                prompt = ChatPromptTemplate.from_messages([
-                    ("system", WORLDVIEW_SYSTEM_PROMPT),
-                    ("human", WORLDVIEW_BUILD_PROMPT),
-                ])
-
-                llm = get_llm(user=request.user, scene="worldview_build")
-                # 修复用 LLM：低温度，输出更稳定
-                repair_llm = get_llm(user=request.user, scene="worldview_chat", temperature=0.1)
-
-                # 压缩历史对话
-                history_for_llm = [
-                    m for m in history_messages
-                    if isinstance(m, dict) and m.get('role') in ('user', 'assistant') and m.get('content')
-                ]
-                history_text = compress_history(history_for_llm, llm)
-
-                chain = prompt | llm
-
                 # 确定补丁基准：前端传来的当前工作内容 > 数据库持久化内容
                 base_content = current_content if current_content is not None else (doc.content or '')
 
+                # 构建提示词
+                genre_name_label = get_genre_label(effective_genre)
+                genre_guide_text = get_genre_guide(effective_genre, WORLDVIEW_GENRE_PROMPTS_DICT).format(
+                    genre_name=genre_name_label,
+                )
+                context_text = WORLDVIEW_CONTEXT_TEMPLATE.format(
+                    current_doc=base_content or '（空，首次生成）',
+                    novel_name=project.title or '小说',
+                )
+                system_prompt = genre_guide_text + '\n\n' + context_text
+
+                # 构建消息列表：system + history + user
+                messages = [("system", system_prompt)]
+                # 使用前端传入的历史消息（格式：[{role: 'user'|'assistant', content: '...'}]）
+                for msg in history_messages:
+                    role = msg.get('role', 'user')
+                    content = msg.get('content', '')
+                    if role in ('user', 'assistant') and content:
+                        messages.append((role, content))
+                messages.append(("user", WORLDVIEW_BUILD_USER_PROMPT.format(
+                    user_input=user_input,
+                )))
+
+                prompt = ChatPromptTemplate.from_messages(messages)
+
+                llm = get_llm(user=request.user, scene="worldview_build")
+                chain = prompt | llm
+
                 # ============ 三轮容错机制 ============
-                # 第1步：json.loads 直接解析
-                # 第2步：解析失败 → LLM 修复（内部最多 3 次），LLM 判定截断则跳过
-                # 第3步：修复失败/截断 → 从头重新生成（附带错误反馈、降低温度）
-                MAX_ROUNDS = 3
-                MAX_REPAIR_ATTEMPTS = 3
+                result, full_content = yield from run_retry_loop(
+                    chain=chain,
+                    prompt=prompt,
+                    user_input=user_input,
+                    scene="worldview_build",
+                    apply_fn=_apply_patch_data,
+                    base_content=base_content,
+                    sse_event_fn=self.sse_event,
+                    get_chunk_text_fn=self.get_chunk_text,
+                    log_token_usage_fn=self.log_token_usage,
+                    user=request.user,
+                    project=project,
+                    log_prefix='[WV_DOC]',
+                    max_rounds=3,
+                    get_stream_input=lambda ri: {"user_input": ri},
+                )
 
-                result = None
-                last_error = ''
-
-                for round_idx in range(1, MAX_ROUNDS + 1):
-                    full_content = ''
-                    last_chunk = None
-                    usage_chunk = None
-                    finish_reason = None
-
-                    # 重试时使用更低温度，减少跑偏
-                    round_chain = chain
-                    if round_idx > 1:
-                        round_llm = get_llm(user=request.user, scene="worldview_build", temperature=0.4)
-                        round_chain = prompt | round_llm
-                        yield self.sse_event('status', {
-                            'message': f'输出格式异常，正在重新生成（第 {round_idx}/{MAX_ROUNDS} 次）…',
-                        })
-
-                    round_input = user_input
-                    if round_idx > 1:
-                        round_input = (
-                            f'{user_input}\n\n'
-                            f'[系统提醒] 你上一次的输出无法被解析（原因：{last_error or "JSON格式错误"}）。'
-                            f'本次务必严格只输出合法 JSON：以 {{"patch_list": 开头、字段完整、'
-                            f'字符串内部的引号必须转义、不要输出 JSON 以外的任何文字。'
-                        )
-
-                    # 流式收集 LLM 的 JSON 输出（增量补丁协议不逐 chunk 解析，整体收集后应用）
-                    for chunk in round_chain.stream({
-                        "genre_guide": get_genre_guide(effective_genre),
-                        "current_doc": base_content,
-                        "history_messages": history_text or '（无）',
-                        "user_input": round_input,
-                    }):
-                        piece = self.get_chunk_text(chunk)
-                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
-                            usage_chunk = chunk
-                        # 捕获上游截断信号（OpenAI 兼容接口 finish_reason=length）
-                        meta = getattr(chunk, 'response_metadata', None) or {}
-                        fr = meta.get('finish_reason') or meta.get('stop_reason')
-                        if fr:
-                            finish_reason = fr
-                        last_chunk = chunk
-                        if piece:
-                            full_content += piece
-                            # 流式发送原始 LLM 输出到思考区（打字机效果）
-                            yield self.sse_event('reply_chunk', {'chunk': piece})
-
-                    # token 统计
-                    try:
-                        self.log_token_usage('worldview_build', result=last_chunk,
-                                             usage_result=usage_chunk, user=request.user, project=project)
-                    except Exception as log_err:
-                        logger.warning(f'世界观文档 token 记录失败: {log_err}')
-
-                    # ---- 第1步：标准解析 ----
-                    json_str = _extract_json_str(full_content)
-                    parse_error = ''
-                    data = None
-
-                    if json_str is None:
-                        parse_error = '输出中未找到 JSON 内容'
-                        logger.warning(f'[WV_DOC] 第{round_idx}轮: 未找到JSON, 输出前200字: {full_content[:200]}')
-                    else:
-                        data = _strict_parse(json_str)
-                        if data is None:
-                            # 记录具体解析错误供修复 LLM 参考
-                            try:
-                                json.loads(json_str)
-                            except json.JSONDecodeError as je:
-                                parse_error = str(je)
-
-                    # 标准解析 + 结构校验通过 → 应用补丁
-                    if data is not None and _validate_patch_data(data):
-                        result = _apply_patch_data(data, base_content)
-                        logger.info(f'[WV_DOC] 第{round_idx}轮直接解析成功')
-                        break
-
-                    # ---- 截断判定：finish_reason=length 或括号/引号未配平 → 直接重新生成 ----
-                    if _detect_truncated(json_str or full_content, finish_reason):
-                        last_error = '输出被截断（内容不完整）'
-                        logger.warning(f'[WV_DOC] 第{round_idx}轮输出截断: finish_reason={finish_reason}')
-                        continue
-
-                    # 完全没有 JSON（模型跑题/拒绝）→ 修复无意义，直接重新生成
-                    if json_str is None:
-                        last_error = parse_error
-                        continue
-
-                    # ---- 第2步：LLM 修复（内部最多 3 次）----
-                    yield self.sse_event('status', {
-                        'message': '输出格式异常，正在尝试修复…',
-                    })
-                    repaired = False
-                    for repair_idx in range(1, MAX_REPAIR_ATTEMPTS + 1):
-                        repaired_data, repair_status = _llm_repair_json(
-                            repair_llm, full_content, parse_error or 'JSON 解析失败'
-                        )
-                        if repair_status == 'ok' and repaired_data is not None:
-                            result = _apply_patch_data(repaired_data, base_content)
-                            logger.info(f'[WV_DOC] 第{round_idx}轮 LLM修复成功(第{repair_idx}次尝试)')
-                            repaired = True
-                            break
-                        if repair_status == 'truncated':
-                            last_error = '输出被截断（内容不完整）'
-                            logger.warning(f'[WV_DOC] 第{round_idx}轮修复LLM判定截断')
-                            break
-                        # failed → 继续重试修复
-                        logger.warning(f'[WV_DOC] 第{round_idx}轮修复第{repair_idx}次失败')
-
-                    if repaired:
-                        break
-
-                    # ---- 第3步：修复失败 → 从头重新生成 ----
-                    last_error = last_error or 'JSON 格式错误且修复失败'
-                    logger.warning(f'[WV_DOC] 第{round_idx}轮修复失败，准备重新生成')
-
-                # 三轮均失败
+                # 三轮均失败（run_retry_loop 已发送 error 事件）
                 if result is None:
-                    yield self.sse_event('error', {
-                        'message': 'AI 多次输出格式异常，请重新发送消息或稍后再试'
-                    })
                     return
 
                 logger.info(f'[WV_DOC] patches: applied={result.get("edits_applied", 0)}/{result.get("edits_total", 0)}, '
@@ -531,11 +294,6 @@ class ApiWorldviewStreamView(BaseWorldAPIView):
                     content=assistant_reply or '世界观文档已更新',
                     options=options or []
                 )
-
-                # 成功后才持久化题材变更（避免中断时产生副作用）
-                if effective_genre != doc.genre:
-                    doc.genre = effective_genre
-                    doc.save(update_fields=['genre', 'updated_at'])
 
                 # 3. 发送完成信号
                 yield self.sse_event('complete', {
@@ -667,18 +425,9 @@ class ApiWorldviewVersionSaveView(BaseWorldAPIView):
         last_question = (request.data.get('last_question') or '').strip()
         last_options = request.data.get('last_options') or []
 
-        # 从请求中获取题材，若未提供则继承当前版本
-        genre = (request.data.get('genre') or '').strip()
-        current_doc = WorldView.objects.filter(
-            project=project, is_deleted=False
-        ).first()
-        if not genre and current_doc:
-            genre = current_doc.genre
-
         version = WorldView.objects.create(
             project=project,
             version=next_vn,
-            genre=genre or 'general',
             content=content,
             last_question=last_question,
             last_options=last_options,

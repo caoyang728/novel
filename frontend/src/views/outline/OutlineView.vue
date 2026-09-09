@@ -62,7 +62,13 @@
               placeholder="在这里编写大纲，或通过右侧 AI 助手描述需求自动生成..."
             />
             <div v-else class="outline-preview">
-              <MarkdownRenderer v-if="content.trim()" :content="content" :highlight-new="true" :baseline="lastAiBaseline" />
+              <MarkdownRenderer
+                  v-if="content.trim()"
+                  :content="content"
+                  :highlight-new="!locked && hasUnsavedChanges()"
+                  :show-removed="!locked && hasUnsavedChanges()"
+                  :baseline="baseline"
+                />
               <EmptyState v-else icon="Document" text="暂无大纲内容" />
             </div>
           </div>
@@ -99,6 +105,18 @@
               <el-option label="最近 20 轮" value="20" />
             </el-select>
           </template>
+          <template #message-end>
+            <div v-if="quickOptions.length && !isStreaming" class="quick-options">
+              <button
+                v-for="(opt, i) in quickOptions"
+                :key="i"
+                class="quick-option-btn"
+                @click="handleSend(opt)"
+              >
+                {{ opt }}
+              </button>
+            </div>
+          </template>
         </ChatPanel>
       </transition>
     </div>
@@ -106,7 +124,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, inject, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { EditPen, View, Lock, Delete, DocumentChecked, DocumentCopy } from '@element-plus/icons-vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import AppButton from '@/components/common/AppButton.vue'
@@ -146,14 +164,62 @@ const saving = ref(false)
 const versions = ref([])
 const currentVersion = ref(null)
 const content = ref('')
-const baseline = ref('') // 与数据库一致的内容基线，用于未保存检测
-const lastAiBaseline = ref('') // AI 修改前的内容快照，用于 diff 高亮
+const baseline = ref('') // 与数据库一致的内容基线，用于未保存检测和 diff 高亮
 const mode = ref('preview') // edit | preview
 const chatVisible = ref(true)
 const contextCount = ref('all')
 
 const locked = computed(() => !!currentVersion.value?.is_finalized)
 const hasUnsavedChanges = () => content.value !== baseline.value
+
+// ---- 开场引导 ----
+const quickOptions = ref([])
+const pendingQuestion = ref('')
+const pendingOptions = ref([])
+let typewriterTimer = null
+
+const defaultWelcomeText = '你好！我是你的大纲构建助手。\n\n世界观已就绪，现在可以开始规划故事走向了。你可以告诉我故事的核心冲突、主角的起点和目标，或者直接描述一段你想要的剧情走向。'
+
+const lastAssistantOptions = computed(() => {
+  const msgs = messages.value
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]
+    if (m.role === 'assistant' && m.content && Array.isArray(m.options) && m.options.length) {
+      return [...m.options]
+    }
+  }
+  return []
+})
+
+watch(lastAssistantOptions, (opts) => {
+  quickOptions.value = opts
+})
+
+let msgSeq = 0
+function nextMsgId() {
+  msgSeq += 1
+  return Date.now() + msgSeq
+}
+
+function findMsgIndexById(id) {
+  return messages.value.findIndex((m) => m.id === id)
+}
+
+function updateMsgById(id, patch) {
+  const idx = findMsgIndexById(id)
+  if (idx !== -1) {
+    messages.value[idx] = { ...messages.value[idx], ...patch }
+  }
+}
+
+function scrollChatToBottom() {
+  nextTick(() => {
+    setTimeout(() => {
+      const container = document.querySelector('.chat-panel-messages')
+      if (container) container.scrollTop = container.scrollHeight
+    }, 100)
+  })
+}
 
 // ---- 版本加载 ----
 async function loadVersions(selectId = null) {
@@ -175,6 +241,7 @@ async function loadVersions(selectId = null) {
       currentVersion.value = null
       content.value = ''
       baseline.value = ''
+      await loadWelcome()
     }
   } catch {
     // request.js 已统一提示
@@ -190,13 +257,17 @@ async function doLoadVersion(version) {
       ...version,
       version_number: data.version_number ?? version.version_number,
       is_finalized: data.is_finalized ?? version.is_finalized,
+      last_question: data.last_question || '',
+      last_options: data.last_options || [],
     }
     content.value = data.content || ''
     baseline.value = data.content || ''
-    lastAiBaseline.value = ''
     mode.value = 'preview'
-    // 聊天记录仅在前端维护，切换版本时清空
+    pendingQuestion.value = data.last_question || ''
+    pendingOptions.value = data.last_options || []
+    // 聊天记录仅在前端维护，切换版本时清空并重新加载欢迎语
     clearMessages()
+    await loadWelcome()
   } catch {
     // 统一提示
   }
@@ -348,6 +419,8 @@ async function doSave(asNew) {
       content: content.value,
       version_id: asNew ? undefined : currentVersion.value?.id,
       new_version: asNew ? 'true' : 'false',
+      last_question: pendingQuestion.value,
+      last_options: pendingOptions.value,
     })
     baseline.value = content.value
     showSuccess(`保存成功！版本号：v${data.version_number}`)
@@ -363,6 +436,73 @@ async function doSave(asNew) {
 // ---- AI 聊天（流式，解析 JSON patches） ----
 const MAX_INPUT_LENGTH = 5000
 
+// ---- 开场引导 ----
+async function loadWelcome() {
+  if (!projectId.value) return
+  const placeholderId = nextMsgId()
+
+  try {
+    // 优先从版本数据读取最后一条 AI 问题（随版本保存，无需额外 API 调用）
+    const lastQ = currentVersion.value?.last_question
+    const lastOpts = currentVersion.value?.last_options || []
+    if (lastQ) {
+      messages.value.push({
+        id: placeholderId,
+        role: 'assistant',
+        content: lastQ,
+        thinking: '',
+        options: lastOpts,
+        timestamp: new Date().toISOString(),
+      })
+      return
+    }
+
+    // 无历史：直接显示通用欢迎语
+    messages.value.push({
+      id: placeholderId,
+      role: 'assistant',
+      content: '',
+      thinking: '',
+      options: [],
+      timestamp: new Date().toISOString(),
+    })
+    await typewriterReveal(placeholderId, defaultWelcomeText, [])
+  } catch (err) {
+    console.error('加载引导问题失败:', err)
+    const existing = messages.value.find(m => m.id === placeholderId)
+    if (existing && !existing.content) {
+      await typewriterReveal(placeholderId, defaultWelcomeText, [])
+    }
+  }
+}
+
+/** 打字机效果：先在思考区逐步显示文本，完成后切换到正文区 */
+function typewriterReveal(msgId, text, options) {
+  return new Promise((resolve) => {
+    if (typewriterTimer) clearInterval(typewriterTimer)
+    updateMsgById(msgId, { thinking: '', content: '', options: [] })
+    let idx = 0
+    const chunkSize = 3
+    const interval = 16
+    typewriterTimer = setInterval(() => {
+      idx += chunkSize
+      const partial = text.slice(0, idx)
+      updateMsgById(msgId, { thinking: partial })
+      if (idx >= text.length) {
+        clearInterval(typewriterTimer)
+        typewriterTimer = null
+        updateMsgById(msgId, {
+          content: text,
+          thinking: '',
+          options: options,
+          timestamp: new Date().toISOString(),
+        })
+        resolve()
+      }
+    }, interval)
+  })
+}
+
 async function handleSend(message) {
   if (isStreaming.value) return
   if (locked.value) {
@@ -376,58 +516,35 @@ async function handleSend(message) {
     return
   }
 
-  // 保存 AI 修改前的内容快照，用于 diff 高亮
-  lastAiBaseline.value = content.value
-
   // 组装上下文历史
   let history = messages.value.map((m) => ({ role: m.role, content: m.content }))
   if (contextCount.value !== 'all') {
     history = history.slice(-parseInt(contextCount.value, 10) * 2)
   }
 
-  const userMsg = { id: Date.now(), role: 'user', content: text }
-  const aiMsg = { id: Date.now() + 1, role: 'assistant', content: '', thinking: '', patches: [], editsSummary: '', rawJson: '' }
-  messages.value.push(userMsg)
-  messages.value.push(aiMsg)
+  // 添加用户消息
+  messages.value.push({
+    id: nextMsgId(),
+    role: 'user',
+    content: text,
+    timestamp: new Date().toISOString(),
+  })
+
+  // 添加 AI 占位消息（显示"正在思考中…"）
+  const msgId = nextMsgId()
+  messages.value.push({
+    id: msgId,
+    role: 'assistant',
+    content: '',
+    thinking: '正在思考中…',
+    options: [],
+    timestamp: new Date().toISOString(),
+  })
 
   isStreaming.value = true
   const versionNumber = currentVersion.value?.version_number ?? 0
-  const streamVersionId = currentVersion.value?.id ?? null
-  let thinkingBuffer = ''
-  let jsonBuffer = ''
-  let completeData = null
-
-  function tryParsePatches(text) {
-    try {
-      const match = text.match(/"patch_list"\s*:\s*\[/)
-      if (!match) return null
-      const arrStart = text.indexOf(match[0]) + match[0].length - 1
-      let depth = 1, i = arrStart + 1
-      for (; i < text.length && depth > 0; i++) {
-        if (text[i] === '[') depth++
-        else if (text[i] === ']') depth--
-      }
-      if (depth !== 0) return null
-      return JSON.parse(text.substring(arrStart, i))
-    } catch {
-      return null
-    }
-  }
-
-  function updateAiMessage() {
-      // thinking 内容单独存到 aiMsg.thinking，由 ChatMessage 的思考框渲染
-      aiMsg.thinking = thinkingBuffer
-
-      // content 只放问题和错误（editsSummary 由 ChatMessage 独立渲染）
-      let parts = []
-      if (aiMsg._error) {
-        parts.push(`> ${aiMsg._error}`)
-      }
-      if (aiMsg._question) {
-        parts.push(aiMsg._question)
-      }
-      aiMsg.content = parts.join('\n')
-    }
+  let completed = false
+  let streamReply = ''
 
   try {
     await sseController.stream(
@@ -439,62 +556,51 @@ async function handleSend(message) {
           current_outline: content.value,
           messages: history,
         },
-        onComplete: (evt) => {
-          completeData = evt.data || evt
+        onEvent: (evt) => {
+          if (evt.type === 'status' && evt.message) {
+            // 后端重试/修复进度提示
+            updateMsgById(msgId, { thinking: evt.message })
+          } else if (evt.type === 'reply_chunk' && evt.chunk) {
+            streamReply += evt.chunk
+            updateMsgById(msgId, { thinking: streamReply })
+          } else if (evt.type === 'complete') {
+            completed = true
+            const reply = evt.reply || '大纲已更新，请查看左侧编辑区'
+            const opts = Array.isArray(evt.options) ? [...evt.options] : []
+            updateMsgById(msgId, {
+              content: reply,
+              thinking: '',
+              options: opts,
+              timestamp: new Date().toISOString(),
+            })
+            // 如果有新内容，更新编辑区
+            if (evt.content) {
+              content.value = evt.content
+            }
+            // 记录最后一条 AI 消息，保存时持久化到版本
+            pendingQuestion.value = reply
+            pendingOptions.value = opts
+            scrollChatToBottom()
+          } else if (evt.type === 'error') {
+            updateMsgById(msgId, {
+              content: `生成失败：${evt.message || '请重试'}`,
+              thinking: '',
+            })
+          }
         },
       },
-      (chunk, type) => {
-        if (type === 'thinking_chunk') {
-          thinkingBuffer += chunk
-          aiMsg.thinking = thinkingBuffer
-          updateAiMessage()
-          return
-        }
-
-        jsonBuffer += chunk
-        // 实时存储原始内容用于流式显示
-        aiMsg.rawJson = jsonBuffer
-        // 触发 Vue 响应式更新
-        messages.value = [...messages.value]
-
-        // 增量解析 patch_list
-        const patches = tryParsePatches(jsonBuffer)
-        if (patches && patches.length > aiMsg.patches.length) {
-          aiMsg.patches = patches
-          updateAiMessage()
-        }
-      },
+      () => {},
     )
 
-    // 从 completeData 获取 question 和 error
-    if (completeData && typeof completeData === 'object') {
-      const q = completeData.question || ''
-      if (q) aiMsg._question = q
-      const errMsg = completeData.error || ''
-      if (errMsg) aiMsg._error = errMsg
-
-      // 如果有 edits，使用后端返回的新内容更新编辑区（不自动保存）
-      const editsApplied = completeData.edits_applied || 0
-      const editsTotal = completeData.edits_total || 0
-      if (editsApplied > 0) {
-        aiMsg.editsSummary = `✅ 已应用 ${editsApplied}/${editsTotal} 处修改`
-        if (completeData.new_content) {
-          content.value = completeData.new_content
-          showSuccess(`已修改 ${editsApplied} 处，请点击保存按钮保存修改`)
-        }
-      } else if (editsTotal > 0) {
-        aiMsg.editsSummary = `⚠️ ${editsTotal} 处修改未成功应用`
-      }
+    if (!completed) {
+      updateMsgById(msgId, {
+        content: streamReply || '大纲已更新，请查看左侧编辑区',
+        thinking: '',
+      })
+      scrollChatToBottom()
     }
 
-    updateAiMessage()
-
-    // 如果 AI 没有产生任何内容（无 thinking、无 patches、无 question），显示默认消息
-    if (!aiMsg.content.trim() && !aiMsg.thinking.trim()) {
-      aiMsg.content = aiMsg._error ? `生成失败：${aiMsg._error}` : 'AI 已完成处理'
-    }
-
-    // 重新同步版本列表（不清空聊天）
+    // 刷新版本列表（不清空聊天）
     try {
       const data = await outlineApi.getVersions(projectId.value)
       versions.value = data.versions || []
@@ -503,12 +609,13 @@ async function handleSend(message) {
       // ignore
     }
   } catch (err) {
-    if (err.message !== '请求已取消或超时') {
+    if (err.message === '请求已取消或超时') {
+      updateMsgById(msgId, { content: '已停止生成', thinking: '' })
+    } else {
       showError('生成失败：' + err.message)
+      updateMsgById(msgId, { content: `生成失败：${err.message}`, thinking: '' })
     }
-    if (!aiMsg.content.trim() && !aiMsg.thinking.trim()) {
-      aiMsg.content = `生成失败：${err.message}`
-    }
+    content.value = baseline.value
   } finally {
     isStreaming.value = false
     refreshHeader()
@@ -533,22 +640,22 @@ watch(() => content.value?.trim(), refreshHeader)
 watch(isStreaming, refreshHeader)
 
 // 用户手动编辑内容时清除 diff 高亮
-watch(content, (val) => {
-  if (lastAiBaseline.value && val !== lastAiBaseline.value) {
-    // 如果是 AI 修改后的 reload，diff 保持；如果是用户手动编辑，清除
-    // 通过 isStreaming 判断：AI 完成后 isStreaming=false，此时用户编辑会清除
-    if (!isStreaming.value) {
-      lastAiBaseline.value = ''
-    }
-  }
+watch(content, () => {
+  // baseline 仅在保存/加载版本时同步，用户手动编辑不清除 diff
+  // diff 在保存后自然消失（baseline === content）
 })
 
-onMounted(() => {
+onMounted(async () => {
   setPageHeader('大纲', 'AI 协作构建故事大纲')
-  loadVersions()
+  await loadVersions()
+  // loadWelcome 已在 doLoadVersion 内调用，无需重复
 })
 
 onBeforeUnmount(() => {
+  if (typewriterTimer) {
+    clearInterval(typewriterTimer)
+    typewriterTimer = null
+  }
   sseController.abort()
   pageHeaderRightRef.value = ''
   delete window.__outlineVersionSelect
@@ -623,7 +730,7 @@ onBeforeUnmount(() => {
 
 // 右侧聊天
 .outline-chat {
-  width: 360px;
+  width: 460px;
   flex-shrink: 0;
 
   // 隐藏 ChatPanel 自带的选择/清空按钮
@@ -688,12 +795,40 @@ onBeforeUnmount(() => {
 
 // 右侧聊天
 .outline-chat {
-  width: 360px;
+  width: 460px;
   flex-shrink: 0;
 }
 
 .context-select {
   width: 120px;
+}
+
+// ---- 快捷选项 ----
+.quick-options {
+  padding: 8px 12px;
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.quick-option-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #8b9cf7;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.4);
+    transform: translateY(-1px);
+  }
 }
 
 .chat-slide-enter-active,

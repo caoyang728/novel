@@ -1,33 +1,105 @@
 import json
-import re
 from loguru import logger
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 
 from apps.project.base import BaseAPIView
-from apps.project.models import ProjectList
-from apps.outline.models import OutlineVersion, OutlineChatHistory
-from agent.llm import stream_llm_response, make_thinking_handler
-from .prompts import OUTLINE_BUILD_SYSTEM_PROMPT, OUTLINE_BUILD_USER_PROMPT, OUTLINE_INCREMENTAL_SYSTEM_PROMPT, OUTLINE_INCREMENTAL_USER_PROMPT
+from apps.outline.models import Outline, OutlineChatHistory
+from agent.llm import make_thinking_handler, get_llm
+from apps.project.utils import (
+    get_genre_guide, get_genre_label, run_retry_loop,
+)
+from .prompts import (
+    OUTLINE_CONTEXT_TEMPLATE,
+    OUTLINE_BUILD_USER_PROMPT,
+    OUTLINE_GENRE_PROMPTS_DICT,
+)
 
 
 class BaseOutlineAPIView(BaseAPIView):
     """大纲API基础类 - 继承项目基础类，添加大纲相关工具方法"""
 
 
+# ============ 补丁应用 ============
+
+def _apply_patches(data, base_content):
+    """应用 patch_list 到大纲内容，返回结果字典"""
+    patch_list = data.get('patch_list', [])
+    question = data.get('question', '')
+    options = data.get('options', [])
+    characters = data.get('characters', [])
+
+    result_text = base_content
+    applied_count = 0
+    edits_summary = []
+
+    for patch in patch_list:
+        old_snippet = patch.get('old_snippet', '')
+        new_snippet = patch.get('new_snippet', '')
+
+        if not old_snippet:
+            # 新增内容（大纲为空或追加）
+            if not result_text.strip():
+                result_text = new_snippet
+            else:
+                result_text = result_text.rstrip('\n') + '\n\n' + new_snippet
+            applied_count += 1
+            edits_summary.append({'type': 'add', 'preview': new_snippet[:80]})
+            continue
+
+        count = result_text.count(old_snippet)
+        if count == 0:
+            logger.warning(f'[OUTLINE] Patch未匹配: old_snippet={old_snippet[:60]}...')
+            edits_summary.append({'type': 'failed', 'preview': old_snippet[:60]})
+            continue
+        if count > 1:
+            logger.warning(f'[OUTLINE] Patch多处匹配({count}次): old_snippet={old_snippet[:60]}...')
+            edits_summary.append({'type': 'ambiguous', 'preview': old_snippet[:60]})
+            continue
+
+        result_text = result_text.replace(old_snippet, new_snippet, 1)
+        applied_count += 1
+        edits_summary.append({'type': 'replace', 'old': old_snippet[:60], 'new': new_snippet[:80]})
+
+    # 从 question 中提取选项（👉 格式）
+    parsed_options = list(options)
+    question_text = question
+    if question:
+        for line in question.split('\n'):
+            line = line.strip()
+            if line.startswith('👉'):
+                opt = line.lstrip('👉').strip()
+                if opt and opt not in parsed_options:
+                    parsed_options.append(opt)
+        # 去除 question 中的选项部分
+        if parsed_options:
+            lines = question.split('\n')
+            question_lines = [l for l in lines if not l.strip().startswith('👉')]
+            question_text = '\n'.join(question_lines).strip()
+
+    return {
+        'new_content': result_text,
+        'question': question_text or question,
+        'options': parsed_options,
+        'edits_applied': applied_count,
+        'edits_total': len(patch_list),
+        'edits_summary': edits_summary,
+        'characters': characters,
+    }
+
+
 class ApiChatOutlineView(BaseOutlineAPIView):
     # 输入长度限制
     MAX_USER_INPUT_LENGTH = 5000
     MAX_OUTLINE_LENGTH = 200000
-    MAX_HISTORY_COUNT = 100
+    MAX_ROUNDS = 3
+    MAX_REPAIR_ATTEMPTS = 3
 
     def post(self, request, project_id):
         project_id = project_id or request.data.get('project_id')
-        version_number = request.data.get('version_number', 0)
         user_input = request.data.get('message', '')
         current_outline = request.data.get('current_outline', '')
-        history_messages_raw = request.data.get('messages', [])
 
         if not project_id:
             return JsonResponse({'success': False, 'error': 'project_id 参数不能为空'}, status=400)
@@ -41,170 +113,117 @@ class ApiChatOutlineView(BaseOutlineAPIView):
         if len(current_outline) > self.MAX_OUTLINE_LENGTH:
             return JsonResponse({'success': False, 'error': f'大纲内容不能超过{self.MAX_OUTLINE_LENGTH}字符'}, status=400)
 
-        # 校验 version_number 为非负整数
-        try:
-            version_number = int(version_number)
-            if version_number < 0:
-                raise ValueError
-        except (ValueError, TypeError):
-            return JsonResponse({'success': False, 'error': 'version_number 必须为非负整数'}, status=400)
-
-        # 解析 messages：form-urlencoded 时为 JSON 字符串，JSON body 时为列表
-        history_messages = []
-        if isinstance(history_messages_raw, str):
-            try:
-                history_messages = json.loads(history_messages_raw)
-            except json.JSONDecodeError:
-                history_messages = []
-        elif isinstance(history_messages_raw, list):
-            history_messages = history_messages_raw
-
-        # 校验历史消息数量和结构
-        if len(history_messages) > self.MAX_HISTORY_COUNT:
-            return JsonResponse({'success': False, 'error': f'历史消息不能超过{self.MAX_HISTORY_COUNT}条'}, status=400)
-        for i, msg in enumerate(history_messages):
-            if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
-                return JsonResponse({'success': False, 'error': f'历史消息第{i+1}条格式错误，必须包含role和content'}, status=400)
-
         project = self.get_project_or_404(request, project_id)
 
-        # 查询项目的世界观、人物、时间线上下文
-        worldview_context, characters_context, timeline_context = self.get_project_context(project)
+        # 从 project 获取题材（不从子模型读取）
+        genre = project.genre or 'general'
 
-        prompt_vars = {
-            'worldview_context': worldview_context,
-            'characters_context': characters_context,
-            'timeline_context': timeline_context,
-            'current_outline': current_outline,
-            'history_messages': history_messages,
-            'user_input': user_input,
-        }
+        # 前端传来的历史对话消息（避免从数据库读取已放弃的对话）
+        history_messages = request.data.get('messages', [])
 
-        # 判断是否大纲为空（首次生成 vs 增量修改）
-        is_empty_outline = not current_outline.strip()
-        has_content_start = '════CONTENT_START════' in current_outline
+        # 获取上下文：分别调用，不走 get_project_context（去掉 timeline）
+        worldview_context = self.get_worldview_context(project)
+        characters_context = self.get_characters_context(project)
+        logger.info(f'[OUTLINE] genre={genre}, worldview_len={len(worldview_context)}, characters_len={len(characters_context)}')
 
-        # 后处理：解析 JSON patches，应用到当前大纲，保存到数据库
-        def post_process(full_content):
-            logger.info(f'[OUTLINE] AI output length: {len(full_content)}, has_think: {"</think>" in full_content}, first 200: {full_content[:200]}')
-            # 去除可能残留的 thinking 标签
-            if '</think>' in full_content:
-                full_content = full_content[full_content.rfind('</think>') + len('</think>'):]
-
-            # 解析 JSON
-            result = _parse_and_apply_patches(full_content, current_outline, project, version_number, user_input)
-            return result
-
-        def _parse_and_apply_patches(full_content, base_outline, project, version_number, user_input):
-            """解析 JSON 格式的 patches，应用到大纲，保存到数据库"""
-            # 解析 JSON
-            json_start = full_content.find('{"patch_list"')
-            if json_start == -1:
-                json_start = full_content.find('{')
-            if json_start == -1:
-                logger.error(f'[OUTLINE] 未找到JSON内容: {full_content[:200]}')
-                return {'error': 'AI输出格式错误，未找到JSON内容', 'question': ''}
-
-            json_str = full_content[json_start:]
-            # 尝试找到 JSON 结束位置（最后一个 }）
-            json_end = json_str.rfind('}')
-            if json_end != -1:
-                json_str = json_str[:json_end + 1]
-
+        def generate():
             try:
-                data = json.loads(json_str)
-            except json.JSONDecodeError as e:
-                logger.error(f'JSON解析失败: {e}, 内容: {json_str[:500]}')
-                return {'error': f'AI输出JSON格式错误: {str(e)}', 'question': ''}
+                from django.db import close_old_connections
+                close_old_connections()
 
-            patch_list = data.get('patch_list', [])
-            question = data.get('question', '')
-            characters = data.get('characters', [])
+                # 持久化用户消息（始终操作构建版本 v0）
+                outline = Outline.get_or_create_building(project)
+                OutlineChatHistory.objects.create(
+                    outline=outline, role='user', content=user_input
+                )
 
-            # 应用 patches 到大纲
-            result_text = base_outline
-            applied_count = 0
-            edits_summary = []
+                # 构建提示词
+                genre_name_label = get_genre_label(genre)
+                genre_guide_text = get_genre_guide(genre, OUTLINE_GENRE_PROMPTS_DICT).format(
+                    genre_name=genre_name_label,
+                )
+                context_text = OUTLINE_CONTEXT_TEMPLATE.format(
+                    worldview_context=worldview_context or '（暂无世界观设定）',
+                    characters_context=characters_context or '（暂无人物清单）',
+                    current_outline=current_outline or '（空，首次生成）',
+                    novel_name=project.title or '小说',
+                )
+                system_prompt = genre_guide_text + '\n\n' + context_text
 
-            for patch in patch_list:
-                old_snippet = patch.get('old_snippet', '')
-                new_snippet = patch.get('new_snippet', '')
+                # 构建消息列表：system + history + user
+                messages = [("system", system_prompt)]
+                # 使用前端传入的历史消息（格式：[{role: 'user'|'assistant', content: '...'}]）
+                for msg in history_messages:
+                    role = msg.get('role', 'user')
+                    content = msg.get('content', '')
+                    if role in ('user', 'assistant') and content:
+                        messages.append((role, content))
+                user_prompt = OUTLINE_BUILD_USER_PROMPT.format(
+                    user_input=user_input,
+                )
+                messages.append(("user", user_prompt))
 
-                if not old_snippet:
-                    # 新增内容（大纲为空或追加）
-                    if not result_text.strip():
-                        result_text = new_snippet
-                    else:
-                        result_text = result_text.rstrip('\n') + '\n\n' + new_snippet
-                    applied_count += 1
-                    edits_summary.append({'type': 'add', 'preview': new_snippet[:80]})
-                    continue
+                from langchain_core.prompts import ChatPromptTemplate
+                prompt = ChatPromptTemplate.from_messages(messages)
 
-                count = result_text.count(old_snippet)
-                if count == 0:
-                    logger.warning(f'Patch未匹配: old_snippet={old_snippet[:60]}...')
-                    edits_summary.append({'type': 'failed', 'preview': old_snippet[:60]})
-                    continue
-                if count > 1:
-                    logger.warning(f'Patch多处匹配({count}次): old_snippet={old_snippet[:60]}...')
-                    edits_summary.append({'type': 'ambiguous', 'preview': old_snippet[:60]})
-                    continue
+                llm = get_llm(user=request.user, scene="outline_build")
+                chain = prompt | llm
 
-                result_text = result_text.replace(old_snippet, new_snippet, 1)
-                applied_count += 1
-                edits_summary.append({'type': 'replace', 'old': old_snippet[:60], 'new': new_snippet[:80]})
+                # ============ 三轮容错机制 ============
+                result, full_content = yield from run_retry_loop(
+                    chain=chain,
+                    prompt=prompt,
+                    user_input=user_input,
+                    scene="outline_build",
+                    apply_fn=_apply_patches,
+                    base_content=current_outline,
+                    sse_event_fn=self.sse_event,
+                    get_chunk_text_fn=self.get_chunk_text,
+                    log_token_usage_fn=self.log_token_usage,
+                    user=request.user,
+                    project=project,
+                    log_prefix='[OUTLINE]',
+                    max_rounds=self.MAX_ROUNDS,
+                    wrap_stream_fn=lambda s: make_thinking_handler()(s),
+                )
 
-            # 保存到数据库（仅保存聊天记录，大纲内容由用户手动保存）
-            try:
-                with transaction.atomic():
-                    outline_version = OutlineVersion.objects.filter(project=project, version_number=version_number).first()
-                    if not outline_version:
-                        outline_version = OutlineVersion.objects.create(
-                            project=project, version_number=version_number, content=base_outline
-                        )
+                # 三轮均失败（run_retry_loop 已发送 error 事件）
+                if result is None:
+                    return
 
-                    OutlineChatHistory.objects.create(outline_version=outline_version, role='user', content=user_input)
-                    OutlineChatHistory.objects.create(outline_version=outline_version, role='assistant', content=question)
+                logger.info(f'[OUTLINE] patches: applied={result.get("edits_applied", 0)}/{result.get("edits_total", 0)}, '
+                            f'question_len={len(result.get("question", ""))}, content_len={len(result.get("new_content", ""))}')
 
-                return {
-                    'project_id': project.id,
-                    'version_number': version_number,
-                    'content_length': len(result_text),
-                    'question': question,
-                    'edits_applied': applied_count,
-                    'edits_total': len(patch_list),
-                    'edits_summary': edits_summary,
-                    'new_content': result_text,
-                }
+                new_content = result.get('new_content', '')
+                assistant_reply = result.get('question', '')
+                options = result.get('options', [])
+
+                # 持久化助手消息
+                OutlineChatHistory.objects.create(
+                    outline=outline, role='assistant',
+                    content=assistant_reply or '大纲已更新',
+                )
+
+                # 发送完成信号
+                yield self.sse_event('complete', {
+                    'reply': assistant_reply,
+                    'content': new_content or current_outline,
+                    'options': options,
+                    'edits_applied': result.get('edits_applied', 0),
+                    'edits_total': result.get('edits_total', 0),
+                })
+
             except Exception as e:
-                logger.error(f"大纲保存异常: {e}")
-                return {
-                    'content_length': len(result_text) if result_text else 0,
-                    'question': question,
-                    'edits_applied': applied_count,
-                    'edits_total': len(patch_list),
-                    'save_error': str(e),
-                }
+                logger.error(f'[OUTLINE] 大纲构建异常: {e}', exc_info=True)
+                yield self.sse_event('error', {'message': '大纲生成失败，请重试'})
 
-        # 使用增量 prompt + thinking handler
-        thinking_handler = make_thinking_handler()
-
-        return stream_llm_response(
-            system_prompt=OUTLINE_INCREMENTAL_SYSTEM_PROMPT,
-            user_prompt=OUTLINE_INCREMENTAL_USER_PROMPT,
-            prompt_vars=prompt_vars,
-            user=request.user,
-            scene="outline_optimize",
-            timeout=300,
-            error_msg='大纲生成失败，请重试',
-            post_process=post_process,
-            project=project,
-            task_type='outline',
-            chunk_handler=thinking_handler,
-        )
+        from django.http import StreamingHttpResponse
+        response = StreamingHttpResponse(generate(), content_type='text/event-stream')
+        response['X-Accel-Buffering'] = 'no'
+        return response
 
 
-class ApiSaveOutlineVersionView(BaseOutlineAPIView):
+class ApiSaveOutlineView(BaseOutlineAPIView):
     # 大纲内容最大长度限制
     MAX_CONTENT_LENGTH = 200000
 
@@ -213,6 +232,8 @@ class ApiSaveOutlineVersionView(BaseOutlineAPIView):
         content = request.data.get('content')
         new_version = request.data.get('new_version', 'false') == 'true'
         version_id = request.data.get('version_id')
+        last_question = request.data.get('last_question', '')
+        last_options = request.data.get('last_options', [])
 
         if not project_id:
             return JsonResponse({'success': False, 'error': 'project_id 参数不能为空'}, status=400)
@@ -224,65 +245,75 @@ class ApiSaveOutlineVersionView(BaseOutlineAPIView):
             return JsonResponse({'success': False, 'error': f'大纲内容不能超过{self.MAX_CONTENT_LENGTH}字符'}, status=400)
 
         project = self.get_project_or_404(request, project_id)
-        outline_version = None
+        outline = None
 
         with transaction.atomic():
             if new_version:
-                latest_version = project.outline_versions.filter(is_deleted=False).order_by('-version_number').first()
-                new_version_number = latest_version.version_number + 1 if latest_version else 1
+                latest_version = project.outlines.filter(is_deleted=False).order_by('-version').first()
+                new_version_number = latest_version.version + 1 if latest_version else 1
 
-                outline_version = OutlineVersion.objects.create(
+                outline = Outline.objects.create(
                     project=project,
-                    version_number=new_version_number,
+                    version=new_version_number,
                     content=content,
-                    snapshot=content[:500] + '...' if len(content) > 500 else content
+                    last_question=last_question or '',
+                    last_options=last_options or [],
                 )
             elif version_id:
-                outline_version = get_object_or_404(OutlineVersion, pk=version_id, project=project, is_deleted=False)
+                outline = get_object_or_404(Outline, pk=version_id, project=project, is_deleted=False)
                 
                 # 检查版本是否被锁定
-                if outline_version.is_finalized:
+                if outline.is_finalized:
                     return JsonResponse({'success': False, 'error': '当前版本已被锁定，无法修改'}, status=400)
                 
-                outline_version.content = content
-                outline_version.snapshot = content[:500] + '...' if len(content) > 500 else content
-                outline_version.save()
+                outline.content = content
+                if last_question:
+                    outline.last_question = last_question
+                if last_options is not None:
+                    outline.last_options = last_options
+                outline.save()
             else:
-                outline_version = project.outline_versions.filter(is_deleted=False).order_by('-version_number').first()
-                if outline_version:
-                    outline_version.content = content
-                    outline_version.snapshot = content[:500] + '...' if len(content) > 500 else content
-                    outline_version.save()
+                outline = project.outlines.filter(is_deleted=False).order_by('-version').first()
+                if outline:
+                    outline.content = content
+                    if last_question:
+                        outline.last_question = last_question
+                    if last_options is not None:
+                        outline.last_options = last_options
+                    outline.save()
                 else:
-                    outline_version = OutlineVersion.objects.create(
+                    outline = Outline.objects.create(
                         project=project,
-                        version_number=1,
+                        version=1,
                         content=content,
-                        snapshot=content[:500] + '...' if len(content) > 500 else content
+                        last_question=last_question or '',
+                        last_options=last_options or [],
                     )
         
         return JsonResponse({
             'success': True,
-            'version_id': outline_version.pk,
-            'version_number': outline_version.version_number
+            'version_id': outline.pk,
+            'version_number': outline.version
         })
 
 
-class ApiLoadOutlineVersionView(BaseOutlineAPIView):
+class ApiLoadOutlineView(BaseOutlineAPIView):
     def get(self, request, project_id, version_id):
-        outline_version = get_object_or_404(OutlineVersion, pk=version_id, is_deleted=False)
+        outline = get_object_or_404(Outline, pk=version_id, is_deleted=False)
         # 校验版本属于当前用户
-        self.get_project_or_404(request, outline_version.project_id)
+        self.get_project_or_404(request, outline.project_id)
 
         return JsonResponse({
             'success': True,
-            'content': outline_version.content,
-            'version_number': outline_version.version_number,
-            'is_finalized': outline_version.is_finalized,
+            'content': outline.content,
+            'version_number': outline.version,
+            'is_finalized': outline.is_finalized,
+            'last_question': outline.last_question or '',
+            'last_options': outline.last_options or [],
         })
 
 
-class ApiFinalizeOutlineVersionView(BaseOutlineAPIView):
+class ApiFinalizeOutlineView(BaseOutlineAPIView):
     MAX_CONTENT_LENGTH = 200000
 
     def post(self, request, project_id):
@@ -298,106 +329,101 @@ class ApiFinalizeOutlineVersionView(BaseOutlineAPIView):
         
         project = self.get_project_or_404(request, project_id)
         
-        outline_version = None
+        outline = None
         
         with transaction.atomic():
-            project.outline_versions.filter(is_finalized=True, is_deleted=False).update(is_finalized=False)
+            project.outlines.filter(is_finalized=True, is_deleted=False).update(is_finalized=False)
             
             if version_id:
-                outline_version = get_object_or_404(OutlineVersion, pk=version_id, project=project, is_deleted=False)
+                outline = get_object_or_404(Outline, pk=version_id, project=project, is_deleted=False)
                 if content:
-                    outline_version.content = content
-                    outline_version.snapshot = content[:500] + '...' if len(content) > 500 else content
-                outline_version.is_finalized = True
-                outline_version.save()
+                    outline.content = content
+                outline.is_finalized = True
+                outline.save()
             else:
-                latest_version = project.outline_versions.filter(is_deleted=False).order_by('-version_number').first()
+                latest_version = project.outlines.filter(is_deleted=False).order_by('-version').first()
                 if latest_version:
-                    outline_version = latest_version
-                    outline_version.content = content or latest_version.content
-                    outline_version.snapshot = outline_version.content[:500] + '...' if len(outline_version.content) > 500 else outline_version.content
-                    outline_version.is_finalized = True
-                    outline_version.save()
+                    outline = latest_version
+                    outline.content = content or latest_version.content
+                    outline.is_finalized = True
+                    outline.save()
                 else:
-                    outline_version = OutlineVersion.objects.create(
+                    outline = Outline.objects.create(
                         project=project,
-                        version_number=1,
+                        version=1,
                         content=content,
-                        snapshot=content[:500] + '...' if len(content) > 500 else content,
                         is_finalized=True
                     )
         
         return JsonResponse({
             'success': True,
-            'version_id': outline_version.pk,
-            'version_number': outline_version.version_number
+            'version_id': outline.pk,
+            'version_number': outline.version
         })
 
 
-class ApiDeleteOutlineVersionView(BaseOutlineAPIView):
+class ApiDeleteOutlineView(BaseOutlineAPIView):
     def post(self, request):
         version_id = request.data.get('version_id')
         if not version_id:
             return JsonResponse({'success': False, 'error': 'version_id 参数不能为空'}, status=400)
-        outline_version = get_object_or_404(OutlineVersion, pk=version_id)
+        outline = get_object_or_404(Outline, pk=version_id)
         # 校验版本属于当前用户
-        self.get_project_or_404(request, outline_version.project_id)
+        self.get_project_or_404(request, outline.project_id)
 
-        if outline_version.is_finalized:
+        if outline.is_finalized:
             return JsonResponse({
                 'success': False,
                 'message': '定稿版本不能删除'
             })
         
-        outline_version.is_deleted = True
-        outline_version.save()
+        outline.is_deleted = True
+        outline.save()
         
         return JsonResponse({'success': True})
 
 
-class ApiRestoreOutlineVersionView(BaseOutlineAPIView):
+class ApiRestoreOutlineView(BaseOutlineAPIView):
     def post(self, request):
         version_id = request.data.get('version_id')
         if not version_id:
             return JsonResponse({'success': False, 'error': 'version_id 参数不能为空'}, status=400)
-        outline_version = get_object_or_404(OutlineVersion, pk=version_id, is_deleted=True)
+        outline = get_object_or_404(Outline, pk=version_id, is_deleted=True)
         # 校验版本属于当前用户
-        self.get_project_or_404(request, outline_version.project_id)
+        self.get_project_or_404(request, outline.project_id)
         
-        outline_version.is_deleted = False
-        outline_version.save()
+        outline.is_deleted = False
+        outline.save()
         
         return JsonResponse({'success': True})
 
 
-class ApiOutlineVersionsView(BaseOutlineAPIView):
+class ApiOutlinesView(BaseOutlineAPIView):
 
     def get(self, request, project_id):
         try:
             project = self.get_project_or_404(request, project_id)
 
-            outline_versions = OutlineVersion.objects.filter(
+            outlines = Outline.objects.filter(
                 project=project,
                 is_deleted=False
-            ).order_by('-version_number')
+            ).order_by('-version')
 
             versions = []
             latest_version = None
 
-            for version in outline_versions:
+            for ver in outlines:
                 version_data = {
-                    'id': version.pk,
-                    'version_number': version.version_number,
-                    'is_finalized': version.is_finalized,
-                    'is_current': version.is_current,
-                    'snapshot': version.snapshot,
-                    'created_at': version.created_at.strftime('%Y-%m-%d %H:%M') if version.created_at else None,
-                    'updated_at': version.updated_at.strftime('%Y-%m-%d %H:%M') if version.updated_at else None,
+                    'id': ver.pk,
+                    'version_number': ver.version,
+                    'is_finalized': ver.is_finalized,
+                    'created_at': ver.created_at.strftime('%Y-%m-%d %H:%M') if ver.created_at else None,
+                    'updated_at': ver.updated_at.strftime('%Y-%m-%d %H:%M') if ver.updated_at else None,
                 }
                 
                 versions.append(version_data)
                 
-                if not latest_version or version.version_number > latest_version['version_number']:
+                if not latest_version or ver.version > latest_version['version_number']:
                     latest_version = version_data
             
             return JsonResponse({
@@ -410,28 +436,28 @@ class ApiOutlineVersionsView(BaseOutlineAPIView):
             return JsonResponse({'success': False, 'error': 'internal server error'}, status=500)
 
 
-class ApiOutlineVersionDetailView(BaseOutlineAPIView):
+class ApiOutlineDetailView(BaseOutlineAPIView):
 
     def get(self, request, project_id, version_id):
         try:
-            outline_version = get_object_or_404(
-                OutlineVersion,
+            outline = get_object_or_404(
+                Outline,
                 pk=version_id,
                 is_deleted=False
             )
             # 校验版本属于当前用户
-            self.get_project_or_404(request, outline_version.project_id)
+            self.get_project_or_404(request, outline.project_id)
             
             return JsonResponse({
                 'success': True,
-                'id': outline_version.pk,
-                'version_number': outline_version.version_number,
-                'content': outline_version.content,
-                'is_finalized': outline_version.is_finalized,
-                'is_current': outline_version.is_current,
-                'snapshot': outline_version.snapshot,
-                'created_at': outline_version.created_at.strftime('%Y-%m-%d %H:%M') if outline_version.created_at else None,
-                'updated_at': outline_version.updated_at.strftime('%Y-%m-%d %H:%M') if outline_version.updated_at else None,
+                'id': outline.pk,
+                'version_number': outline.version,
+                'content': outline.content,
+                'is_finalized': outline.is_finalized,
+                'last_question': outline.last_question or '',
+                'last_options': outline.last_options or [],
+                'created_at': outline.created_at.strftime('%Y-%m-%d %H:%M') if outline.created_at else None,
+                'updated_at': outline.updated_at.strftime('%Y-%m-%d %H:%M') if outline.updated_at else None,
             })
         except Exception as e:
             logger.error(f"获取大纲版本详情异常: {e}")
@@ -443,31 +469,17 @@ class ApiLatestOutlineView(BaseOutlineAPIView):
     def get(self, request, project_id):
         try:
             project = self.get_project_or_404(request, project_id)
-            
-            outline_version = OutlineVersion.objects.filter(
-                project=project,
-                version_number=0,
-                is_deleted=False
-            ).first()
-            
-            if not outline_version:
-                outline_version = OutlineVersion.objects.create(
-                    project=project,
-                    version_number=0,
-                    content='',
-                    is_current=True
-                )
+            outline = Outline.get_or_create_building(project)
             
             return JsonResponse({
                 'success': True,
                 'outline': {
-                    'id': outline_version.pk,
-                    'version_number': outline_version.version_number,
-                    'content': outline_version.content,
-                    'is_finalized': outline_version.is_finalized,
-                    'is_current': outline_version.is_current,
-                    'created_at': outline_version.created_at.strftime('%Y-%m-%d %H:%M') if outline_version.created_at else None,
-                    'updated_at': outline_version.updated_at.strftime('%Y-%m-%d %H:%M') if outline_version.updated_at else None
+                    'id': outline.pk,
+                    'version_number': outline.version,
+                    'content': outline.content,
+                    'is_finalized': outline.is_finalized,
+                    'created_at': outline.created_at.strftime('%Y-%m-%d %H:%M') if outline.created_at else None,
+                    'updated_at': outline.updated_at.strftime('%Y-%m-%d %H:%M') if outline.updated_at else None
                 }
             })
         except Exception as e:
@@ -484,25 +496,25 @@ class ApiOutlineFinalizeView(BaseOutlineAPIView):
             if not version_id:
                 return JsonResponse({'success': False, 'error': 'version_id 参数不能为空'}, status=400)
 
-            outline_version = get_object_or_404(
-                OutlineVersion,
+            outline = get_object_or_404(
+                Outline,
                 pk=version_id,
                 project__user=request.user,
                 is_deleted=False
             )
             
-            project = outline_version.project
+            project = outline.project
             
             with transaction.atomic():
-                project.outline_versions.filter(is_finalized=True, is_deleted=False).update(is_finalized=False)
+                project.outlines.filter(is_finalized=True, is_deleted=False).update(is_finalized=False)
                 
-                outline_version.is_finalized = True
-                outline_version.save()
+                outline.is_finalized = True
+                outline.save()
             
             return JsonResponse({
                 'success': True,
-                'version_id': outline_version.pk,
-                'version_number': outline_version.version_number,
+                'version_id': outline.pk,
+                'version_number': outline.version,
                 'project_id': project.id
             })
         except Exception as e:
@@ -520,20 +532,20 @@ class ApiOutlineLockView(BaseOutlineAPIView):
             if not version_id or not project_id:
                 return JsonResponse({'success': False, 'error': 'version_id 和 project_id 参数不能为空'}, status=400)
 
-            outline_version = get_object_or_404(
-                OutlineVersion,
+            outline = get_object_or_404(
+                Outline,
                 pk=version_id,
                 project__user=request.user,
                 is_deleted=False
             )
             
-            outline_version.is_finalized = True
-            outline_version.save()
+            outline.is_finalized = True
+            outline.save()
             
             return JsonResponse({
                 'success': True,
-                'version_id': outline_version.pk,
-                'version_number': outline_version.version_number
+                'version_id': outline.pk,
+                'version_number': outline.version
             })
         except Exception as e:
             logger.error(f"锁定大纲版本异常: {e}")
@@ -552,20 +564,20 @@ class ApiOutlineUnlockView(BaseOutlineAPIView):
             if not version_id or not project_id:
                 return JsonResponse({'success': False, 'error': 'version_id 和 project_id 参数不能为空'}, status=400)
 
-            outline_version = get_object_or_404(
-                OutlineVersion,
+            outline = get_object_or_404(
+                Outline,
                 pk=version_id,
                 project__user=request.user,
                 is_deleted=False
             )
             
-            outline_version.is_finalized = False
-            outline_version.save()
+            outline.is_finalized = False
+            outline.save()
             
             return JsonResponse({
                 'success': True,
-                'version_id': outline_version.pk,
-                'version_number': outline_version.version_number
+                'version_id': outline.pk,
+                'version_number': outline.version
             })
         except Exception as e:
             logger.error(f"解锁大纲版本异常: {e}")
@@ -581,21 +593,21 @@ class ApiOutlineDeleteView(BaseOutlineAPIView):
             if not version_id:
                 return JsonResponse({'success': False, 'error': 'version_id 参数不能为空'}, status=400)
 
-            outline_version = get_object_or_404(
-                OutlineVersion,
+            outline = get_object_or_404(
+                Outline,
                 pk=version_id,
                 project__user=request.user,
                 is_deleted=False
             )
 
-            if outline_version.is_finalized:
+            if outline.is_finalized:
                 return JsonResponse({
                     'success': False,
                     'message': '锁定版本不能删除'
                 })
             
-            outline_version.is_deleted = True
-            outline_version.save()
+            outline.is_deleted = True
+            outline.save()
             
             return JsonResponse({'success': True})
         except Exception as e:
@@ -634,7 +646,7 @@ class ApiChatHistoryDeleteView(BaseOutlineAPIView):
             
             deleted_count = OutlineChatHistory.objects.filter(
                 id__in=valid_ids,
-                outline_version__project__user=request.user
+                outline__project__user=request.user
             ).delete()[0]
             
             return JsonResponse({

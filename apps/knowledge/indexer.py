@@ -32,25 +32,25 @@ class KnowledgeIndexer:
     # ================================================================
     # 大纲
     # ================================================================
-    def index_outline(self, outline_version):
+    def index_outline(self, outline):
         """索引大纲 — 按段落分块，每块 ≤ 512 token"""
-        if not outline_version.content:
+        if not outline.content:
             return 0
-        chunks = self._chunk_text(outline_version.content)
+        chunks = self._chunk_text(outline.content)
         if not chunks:
             return 0
-        prefix = f"{outline_version.project_id}_outline_{outline_version.pk}"
+        prefix = f"{outline.project_id}_outline_{outline.pk}"
         count = 0
         for i, chunk_text in enumerate(chunks):
             pk = f"{prefix}_{i}"
             if self._upsert_doc(
                 pk=pk,
-                project_id=outline_version.project_id,
+                project_id=outline.project_id,
                 doc_type="outline",
                 content=chunk_text,
                 metadata={
-                    "version_number": outline_version.version_number,
-                    "outline_version_id": outline_version.pk,
+                    "version_number": outline.version,
+                    "outline_version_id": outline.pk,
                     "chunk_index": i,
                     "total_chunks": len(chunks),
                 },
@@ -58,8 +58,8 @@ class KnowledgeIndexer:
                 count += 1
         return count
 
-    def delete_outline(self, outline_version):
-        return self._delete_by_prefix(f"{outline_version.project_id}_outline_{outline_version.pk}")
+    def delete_outline(self, outline):
+        return self._delete_by_prefix(f"{outline.project_id}_outline_{outline.pk}")
 
     # ================================================================
     # 世界观（Markdown 全文分块索引）
@@ -443,14 +443,14 @@ class KnowledgeIndexer:
         deleted, _ = KnowledgeVector.objects.filter(project_id=project_id).delete()
         logger.info(f"  已清除旧记录: {deleted} 条")
 
-        from apps.outline.models import OutlineVersion
+        from apps.outline.models import Outline
         from apps.worldview.models import WorldView
         from apps.characters.models import Character
         from apps.volume.models import VolumeList
         from apps.chapter.models import ChapterList
 
         count = 0
-        versions = OutlineVersion.objects.filter(project_id=project_id, is_finalized=True, is_deleted=False)
+        versions = Outline.objects.filter(project_id=project_id, is_finalized=True, is_deleted=False)
         for v in versions:
             count += self.index_outline(v) or 0
         logger.info(f"  大纲已索引: {versions.count()} 条")

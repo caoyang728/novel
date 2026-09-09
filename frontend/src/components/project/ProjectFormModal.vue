@@ -64,6 +64,7 @@
 import { ref, reactive, watch } from 'vue'
 import AppModal from '@/components/common/AppModal.vue'
 import AppButton from '@/components/common/AppButton.vue'
+import { showConfirmModal } from '@/utils/modal'
 
 const GENRE_OPTIONS = [
   { value: 'xuanhuan', label: '玄幻/仙侠' },
@@ -86,6 +87,7 @@ const emit = defineEmits(['update:visible', 'submit'])
 
 const formRef = ref(null)
 const isEdit = ref(false)
+const originalGenre = ref('')
 
 const form = reactive({
   title: '',
@@ -104,13 +106,29 @@ watch(() => props.visible, (val) => {
     form.title = props.project.title || ''
     form.description = props.project.description || ''
     form.genre = props.project.genre || 'general'
+    originalGenre.value = props.project.genre || 'general'
     form.min_words_per_chapter = props.project.min_words_per_chapter || 1000
   } else if (val) {
     isEdit.value = false
+    originalGenre.value = ''
     form.title = ''
     form.description = ''
     form.genre = 'general'
     form.min_words_per_chapter = 1000
+  }
+})
+
+// 编辑模式下修改题材时弹窗提醒
+watch(() => form.genre, (newVal, oldVal) => {
+  if (isEdit.value && oldVal && newVal !== oldVal) {
+    showConfirmModal({
+      title: '修改题材提醒',
+      message: '修改题材将影响世界观、大纲等模块的构建指引，是否确认？',
+      onConfirm: () => {},
+      onCancel: () => {
+        form.genre = oldVal
+      },
+    })
   }
 })
 

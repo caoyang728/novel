@@ -329,10 +329,10 @@ class BaseChapterAPIView(BaseAPIView):
         """J4: 向量语义检索历史相关片段"""
         try:
             from apps.knowledge.retriever import KnowledgeRetriever
-            from apps.outline.models import OutlineVersion
+            from apps.outline.models import Outline
 
             retriever = KnowledgeRetriever()
-            current_outline = OutlineVersion.objects.filter(
+            current_outline = Outline.objects.filter(
                 project=project, is_current=True, is_deleted=False
             ).first()
             results = retriever.search_project_with_scores(

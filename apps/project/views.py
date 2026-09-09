@@ -13,7 +13,7 @@ from rest_framework import status
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from apps.project.models import ProjectList, GENRE_CHOICES
-from apps.outline.models import OutlineVersion, OutlineChatHistory
+from apps.outline.models import Outline, OutlineChatHistory
 from apps.project.prompts import DESCRIPTION_ENHANCE_USER_PROMPT, DESCRIPTION_ENHANCE_SYSTEM_PROMPT
 from apps.volume.models import VolumeVersion, VolumeList
 from apps.chapter.models import ChapterList
@@ -131,17 +131,17 @@ class ApiAutoSaveChatView(BaseAPIView):
                 project.description = description
                 project.save()
 
-            # 只保存大纲内容到 OutlineVersion（聊天记录由 ChatNewOutlineStreamView 保存）
-            building_version = OutlineVersion.get_or_create_building_version(project)
+            # 只保存大纲内容到 Outline（聊天记录由 ChatNewOutlineStreamView 保存）
+            building_version = Outline.get_or_create_building(project)
             building_version.content = outline
             building_version.save()
 
             # 如果是手动保存（create_version=true），创建新版本
             if create_version and outline:
-                # 检查是否已存在 version_number=1 的版本
-                existing_version = project.outline_versions.filter(
+                # 检查是否已存在 version=1 的版本
+                existing_version = project.outlines.filter(
                     is_deleted=False,
-                    version_number=1
+                    version=1
                 ).first()
 
                 if existing_version:
@@ -150,18 +150,18 @@ class ApiAutoSaveChatView(BaseAPIView):
                     existing_version.is_current = True
                     existing_version.save()
                 else:
-                    # 创建新版本 version_number=1
-                    OutlineVersion.objects.create(
+                    # 创建新版本 version=1
+                    Outline.objects.create(
                         project=project,
-                        version_number=1,
+                        version=1,
                         content=outline,
                         is_current=True,
                         is_finalized=False
                     )
-                # 将 version_number=0 的版本标记为已删除（如果存在）
-                project.outline_versions.filter(
+                # 将 version=0 的版本标记为已删除（如果存在）
+                project.outlines.filter(
                     is_deleted=False,
-                    version_number=0
+                    version=0
                 ).update(is_deleted=True)
 
             return JsonResponse({
@@ -280,9 +280,9 @@ class ApiProjectListView(BaseAPIView):
 
         projects_data = []
         for project in projects:
-            outline_versions = project.outline_versions.filter().order_by('-version_number')
-            version_count = outline_versions.count()
-            latest_outline = outline_versions.first()
+            outlines = project.outlines.filter().order_by('-version')
+            version_count = outlines.count()
+            latest_outline = outlines.first()
             projects_data.append({
                 'id': project.id,
                 'title': project.title,
@@ -291,7 +291,7 @@ class ApiProjectListView(BaseAPIView):
                 'min_words_per_chapter': project.min_words_per_chapter,
                 'status': 'completed' if project.finalized else ('writing' if latest_outline and latest_outline.is_finalized else 'draft'),
                 'version_count': version_count,
-                'latest_version_number': latest_outline.version_number if latest_outline else 0,
+                'latest_version_number': latest_outline.version if latest_outline else 0,
                 'created_at': project.created_at.strftime('%Y-%m-%d %H:%M'),
                 'updated_at': project.updated_at.strftime('%Y-%m-%d %H:%M')
             })
@@ -307,23 +307,23 @@ class ApiProjectDetailView(BaseAPIView):
             view_type = request.GET.get('view', 'novel')
             version_id = request.GET.get('version')
 
-            outline_versions = project.outline_versions.filter(is_deleted=False).order_by('-created_at')
-            deleted_outline_versions = project.outline_versions.filter(is_deleted=True).order_by('-created_at')
+            outlines = project.outlines.filter(is_deleted=False).order_by('-created_at')
+            deleted_outlines = project.outlines.filter(is_deleted=True).order_by('-created_at')
             volume_versions = project.volume_versions.filter(is_deleted=False).order_by('-created_at')
 
             outline_data = [{
                 'pk': v.pk,
-                'version_number': v.version_number,
+                'version_number': v.version,
                 'is_finalized': v.is_finalized,
                 'updated_at': v.updated_at.strftime('%Y-%m-%d %H:%M'),
                 'content': v.content if view_type == 'outline' and str(v.pk) == str(version_id) else None
-            } for v in outline_versions]
+            } for v in outlines]
 
             deleted_outline_data = [{
                 'pk': v.pk,
-                'version_number': v.version_number,
+                'version_number': v.version,
                 'updated_at': v.updated_at.strftime('%Y-%m-%d %H:%M')
-            } for v in deleted_outline_versions]
+            } for v in deleted_outlines]
 
             volume_data = [{
                 'pk': v.pk,
@@ -339,8 +339,8 @@ class ApiProjectDetailView(BaseAPIView):
 
             if view_type == 'outline' and version_id:
                 try:
-                    selected_outline = OutlineVersion.objects.get(pk=version_id, project=project, is_deleted=False)
-                except OutlineVersion.DoesNotExist:
+                    selected_outline = Outline.objects.get(pk=version_id, project=project, is_deleted=False)
+                except Outline.DoesNotExist:
                     pass
             elif view_type == 'volume' and version_id:
                 try:
@@ -361,7 +361,7 @@ class ApiProjectDetailView(BaseAPIView):
                 except ChapterList.DoesNotExist:
                     pass
 
-            latest_outline = outline_versions.order_by('-version_number').first()
+            latest_outline = outlines.order_by('-version').first()
             return JsonResponse({
                 'success': True,
                 'project': {
@@ -372,8 +372,8 @@ class ApiProjectDetailView(BaseAPIView):
                     'status': project.status,
                     'finalized': project.finalized,
                     'min_words_per_chapter': project.min_words_per_chapter,
-                    'version_count': outline_versions.count(),
-                    'latest_version_number': latest_outline.version_number if latest_outline else 0,
+                    'version_count': outlines.count(),
+                    'latest_version_number': latest_outline.version if latest_outline else 0,
                     'created_at': project.created_at.strftime('%Y-%m-%d %H:%M'),
                     'updated_at': project.updated_at.strftime('%Y-%m-%d %H:%M')
                 },
@@ -383,7 +383,7 @@ class ApiProjectDetailView(BaseAPIView):
                 'volume_versions': volume_data,
                 'selected_outline': {
                     'pk': selected_outline.pk,
-                    'version_number': selected_outline.version_number,
+                    'version_number': selected_outline.version,
                     'content': selected_outline.content,
                     'is_finalized': selected_outline.is_finalized,
                     'created_at': selected_outline.created_at.strftime('%Y-%m-%d %H:%M'),
@@ -427,15 +427,10 @@ class ApiProjectDetailView(BaseAPIView):
                 project.title = title
             if description is not None:
                 project.description = description
-            logger.warning(f'=====')
             if genre is not None:
-                logger.warning(f'=====: {genre}')
                 valid_genres = [g[0] for g in GENRE_CHOICES]
-                logger.warning(f'valid_genres: {valid_genres}')
                 if genre in valid_genres:
                     project.genre = genre
-                    # 同步更新世界观文档的题材
-                    WorldView.objects.filter(project=project, is_deleted=False).update(genre=genre)
             if min_words is not None:
                 try:
                     mw = int(min_words)
@@ -447,6 +442,7 @@ class ApiProjectDetailView(BaseAPIView):
             project.save()
             return JsonResponse({'success': True})
         except Exception as e:
+            logger.error(f'[PUT] project update failed: {e}')
             return JsonResponse({'success': False, 'error': str(e)})
 
     def delete(self, request, pk):
@@ -485,8 +481,12 @@ class ApiProjectCreateView(BaseAPIView):
                 title=title, description=description, genre=genre, user=request.user
             )
 
-            # 同步创建世界观文档（Markdown 新版），关联题材
-            WorldView.objects.create(project=project, version=1, genre=genre)
+            # 同步创建世界观文档和大纲初始版本
+            WorldView.objects.create(project=project, version=1)
+            Outline.objects.create(
+                project=project, version=0,
+                content='', is_current=True
+            )
 
             return JsonResponse({
                 'success': True,
@@ -509,9 +509,9 @@ class ApiProjectFinalizeView(BaseAPIView):
         try:
             project = get_object_or_404(ProjectList, pk=pk, user=request.user)
             
-            project.outline_versions.filter(is_deleted=False, is_finalized=True).update(is_finalized=False)
+            project.outlines.filter(is_deleted=False, is_finalized=True).update(is_finalized=False)
             
-            latest_version = project.outline_versions.filter(is_deleted=False).order_by('-version_number').first()
+            latest_version = project.outlines.filter(is_deleted=False).order_by('-version').first()
             if latest_version:
                 latest_version.is_finalized = True
                 latest_version.save()
@@ -573,10 +573,10 @@ class ApiTitleSuggestView(BaseAPIView):
             if project_id:
                 try:
                     project = ProjectList.objects.get(pk=project_id, user=request.user)
-                    # 获取项目的大纲内容（优先定稿版本，无定稿则取version_number最大的）
-                    outline_version = project.outline_versions.filter(is_deleted=False).order_by('-is_finalized', '-version_number').first()
-                    if outline_version and outline_version.content:
-                        outline = outline_version.content
+                    # 获取项目的大纲内容（优先定稿版本，无定稿则取version最大的）
+                    outline = project.outlines.filter(is_deleted=False).order_by('-is_finalized', '-version').first()
+                    if outline and outline.content:
+                        outline = outline.content
                 except ProjectList.DoesNotExist:
                     return JsonResponse({'success': False, 'message': '项目不存在'})
             
@@ -603,11 +603,11 @@ class ApiDescriptionSuggestView(BaseAPIView):
             if project_id:
                 try:
                     project = ProjectList.objects.get(pk=project_id, user=request.user)
-                    # 获取项目的大纲内容（优先定稿版本，无定稿则取version_number最大的）
-                    outline_version = project.outline_versions.filter(is_deleted=False).order_by('-is_finalized', '-version_number').first()
+                    # 获取项目的大纲内容（优先定稿版本，无定稿则取version最大的）
+                    outline = project.outlines.filter(is_deleted=False).order_by('-is_finalized', '-version').first()
                     
-                    if outline_version and outline_version.content:
-                        outline = outline_version.content
+                    if outline and outline.content:
+                        outline = outline.content
                 except ProjectList.DoesNotExist:
                     return JsonResponse({'success': False, 'message': '项目不存在'})
             
@@ -649,21 +649,21 @@ class ApiSaveProjectView(BaseAPIView):
                     user=request.user
                 )
 
-            building_version = OutlineVersion.get_or_create_building_version(project)
+            building_version = Outline.get_or_create_building(project)
             building_version.content = outline
             building_version.save()
 
             for msg in messages_list:
                 OutlineChatHistory.objects.create(
-                    outline_version=building_version,
+                    outline=building_version,
                     role=msg.get('role', 'user'),
                     content=msg.get('content', '')
                 )
 
             if outline:
-                existing_version = project.outline_versions.filter(
+                existing_version = project.outlines.filter(
                     is_deleted=False,
-                    version_number=1
+                    version=1
                 ).first()
 
                 if existing_version:
@@ -671,16 +671,16 @@ class ApiSaveProjectView(BaseAPIView):
                     existing_version.is_current = True
                     existing_version.save()
                 else:
-                    OutlineVersion.objects.create(
+                    Outline.objects.create(
                         project=project,
-                        version_number=1,
+                        version=1,
                         content=outline,
                         is_current=True,
                         is_finalized=False
                     )
-                project.outline_versions.filter(
+                project.outlines.filter(
                     is_deleted=False,
-                    version_number=0
+                    version=0
                 ).update(is_deleted=True)
 
             return JsonResponse({
@@ -712,9 +712,9 @@ class ApiEnhanceDescriptionView(BaseAPIView):
                 try:
                     project = ProjectList.objects.get(pk=project_id, user=request.user)
 
-                    latest_version = project.outline_versions.filter(
+                    latest_version = project.outlines.filter(
                         is_deleted=False
-                    ).order_by('-version_number').first()
+                    ).order_by('-version').first()
 
                     if latest_version:
                         outline = latest_version.content or ''
@@ -854,10 +854,10 @@ class GenerateProjectInfoView(View):
         project_id = request.POST.get('project_id')
         project = get_object_or_404(ProjectList, pk=project_id, user=request.user)
         
-        finalized_outline = project.outline_versions.filter(is_deleted=False, is_finalized=True).order_by('-version_number').first()
+        finalized_outline = project.outlines.filter(is_deleted=False, is_finalized=True).order_by('-version').first()
         
         if not finalized_outline:
-            latest_outline = project.outline_versions.filter(is_deleted=False).order_by('-version_number').first()
+            latest_outline = project.outlines.filter(is_deleted=False).order_by('-version').first()
             if not latest_outline:
                 return JsonResponse({'success': False, 'message': '暂无大纲，无法生成项目名和简介'})
             outline_content = latest_outline.content
@@ -890,9 +890,9 @@ class SuggestTitleView(BaseAPIView):
 
     def post(self, request):
         outline_version_id = request.data.get('outline_version_id')
-        outline_version = get_object_or_404(OutlineVersion, pk=outline_version_id, project__user=request.user)
+        outline = get_object_or_404(Outline, pk=outline_version_id, project__user=request.user)
         
-        suggestions = suggest_title(outline_version.content)
+        suggestions = suggest_title(outline.content)
         
         return JsonResponse({'success': True, 'suggestions': suggestions})
 

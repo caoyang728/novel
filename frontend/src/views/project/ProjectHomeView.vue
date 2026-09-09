@@ -34,12 +34,12 @@ onMounted(() => {
 
 const modules = [
   { name: 'Worldview', label: '世界观构建', icon: ChatLineRound, to: { name: 'Worldview' }, desc: '与 AI 对话构建世界观' },
+  { name: 'Outline', label: '大纲', icon: Document, to: { name: 'Outline' }, desc: '构建和管理故事大纲' }, 
   { name: 'Character', label: '人物清单', icon: User, to: { name: 'Character' }, desc: '角色管理' },
-  { name: 'Graph', label: '知识图谱', icon: Share, to: { name: 'Graph' }, desc: '关系图谱' },
   { name: 'Timeline', label: '故事时间线', icon: Calendar, to: { name: 'Timeline' }, desc: '故事时间线' },
-  { name: 'Outline', label: '大纲', icon: Document, to: { name: 'Outline' }, desc: '构建和管理故事大纲' },
   { name: 'Volume', label: '卷管理', icon: Notebook, to: { name: 'Volume' }, desc: '管理卷结构' },
   { name: 'Chapter', label: '章节管理', icon: Reading, to: { name: 'Chapter' }, desc: '章节生成与管理' },
+  { name: 'Graph', label: '关系图谱', icon: Share, to: { name: 'Graph' }, desc: '关系图谱' },
   { name: 'Note', label: '随手记', icon: EditPen, to: { name: 'Note' }, desc: '随手记' },
 ]
 </script>

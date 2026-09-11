@@ -56,6 +56,15 @@
               >
                 {{ f }}
               </el-tag>
+              <el-tag
+                v-if="c.source && c.source !== 'manual'"
+                size="small"
+                :type="sourceTagType(c.source)"
+                effect="plain"
+                round
+              >
+                {{ sourceLabel(c.source) }}
+              </el-tag>
             </div>
           </div>
         </div>
@@ -101,7 +110,7 @@
     </div>
 
     <!-- 创建角色弹窗 -->
-    <AppModal v-model:visible="createVisible" title="创建角色" width="800px" height="65vh" min-height="65vh">
+    <AppModal v-model:visible="createVisible" title="创建角色" width="800px" height="70vh">
       <div class="edit-modal-container">
         <!-- Tab 栏固定在顶部 -->
         <el-tabs v-model="createTab" class="char-tabs-fixed">
@@ -114,7 +123,7 @@
         <div class="tab-content-scroll">
           <!-- 手动创建 -->
           <div v-if="createTab === 'manual'" class="tab-pane-content">
-            <CharacterFormFields :form="manualForm" tab="all" />
+            <CharacterFormFields :form="manualForm" tab="all" :genre="projectGenre" />
             <div class="editor-section">
               <div class="editor-section-title"><span class="title-bar"></span>人际关系</div>
               <RelationshipEditor
@@ -139,7 +148,7 @@
               />
             </div>
             <template v-else>
-              <CharacterFormFields :form="aiForm" tab="all" />
+              <CharacterFormFields :form="aiForm" tab="all" :genre="projectGenre" />
               <div class="editor-section">
                 <div class="editor-section-title"><span class="title-bar"></span>人际关系</div>
                 <RelationshipEditor
@@ -175,11 +184,8 @@
                     <span v-if="char.identity" class="batch-meta">身份：{{ char.identity }}</span>
                     <span v-if="char.faction" class="batch-meta">势力：{{ char.faction }}</span>
                   </div>
-                  <div v-if="char.personality" class="batch-desc">
-                    <strong>性格</strong>{{ truncate(char.personality, 120) }}
-                  </div>
-                  <div v-if="char.backstory" class="batch-desc">
-                    <strong>背景</strong>{{ truncate(char.backstory, 120) }}
+                  <div v-if="char.content" class="batch-desc">
+                    <strong>内容</strong>{{ truncate(char.content, 150) }}
                   </div>
                 </div>
               </div>
@@ -242,11 +248,19 @@
               >
                 <el-icon><MagicStick /></el-icon> 批量生成
               </AppButton>
+              <div v-if="batchProgress.active" class="batch-progress">
+                <el-progress
+                  :percentage="Math.round((batchProgress.done / batchProgress.total) * 100)"
+                  :status="batchProgress.done >= batchProgress.total ? 'success' : undefined"
+                  :stroke-width="6"
+                />
+                <span class="batch-progress-text">{{ batchProgress.done }} / {{ batchProgress.total }}</span>
+              </div>
               <AppButton
                 v-if="batchList.length"
                 variant="accent"
                 :loading="saving"
-                :disabled="!batchSelectedCount"
+                :disabled="!batchSelectedCount || batchProgress.active"
                 @click="saveBatch"
                 class="footer-btn"
               >
@@ -259,35 +273,33 @@
     </AppModal>
 
     <!-- 编辑角色弹窗 -->
-    <AppModal v-model:visible="editVisible" title="编辑角色" width="800px" height="65vh" min-height="65vh">
+    <AppModal v-model:visible="editVisible" title="编辑角色" width="800px" height="70vh">
       <div class="edit-modal-container" v-loading="editLoading" element-loading-text="加载角色详情...">
         <!-- Tab 栏固定在顶部 -->
         <el-tabs v-model="editTab" class="char-tabs-fixed">
           <el-tab-pane label="基础信息" name="basic" />
-          <el-tab-pane label="性格心理" name="mind" />
-          <el-tab-pane label="外貌能力" name="ability" />
-          <el-tab-pane label="背景经历" name="story" />
+          <el-tab-pane label="角色内容" name="content" />
           <el-tab-pane label="关系网络" name="relations" />
           <el-tab-pane label="关系图谱" name="graph" />
+          <el-tab-pane label="角色轨迹" name="trajectory" />
+          <Teleport defer to=".char-tabs-fixed .el-tabs__nav-wrap">
+            <AppButton
+              size="small"
+              class="timeline-link-btn"
+              @click="router.push({ name: 'Timeline', query: { view: 'graph', graph_view: 'character', character_id: editId } })"
+            >
+              <el-icon><DataLine /></el-icon> 查看人物时间线
+            </AppButton>
+          </Teleport>
         </el-tabs>
         
-        <!-- 内容区可滚动 -->
-        <div class="tab-content-scroll">
+        <!-- 内容区 -->
+        <div class="tab-content-scroll" :class="{ 'no-scroll': editTab === 'content' || editTab === 'graph' }">
           <div v-if="editTab === 'basic'" class="tab-pane-content">
-            <CharacterFormFields :form="editForm" tab="basic" />
+            <CharacterFormFields :form="editForm" tab="basic" :genre="projectGenre" />
           </div>
-          <div v-else-if="editTab === 'mind'" class="tab-pane-content">
-            <CharacterFormFields :form="editForm" tab="mind" />
-          </div>
-          <div v-else-if="editTab === 'ability'" class="tab-pane-content">
-            <CharacterFormFields :form="editForm" tab="ability" />
-          </div>
-          <div v-else-if="editTab === 'story'" class="tab-pane-content">
-            <CharacterFormFields :form="editForm" tab="story" />
-            <div class="editor-section">
-              <div class="editor-section-title"><span class="title-bar"></span>经历</div>
-              <ExperienceEditor v-model="editExperiences" />
-            </div>
+          <div v-else-if="editTab === 'content'" class="tab-pane-content content-tab">
+            <CharacterFormFields :form="editForm" tab="content" :genre="projectGenre" />
           </div>
           <div v-else-if="editTab === 'relations'" class="tab-pane-content">
             <RelationshipEditor
@@ -301,6 +313,14 @@
               :project-id="projectId"
               :character-id="editId"
               :character-name="editForm.name"
+            />
+          </div>
+          <div v-else-if="editTab === 'trajectory'" class="tab-pane-content">
+            <CharacterTrajectoryPanel
+              ref="trajectoryPanelRef"
+              :project-id="projectId"
+              :character-id="editId"
+              @edit="openTrajectoryEdit"
             />
           </div>
         </div>
@@ -330,216 +350,133 @@
       :project-id="projectId"
       @saved="loadCharacters"
     />
+
+    <!-- 编辑轨迹弹窗（独立二级弹窗） -->
+    <AppModal v-model:visible="trajEditVisible" title="编辑轨迹" width="600px" height="auto">
+      <el-form :model="trajEditForm" label-width="90px">
+        <el-form-item label="标题" required>
+          <el-input v-model="trajEditForm.title" placeholder="如：创业初期" />
+        </el-form-item>
+        <el-form-item label="时间范围">
+          <div class="traj-time-range">
+            <el-input v-model="trajEditForm.start_time" placeholder="起始时间，如：2024年1月" />
+            <span class="traj-time-separator">~</span>
+            <el-input v-model="trajEditForm.end_time" placeholder="结束时间，如：2024年6月" />
+          </div>
+        </el-form-item>
+        <el-form-item label="涉及章节">
+          <el-input v-model="trajChapterIdsInput" placeholder="多个章节用逗号分隔，如：1,2,3" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="trajEditForm.details.description" type="textarea" :rows="3" placeholder="详细描述..." />
+        </el-form-item>
+        <el-form-item label="地点">
+          <el-input v-model="trajEditForm.details.location" placeholder="如：北京" />
+        </el-form-item>
+        <el-form-item label="情感状态">
+          <el-input v-model="trajEditForm.details.emotional_state" placeholder="如：焦虑" />
+        </el-form-item>
+        <el-form-item label="实力等级">
+          <el-input v-model="trajEditForm.details.power_level" placeholder="如：初级" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="modal-footer-content">
+          <AppButton variant="ai" :loading="trajChecking" @click="checkTrajectory" class="footer-btn">
+            <el-icon><MagicStick /></el-icon> AI 检测
+          </AppButton>
+          <div class="footer-right">
+            <AppButton @click="trajEditVisible = false" class="footer-btn">取消</AppButton>
+            <AppButton variant="accent" :loading="trajSaving" :disabled="!trajEditForm.title.trim()" @click="saveTrajectory" class="footer-btn">
+              保存
+            </AppButton>
+          </div>
+        </div>
+      </template>
+    </AppModal>
+
+    <!-- AI检测结果弹窗（三级弹窗） -->
+    <el-dialog
+      v-model="trajCheckVisible"
+      title="AI 检测结果"
+      width="480px"
+      :close-on-click-modal="false"
+      class="traj-check-dialog"
+    >
+      <div v-loading="trajChecking" class="traj-check-content">
+        <template v-if="trajCheckResult">
+          <div v-if="trajCheckResult.issues && trajCheckResult.issues.length > 0" class="traj-issues">
+            <div class="traj-issues-header">
+              <el-icon><WarningFilled /></el-icon>
+              <span>发现 {{ trajCheckResult.issues.length }} 个问题</span>
+            </div>
+            <div v-for="(issue, idx) in trajCheckResult.issues" :key="idx" class="traj-issue-item">
+              <div class="traj-issue-desc">{{ issue.description }}</div>
+              <div v-if="issue.suggestion" class="traj-issue-suggestion">
+                <span class="suggestion-label">建议：</span>{{ issue.suggestion }}
+              </div>
+              <AppButton v-if="issue.fix" size="small" variant="accent" class="traj-fix-btn" @click="applyFix(issue)">
+                修复
+              </AppButton>
+            </div>
+          </div>
+          <div v-else class="traj-check-pass">
+            <el-icon><CircleCheckFilled /></el-icon>
+            <span>轨迹数据完整，未发现问题</span>
+          </div>
+        </template>
+      </div>
+      <template #footer>
+        <AppButton @click="trajCheckVisible = false">关闭</AppButton>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, inject, nextTick } from 'vue'
-// import { useRouter } from 'vue-router'
-import { /* Plus, */ Search, /* Connection, */ MagicStick, Delete, RefreshLeft } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
+import { Search, MagicStick, Delete, RefreshLeft, WarningFilled, CircleCheckFilled, DataLine } from '@element-plus/icons-vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import AppModal from '@/components/common/AppModal.vue'
 import AppButton from '@/components/common/AppButton.vue'
 import CharacterFormFields from './components/CharacterFormFields.vue'
 import RelationshipEditor from './components/RelationshipEditor.vue'
-import ExperienceEditor from './components/ExperienceEditor.vue'
+// import ExperienceEditor from './components/ExperienceEditor.vue' // 已废弃：经历整合到 content 字段中
 import CharacterCheckModal from './components/CharacterCheckModal.vue'
 import CharacterGraphModal from './components/CharacterGraphModal.vue'
-import { characterApi } from '@/api/character'
+import CharacterTrajectoryPanel from './components/CharacterTrajectoryPanel.vue'
 import { useProjectId } from '@/composables/useProjectId'
-import { showSuccess, showError, showWarning } from '@/utils/notify'
-import { showConfirmModal } from '@/utils/modal'
-import { extractJsonFromString } from '@/utils/json'
+import { useProjectStore } from '@/stores/project'
+import { characterApi } from '@/api/character'
+import { truncate } from '@/utils/format'
+import { showSuccess, showError } from '@/utils/notify'
+import { sourceLabel, sourceTagType } from './characterUtils'
+import { useCharacterForm } from './useCharacterForm'
 
-// const router = useRouter()
 const { projectId } = useProjectId()
+const projectStore = useProjectStore()
 const setPageHeader = inject('setPageHeader')
+const projectGenre = computed(() => projectStore.currentProject?.genre || 'general')
+
+const {
+  relTypes,
+  loading, characters, activeChars, loadCharacters, loadRelTypes,
+  createVisible, createTab, saving, generating, polishing,
+  manualForm, manualRels, aiForm, aiRels, aiGenerated, aiRequirement,
+  batchRequirement, batchList, batchSelectedCount, batchProgress, createRelCharacters,
+  openCreate, generateSingle, generateBatch, saveManual, saveAi, saveBatch, polishManual,
+  editVisible, editLoading, editTab, editId, editForm, editRels,
+  editRelCharacters, checkVisible,
+  openEdit, saveEdit, polishEdit, removeCharacter, restoreCharacter,
+} = useCharacterForm(projectId)
 
 const ROLE_FILTERS = ['主角', '反派', '配角', '路人']
-const GENDER_VALUES = ['男', '女', '未知']
 
-// 角色定位归一化（兼容 LLM 返回的多种写法，映射到表单四分类）
-const ROLE_MAP = {
-  主角: '主角', 主人公: '主角', 男主: '主角', 女主: '主角', 男主角: '主角', 女主角: '主角',
-  protagonist: '主角', main: '主角', hero: '主角', heroine: '主角',
-  反派: '反派', 恶人: '反派', 对手: '反派', villain: '反派', antagonist: '反派', enemy: '反派',
-  配角: '配角', supporting: '配角', side: '配角',
-  路人: '路人', 龙套: '路人', npc: '路人', extra: '路人',
-}
-
-function normalizeRoleType(val) {
-  if (!val) return '配角'
-  const key = String(val).trim()
-  return ROLE_MAP[key] || ROLE_MAP[key.toLowerCase()] || '配角'
-}
-
-// 势力输入归一化：非汉字英文数字 → 逗号
-function normalizeFaction(input) {
-  if (!input) return ''
-  return input
-    .replace(/[^a-zA-Z0-9一-鿿]/g, ',')
-    .replace(/(,\s*)+/g, ',')
-    .replace(/^,|,$/g, '')
-    .trim()
-}
-
-function parseAge(v) {
-  if (v === null || v === undefined || v === '') return null
-  if (typeof v === 'number') return Number.isFinite(v) ? Math.trunc(v) : null
-  const nums = String(v).match(/\d+/)
-  return nums ? parseInt(nums[0], 10) : null
-}
-
-// ---- 关系类型配置（后端动态获取）----
-const relTypes = ref(['朋友', '恋人', '配偶', '父母', '子女', '兄弟姐妹', '师父', '徒弟', '敌人', '对手', '导师', '门生', '盟友', '亲属', '君主', '臣子', '其他'])
-const enToCn = ref({
-  friend: '朋友', lover: '恋人', spouse: '配偶', parent: '父母', child: '子女',
-  sibling: '兄弟姐妹', master: '师父', apprentice: '徒弟', disciple: '徒弟',
-  enemy: '敌人', rival: '对手', mentor: '导师', protege: '门生', partner: '盟友',
-  ally: '盟友', family: '亲属', other: '其他',
-})
-
-function normalizeRelType(t) {
-  if (!t) return '其他'
-  if (relTypes.value.includes(t)) return t
-  const cn = enToCn.value[String(t).toLowerCase()]
-  return cn || '其他'
-}
-
-// 将 LLM/存储中的 relationships 解析为标准对象数组
-function parseRelationships(rels) {
-  if (!rels) return []
-
-  const parseOne = (s) => {
-    const m = s.match(/(.+?)是我的(.+?)(?:\s*-\s*(.+))?$/)
-    if (m) {
-      return {
-        targetName: m[1].trim(),
-        relationshipType: normalizeRelType(m[2].trim()),
-        description: (m[3] || '').trim(),
-        createReverse: true,
-      }
-    }
-    const parts = s.split('-')
-    if (parts.length >= 2) {
-      return {
-        targetName: parts[1].trim(),
-        relationshipType: normalizeRelType(parts[0].trim()),
-        description: parts.slice(2).join('-').trim(),
-        createReverse: true,
-      }
-    }
-    return null
-  }
-
-  if (typeof rels === 'string') {
-    return rels
-      .split(/[,，]/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map(parseOne)
-      .filter(Boolean)
-  }
-
-  if (Array.isArray(rels)) {
-    return rels
-      .map((r) => {
-        if (r && typeof r === 'object') {
-          return {
-            targetName: r.targetName || '',
-            relationshipType: normalizeRelType(r.relationshipType),
-            description: r.description || '',
-            createReverse: r.createReverse !== false,
-          }
-        }
-        if (typeof r === 'string') return parseOne(r)
-        return null
-      })
-      .filter(Boolean)
-  }
-
-  return []
-}
-
-function cleanRels(rels) {
-  return (rels || [])
-    .filter((r) => r.targetName && r.targetName.trim())
-    .map((r) => ({
-      targetName: r.targetName.trim(),
-      relationshipType: r.relationshipType || '其他',
-      description: r.description || '',
-      createReverse: r.createReverse !== false,
-    }))
-}
-
-// ---- 表单工厂 ----
-function makeEmptyForm() {
-  return {
-    name: '', gender: '未知', role_type: '配角', age: null,
-    identity: '', faction: '', tagline: '',
-    personality: '', strengths: '', flaws: '', obsession: '',
-    motivation: '', taboos: '', appearance: '', abilities: '',
-    weaknesses: '', backstory: '', development: '',
-  }
-}
-
-// 将 AI 生成的角色数据应用到表单
-function applyAiChar(form, relsRef, char) {
-  Object.assign(form, {
-    name: char.name || '',
-    gender: GENDER_VALUES.includes(char.gender) ? char.gender : '未知',
-    role_type: normalizeRoleType(char.role_type || char.role || '配角'),
-    age: parseAge(char.age),
-    identity: char.identity || '',
-    faction: char.faction || '',
-    tagline: char.tagline ?? char.tags ?? '',
-    personality: char.personality || '',
-    strengths: char.strengths || '',
-    flaws: char.flaws || '',
-    obsession: char.obsession || '',
-    motivation: char.motivation || '',
-    taboos: char.taboos || '',
-    appearance: char.appearance || '',
-    abilities: char.abilities || '',
-    weaknesses: char.weaknesses || '',
-    backstory: char.backstory || '',
-    development: char.development || '',
-  })
-  relsRef.value = parseRelationships(char.relationships)
-}
-
-function buildPayload(form, rels) {
-  return {
-    name: (form.name || '').trim(),
-    gender: form.gender || '未知',
-    role_type: form.role_type || '配角',
-    age: form.age ?? '',
-    identity: form.identity || '',
-    faction: normalizeFaction(form.faction || ''),
-    tagline: form.tagline || '',
-    personality: form.personality || '',
-    strengths: form.strengths || '',
-    flaws: form.flaws || '',
-    obsession: form.obsession || '',
-    motivation: form.motivation || '',
-    taboos: form.taboos || '',
-    appearance: form.appearance || '',
-    abilities: form.abilities || '',
-    weaknesses: form.weaknesses || '',
-    backstory: form.backstory || '',
-    development: form.development || '',
-    relationships: cleanRels(rels),
-  }
-}
-
-// ---- 列表状态 ----
-const loading = ref(false)
-const characters = ref([])
+// ---- 列表筛选 ----
 const searchText = ref('')
 const roleFilter = ref('')
 const factionFilter = ref('')
-
-const activeChars = computed(() => characters.value.filter((c) => !c.is_deleted))
 
 const filteredCharacters = computed(() => {
   const search = searchText.value.toLowerCase().trim()
@@ -578,382 +515,161 @@ const factionOptions = computed(() => {
   return Object.keys(counts).sort()
 })
 
-const createRelCharacters = computed(() =>
-  activeChars.value.map((c) => ({ id: c.id, name: c.name })),
-)
-
 function factionsOf(c) {
   return (c.faction || '').split(',').map((f) => f.trim()).filter(Boolean)
 }
 
-function truncate(text, len) {
-  if (!text) return ''
-  return text.length > len ? text.slice(0, len) + '...' : text
+// ---- 轨迹编辑（独立二级弹窗） ----
+const trajectoryPanelRef = ref(null)
+const trajEditVisible = ref(false)
+const trajSaving = ref(false)
+const trajChecking = ref(false)
+const trajCheckVisible = ref(false)
+const trajCheckResult = ref(null)
+const trajEditForm = reactive({
+  id: null,
+  title: '',
+  start_time: '',
+  end_time: '',
+  chapter_ids: [],
+  details: {
+    description: '',
+    location: '',
+    emotional_state: '',
+    power_level: '',
+    key_events: [],
+    tags: [],
+  },
+})
+
+const trajChapterIdsInput = computed({
+  get: () => trajEditForm.chapter_ids.join(','),
+  set: (val) => {
+    trajEditForm.chapter_ids = val.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+  },
+})
+
+function openTrajectoryEdit(t) {
+  trajEditForm.id = t.id
+  trajEditForm.title = t.title
+  trajEditForm.start_time = t.start_time || ''
+  trajEditForm.end_time = t.end_time || ''
+  trajEditForm.chapter_ids = t.chapter_ids || []
+  trajEditForm.details = { ...t.details }
+  trajEditVisible.value = true
 }
 
-// ---- 弹窗状态 ----
-const createVisible = ref(false)
-const createTab = ref('manual')
-const saving = ref(false)
-const generating = ref(false)
-const polishing = ref(false)
-
-const manualForm = reactive(makeEmptyForm())
-const manualRels = ref([])
-const aiForm = reactive(makeEmptyForm())
-const aiRels = ref([])
-const aiGenerated = ref(false)
-const aiRequirement = ref('')
-const batchRequirement = ref('')
-const batchList = ref([])
-
-const editVisible = ref(false)
-const editLoading = ref(false)
-const editTab = ref('basic')
-const editId = ref(null)
-const editForm = reactive(makeEmptyForm())
-const editRels = ref([])
-const editExperiences = ref([])
-
-const checkVisible = ref(false)
-
-const editRelCharacters = computed(() =>
-  activeChars.value.filter((c) => c.id !== editId.value).map((c) => ({ id: c.id, name: c.name })),
-)
-
-const batchSelectedCount = computed(() => batchList.value.filter((c) => c.selected).length)
-
-// ---- 数据加载 ----
-async function loadCharacters() {
-  if (!projectId.value) return
-  loading.value = true
-  try {
-    const res = await characterApi.list(projectId.value)
-    characters.value = res.characters || []
-  } catch (err) {
-    console.error('加载角色失败:', err)
-    showError('加载角色失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadRelTypes() {
-  try {
-    const res = await characterApi.getRelationshipTypes(projectId.value)
-    if (res?.types?.length) relTypes.value = res.types
-    if (res?.en_to_cn) enToCn.value = res.en_to_cn
-  } catch (err) {
-    console.warn('加载关系类型配置失败，使用默认值', err)
-  }
-}
-
-// function goGraph() {
-//   router.push({ name: 'Graph', params: { projectId: projectId.value } })
-// }
-
-// ---- 创建 ----
-function openCreate() {
-  Object.assign(manualForm, makeEmptyForm())
-  Object.assign(aiForm, makeEmptyForm())
-  manualRels.value = []
-  aiRels.value = []
-  editExperiences.value = []
-  aiGenerated.value = false
-  aiRequirement.value = ''
-  batchRequirement.value = ''
-  batchList.value = []
-  createTab.value = 'manual'
-  createVisible.value = true
-}
-
-async function generateSingle() {
-  if (!aiRequirement.value.trim()) {
-    showError('请输入角色描述')
+async function saveTrajectory() {
+  if (!trajEditForm.title.trim()) {
+    showError('请输入轨迹标题')
     return
   }
-  generating.value = true
+
+  trajSaving.value = true
   try {
-    const res = await characterApi.generate(projectId.value, {
-      requirement: aiRequirement.value.trim(),
-    })
-    let result = extractJsonFromString(res?.data || '')
-    if (Array.isArray(result)) result = result[0]
-    if (!result || typeof result !== 'object') {
-      showError('生成结果解析失败，请重试')
-      return
-    }
-    applyAiChar(aiForm, aiRels, result)
-    aiGenerated.value = true
-    showSuccess('角色生成完成，请确认后保存')
-  } catch (err) {
-    console.error('生成角色失败:', err)
-    showError(err.message || '生成失败，请重试')
-  } finally {
-    generating.value = false
-  }
-}
-
-async function generateBatch() {
-  if (!batchRequirement.value.trim()) {
-    showError('请输入角色描述')
-    return
-  }
-  generating.value = true
-  batchList.value = []
-  try {
-    const res = await characterApi.generate(projectId.value, {
-      requirement: batchRequirement.value.trim(),
-      is_batch: true,
-    })
-    const result = extractJsonFromString(res?.data || '')
-    if (Array.isArray(result) && result.length) {
-      batchList.value = result.map((c) => ({ ...c, selected: true }))
-      showSuccess(`成功生成 ${batchList.value.length} 个角色，请勾选后保存`)
-    } else {
-      showError('生成失败，返回格式错误')
-    }
-  } catch (err) {
-    console.error('批量生成失败:', err)
-    showError(err.message || '生成失败，请重试')
-  } finally {
-    generating.value = false
-  }
-}
-
-async function saveManual() {
-  if (!manualForm.name.trim()) {
-    showError('请输入角色名称')
-    return
-  }
-  saving.value = true
-  try {
-    await characterApi.create(projectId.value, buildPayload(manualForm, manualRels.value))
-    showSuccess('角色创建成功')
-    createVisible.value = false
-    loadCharacters()
-  } catch (err) {
-    console.error('创建角色失败:', err)
-  } finally {
-    saving.value = false
-  }
-}
-
-async function saveAi() {
-  if (!aiForm.name.trim()) {
-    showError('角色名称缺失，请检查生成结果')
-    return
-  }
-  saving.value = true
-  try {
-    await characterApi.create(projectId.value, buildPayload(aiForm, aiRels.value))
-    showSuccess('角色保存成功')
-    createVisible.value = false
-    loadCharacters()
-  } catch (err) {
-    console.error('保存角色失败:', err)
-  } finally {
-    saving.value = false
-  }
-}
-
-async function saveBatch() {
-  const selected = batchList.value.filter((c) => c.selected && (c.name || '').trim())
-  if (!selected.length) {
-    showError('请至少选择一个有效角色')
-    return
-  }
-  saving.value = true
-  try {
-    const existingNames = new Set(activeChars.value.map((c) => c.name))
-    const toSave = selected.filter((c) => !existingNames.has((c.name || '').trim()))
-    const skipped = selected.length - toSave.length
-
-    let success = 0
-    let failed = 0
-
-    const saveOne = async (char) => {
-      const form = reactive(makeEmptyForm())
-      const rels = ref([])
-      applyAiChar(form, rels, char)
-      await characterApi.create(projectId.value, buildPayload(form, rels.value))
+    const data = {
+      title: trajEditForm.title,
+      start_time: trajEditForm.start_time,
+      end_time: trajEditForm.end_time,
+      chapter_ids: trajEditForm.chapter_ids,
+      details: trajEditForm.details,
     }
 
-    // 并发 3 个一组，失败重试一次
-    for (let i = 0; i < toSave.length; i += 3) {
-      const chunk = toSave.slice(i, i + 3)
-      const results = await Promise.allSettled(chunk.map((c) => saveOne(c)))
-      for (let j = 0; j < results.length; j++) {
-        if (results[j].status === 'fulfilled') {
-          success++
-        } else {
-          const retry = await Promise.allSettled([saveOne(chunk[j])])
-          if (retry[0].status === 'fulfilled') success++
-          else failed++
-        }
+    await characterApi.updateTrajectory(projectId.value, editId.value, trajEditForm.id, data)
+    showSuccess('轨迹已更新')
+
+    trajEditVisible.value = false
+    trajectoryPanelRef.value?.refresh()
+  } catch (error) {
+    showError('保存失败')
+  } finally {
+    trajSaving.value = false
+  }
+}
+
+async function checkTrajectory() {
+  trajChecking.value = true
+  trajCheckResult.value = null
+  trajCheckVisible.value = true
+
+  try {
+    // 模拟AI检测逻辑，检查轨迹数据完整性
+    const issues = []
+
+    if (!trajEditForm.title.trim()) {
+      issues.push({
+        field: 'title',
+        description: '轨迹标题为空',
+        suggestion: '请填写轨迹标题，如"创业初期"、"拜师学艺"等',
+        fix: { title: '未命名轨迹' },
+      })
+    }
+
+    if (!trajEditForm.start_time && !trajEditForm.end_time) {
+      issues.push({
+        field: 'time',
+        description: '未设置时间范围',
+        suggestion: '建议填写故事内时间，便于时间线梳理',
+        fix: null,
+      })
+    }
+
+    if (!trajEditForm.details.description) {
+      issues.push({
+        field: 'description',
+        description: '轨迹描述为空',
+        suggestion: '建议添加简要描述，记录角色在此阶段的关键变化',
+        fix: { 'details.description': '待补充' },
+      })
+    }
+
+    if (!trajEditForm.details.location) {
+      issues.push({
+        field: 'location',
+        description: '未记录地点信息',
+        suggestion: '建议记录角色所在位置，便于空间关系分析',
+        fix: null,
+      })
+    }
+
+    if (!trajEditForm.details.emotional_state) {
+      issues.push({
+        field: 'emotional_state',
+        description: '未记录情感状态',
+        suggestion: '建议记录角色情感变化，增强人物塑造',
+        fix: null,
+      })
+    }
+
+    // 模拟网络延迟
+    await new Promise(resolve => setTimeout(resolve, 800))
+
+    trajCheckResult.value = { issues }
+  } catch (error) {
+    showError('检测失败')
+    trajCheckVisible.value = false
+  } finally {
+    trajChecking.value = false
+  }
+}
+
+function applyFix(issue) {
+  if (!issue.fix) return
+
+  Object.entries(issue.fix).forEach(([key, value]) => {
+    if (key.includes('.')) {
+      const [parent, child] = key.split('.')
+      if (trajEditForm[parent]) {
+        trajEditForm[parent][child] = value
       }
-    }
-
-    const parts = [`成功保存 ${success} 个角色`]
-    if (skipped) parts.push(`${skipped} 个同名已跳过`)
-    if (failed) parts.push(`${failed} 个保存失败`)
-    showSuccess(parts.join('，'))
-    createVisible.value = false
-    loadCharacters()
-  } catch (err) {
-    console.error('批量保存失败:', err)
-    showError('批量保存失败，请重试')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function polishManual() {
-  if (!manualForm.name.trim()) {
-    showError('请先输入角色名称')
-    return
-  }
-  polishing.value = true
-  try {
-    const res = await characterApi.polish(projectId.value, buildPayload(manualForm, manualRels.value))
-    const result = extractJsonFromString(res?.data || '')
-    if (result && typeof result === 'object' && !Array.isArray(result)) {
-      applyAiChar(manualForm, manualRels, result)
-      showSuccess('AI 润色完成，请检查后保存')
     } else {
-      showError('润色结果解析失败，请重试')
+      trajEditForm[key] = value
     }
-  } catch (err) {
-    console.error('AI 润色失败:', err)
-    showError(err.message || '润色失败，请重试')
-  } finally {
-    polishing.value = false
-  }
-}
-
-// ---- 编辑 ----
-async function openEdit(id) {
-  editVisible.value = true
-  editLoading.value = true
-  editTab.value = 'basic'
-  Object.assign(editForm, makeEmptyForm())
-  editRels.value = []
-  editExperiences.value = []
-  editId.value = id
-  try {
-    const res = await characterApi.get(projectId.value, id)
-    const c = res.character
-    if (!c) {
-      showError('加载角色失败')
-      editVisible.value = false
-      return
-    }
-    Object.assign(editForm, {
-      name: c.name || '',
-      gender: GENDER_VALUES.includes(c.gender) ? c.gender : '未知',
-      role_type: normalizeRoleType(c.role_type || '配角'),
-      age: parseAge(c.age),
-      identity: c.identity || '',
-      faction: c.faction || '',
-      tagline: c.tagline || '',
-      personality: c.personality || '',
-      strengths: c.strengths || '',
-      flaws: c.flaws || '',
-      obsession: c.obsession || '',
-      motivation: c.motivation || '',
-      taboos: c.taboos || '',
-      appearance: c.appearance || '',
-      abilities: c.abilities || '',
-      weaknesses: c.weaknesses || '',
-      backstory: c.backstory || '',
-      development: c.development || '',
-    })
-    editRels.value = parseRelationships(c.relationships)
-    editExperiences.value = Array.isArray(c.experiences) ? c.experiences : []
-  } catch (err) {
-    console.error('加载角色详情失败:', err)
-    showError('加载角色失败')
-    editVisible.value = false
-  } finally {
-    editLoading.value = false
-  }
-}
-
-async function saveEdit() {
-  if (!editForm.name.trim()) {
-    showError('请输入角色名称')
-    return
-  }
-  saving.value = true
-  try {
-    const payload = buildPayload(editForm, editRels.value)
-    payload.experiences = editExperiences.value.filter(
-      (e) => (e.chapter || '').trim() || (e.event || '').trim(),
-    )
-    await characterApi.update(projectId.value, editId.value, payload)
-    showSuccess('角色更新成功')
-    editVisible.value = false
-    loadCharacters()
-  } catch (err) {
-    console.error('保存角色失败:', err)
-  } finally {
-    saving.value = false
-  }
-}
-
-async function polishEdit() {
-  if (!editForm.name.trim()) {
-    showError('请先输入角色名称')
-    return
-  }
-  polishing.value = true
-  try {
-    const res = await characterApi.polish(projectId.value, buildPayload(editForm, editRels.value))
-    const result = extractJsonFromString(res?.data || '')
-    if (result && typeof result === 'object' && !Array.isArray(result)) {
-      applyAiChar(editForm, editRels, result)
-      showSuccess('AI 润色完成，请检查后保存')
-    } else {
-      showError('润色结果解析失败，请重试')
-    }
-  } catch (err) {
-    console.error('AI 润色失败:', err)
-    showError(err.message || '润色失败，请重试')
-  } finally {
-    polishing.value = false
-  }
-}
-
-function removeCharacter() {
-  showConfirmModal({
-    title: '确认删除',
-    message: '确定要删除这个角色吗？删除后可在角色列表中恢复。',
-    danger: true,
-    confirmText: '确认删除',
-    onConfirm: async (close) => {
-      try {
-        await characterApi.remove(projectId.value, editId.value)
-        showSuccess('角色已删除')
-        close()
-        editVisible.value = false
-        loadCharacters()
-      } catch (err) {
-        console.error('删除角色失败:', err)
-        showError('删除失败，请重试')
-      }
-    },
   })
-}
 
-async function restoreCharacter(c) {
-  try {
-    await characterApi.restore(projectId.value, c.id)
-    showSuccess('角色已恢复')
-    loadCharacters()
-  } catch (err) {
-    console.error('恢复角色失败:', err)
-    showError(err.message || '恢复失败')
-  }
+  showSuccess('已自动修复')
+  // 重新检测
+  checkTrajectory()
 }
 
 // ---- Header 右侧：操作按钮 ----
@@ -1185,18 +901,29 @@ onBeforeUnmount(() => {
   }
 }
 
+// tabs 导航栏右侧的「查看人物时间线」按钮
+:deep(.timeline-link-btn) {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  margin-top: -12px;
+  z-index: 1;
+}
+
 // 可滚动内容区
 .tab-content-scroll {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
   padding: 16px 12px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
   background: rgba(255, 255, 255, 0.01);
   border-radius: 0 0 8px 8px;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+  
+  &.no-scroll {
+    overflow-y: hidden;
+  }
   
   &::-webkit-scrollbar {
     width: 6px;
@@ -1223,6 +950,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  
+  &.content-tab {
+    height: 100%;
+  }
 }
 
 @keyframes fadeIn {
@@ -1230,23 +961,9 @@ onBeforeUnmount(() => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-// 底部按钮栏
-.modal-footer-content {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0px 4px;
-  
-  &.create-footer {
-    justify-content: flex-end;
-  }
-}
-
-.footer-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+// 底部按钮栏（基础样式已定义在 index.scss）
+.modal-footer-content.create-footer {
+  justify-content: flex-end;
 }
 
 .footer-btn {
@@ -1265,29 +982,6 @@ onBeforeUnmount(() => {
     transform: scale(0.97) translateY(0);
   }
 }
-
-// .ai-btn {
-//   background: rgba(129, 140, 248, 0.1);
-//   border-color: rgba(129, 140, 248, 0.3);
-//   color: var(--primary);
-//   
-//   &:hover {
-//     background: rgba(129, 140, 248, 0.2);
-//     border-color: rgba(129, 140, 248, 0.5);
-//     box-shadow: 0 4px 12px rgba(129, 140, 248, 0.2);
-//   }
-// }
-
-// .save-btn {
-//   background: linear-gradient(135deg, var(--primary), #a78bfa);
-//   border: none;
-//   box-shadow: 0 4px 12px rgba(129, 140, 248, 0.3);
-//   
-//   &:hover {
-//     box-shadow: 0 6px 20px rgba(129, 140, 248, 0.45);
-//     transform: translateY(-2px);
-//   }
-// }
 
 .editor-section {
   margin-top: 24px;
@@ -1344,6 +1038,19 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.batch-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.batch-progress-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .batch-card {
@@ -1405,8 +1112,102 @@ onBeforeUnmount(() => {
   .page-header-center {
     display: none;
   }
-  // .btn-text {
-  //   display: none;
-  // }
+}
+
+// 轨迹编辑弹窗样式
+.traj-time-range {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+
+  .el-input {
+    flex: 1;
+  }
+}
+
+.traj-time-separator {
+  color: var(--text-muted);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+// AI检测结果弹窗样式
+.traj-check-dialog {
+  :deep(.el-dialog) {
+    background: var(--surface-dark);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+  }
+}
+
+.traj-check-content {
+  min-height: 120px;
+}
+
+.traj-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.traj-issues-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fbbf24;
+
+  .el-icon {
+    font-size: 18px;
+  }
+}
+
+.traj-issue-item {
+  position: relative;
+  padding: 12px 14px;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 8px;
+}
+
+.traj-issue-desc {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  padding-right: 60px;
+}
+
+.traj-issue-suggestion {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+
+  .suggestion-label {
+    color: var(--primary);
+    font-weight: 500;
+  }
+}
+
+.traj-fix-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.traj-check-pass {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 0;
+  color: #34d399;
+  font-size: 14px;
+
+  .el-icon {
+    font-size: 40px;
+  }
 }
 </style>

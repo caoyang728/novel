@@ -140,6 +140,8 @@ const EDGE_COLORS = {
 const NODE_TYPE_META = {
   character: { label: '角色', color: '#818cf8' },
   faction: { label: '势力', color: '#f87171' },
+  location: { label: '地点', color: '#22c55e' },
+  event: { label: '事件', color: '#f59e0b' },
 }
 
 const PROP_LABELS = { role_type: '定位', gender: '性别', age: '年龄', identity: '身份', faction: '势力' }

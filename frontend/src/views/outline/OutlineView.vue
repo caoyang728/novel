@@ -38,6 +38,15 @@
               >
                 <el-icon><DocumentCopy /></el-icon> 另存
               </AppButton>
+              <AppButton
+                v-if="locked"
+                size="small"
+                variant="ai"
+                :disabled="generatingCandidates"
+                @click="showCandidateModal = true"
+              >
+                <el-icon><MagicStick /></el-icon> 从大纲生成角色
+              </AppButton>
             </div>
             <div class="toolbar-right">
               <el-radio-group v-model="mode" size="small" class="mode-switch">
@@ -121,15 +130,23 @@
       </transition>
     </div>
   </div>
+
+  <CharacterCandidateModal
+    v-model:visible="showCandidateModal"
+    :project-id="projectId"
+    source="outline"
+    @created="onCandidatesCreated"
+  />
 </template>
 
 <script setup>
 import { ref, computed, inject, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { EditPen, View, Lock, Delete, DocumentChecked, DocumentCopy } from '@element-plus/icons-vue'
+import { EditPen, View, Lock, Delete, DocumentChecked, DocumentCopy, MagicStick } from '@element-plus/icons-vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import AppButton from '@/components/common/AppButton.vue'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
+import CharacterCandidateModal from '@/views/character/components/CharacterCandidateModal.vue'
 import { outlineApi } from '@/api/outline'
 import { createSseController } from '@/api/sse'
 
@@ -171,6 +188,14 @@ const contextCount = ref('all')
 
 const locked = computed(() => !!currentVersion.value?.is_finalized)
 const hasUnsavedChanges = () => content.value !== baseline.value
+
+// ---- 从大纲生成角色 ----
+const showCandidateModal = ref(false)
+const generatingCandidates = ref(false)
+
+function onCandidatesCreated() {
+  showCandidateModal.value = false
+}
 
 // ---- 开场引导 ----
 const quickOptions = ref([])

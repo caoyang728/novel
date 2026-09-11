@@ -138,19 +138,8 @@ class KnowledgeIndexer:
             parts.append(f"身份: {char.identity}")
         if char.faction:
             parts.append(f"阵营: {char.faction}")
-        for field in ('appearance', 'personality', 'backstory', 'motivation',
-                      'tagline', 'abilities', 'development', 'strengths',
-                      'flaws', 'obsession', 'taboos', 'secrets', 'dark_history', 'weaknesses'):
-            val = getattr(char, field, None)
-            if val:
-                label = {'appearance': '外貌', 'personality': '性格',
-                         'backstory': '背景', 'motivation': '动机',
-                         'tagline': '标签', 'abilities': '能力',
-                         'development': '成长', 'strengths': '优点',
-                         'flaws': '缺点', 'obsession': '执念',
-                         'taboos': '禁忌', 'secrets': '秘密',
-                         'dark_history': '过往黑历史', 'weaknesses': '弱点'}.get(field, field)
-                parts.append(f"{label}: {val}")
+        if char.content:
+            parts.append(f"内容:\n{char.content}")
         if char.relationships:
             rels = []
             for rel in char.relationships:
@@ -236,6 +225,63 @@ class KnowledgeIndexer:
     def delete_chapter(self, chapter):
         project_id = chapter.volume.volume_version.project_id
         return self._delete_by_prefix(f"{project_id}_chapter_{chapter.pk}")
+
+    # ================================================================
+    # 时间线事件（整体索引，不分块）
+    # ================================================================
+    def index_timeline_event(self, event):
+        """将时间线事件索引为向量，用于章节生成时的语义检索"""
+        from apps.timeline.models import TimelineEvent
+        project_id = event.project_id
+
+        # 构建索引文本：标题 + 描述 + 时间 + 类型 + 地点 + 关联人物
+        time_str = ""
+        if event.start_year is not None:
+            era = event.era_unit or ""
+            time_str = f"{era}{event.start_year}年"
+            if event.end_year and event.end_year != event.start_year:
+                time_str += f" - {era}{event.end_year}年"
+
+        chars = list(event.characters.all())
+        char_names = "、".join(c.name for c in chars)
+
+        parts = [f"事件：{event.title}"]
+        if time_str:
+            parts.append(f"时间：{time_str}")
+        if event.event_type:
+            type_labels = {"main": "主线", "side": "支线", "character": "人物", "world": "世界"}
+            parts.append(f"类型：{type_labels.get(event.event_type, event.event_type)}")
+        if event.location:
+            parts.append(f"地点：{event.location}")
+        if char_names:
+            parts.append(f"相关人物：{char_names}")
+        if event.description:
+            parts.append(f"描述：{event.description}")
+
+        content = "\n".join(parts)
+        pk = f"{project_id}_timeline_{event.pk}"
+
+        embedding = self._embed_batch_safe([content])
+        if not embedding or embedding[0] is None:
+            return 0
+
+        return self._bulk_upsert([{
+            "id": pk,
+            "project_id": project_id,
+            "doc_type": "timeline_event",
+            "content": content[:65535],
+            "metadata": {
+                "event_id": event.pk,
+                "event_title": event.title,
+                "event_type": event.event_type or "",
+                "start_year": event.start_year,
+                "location": event.location or "",
+            },
+            "embedding": embedding[0],
+        }])
+
+    def delete_timeline_event(self, event):
+        return self._delete_by_prefix(f"{event.project_id}_timeline_{event.pk}")
 
     # ================================================================
     # Chunk 策略（保持原 Milvus 版完全一致的 token/overlap 算法）
@@ -448,6 +494,7 @@ class KnowledgeIndexer:
         from apps.characters.models import Character
         from apps.volume.models import VolumeList
         from apps.chapter.models import ChapterList
+        from apps.timeline.models import TimelineEvent
 
         count = 0
         versions = Outline.objects.filter(project_id=project_id, is_finalized=True, is_deleted=False)
@@ -474,5 +521,9 @@ class KnowledgeIndexer:
         for ch in chapters:
             count += self.index_chapter(ch) or 0
         logger.info(f"  章节已索引: {chapters.count()} 条")
+        events = TimelineEvent.objects.filter(project_id=project_id, is_active=True)
+        for ev in events:
+            count += self.index_timeline_event(ev) or 0
+        logger.info(f"  时间线事件已索引: {events.count()} 条")
         logger.info(f"项目 {project_id} 知识库重建完成, 共 {count} 条记录")
         return count

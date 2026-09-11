@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework.response import Response
@@ -30,6 +31,38 @@ from langchain_core.prompts import ChatPromptTemplate
 import json
 import re
 
+
+def _sync_event_after_save(event):
+    """事件保存后异步同步图谱和知识库索引"""
+    try:
+        from apps.graph.tasks import sync_timeline_event_task
+        sync_timeline_event_task.delay(event.pk)
+    except Exception:
+        pass
+    try:
+        from apps.knowledge.indexer import KnowledgeIndexer
+        indexer = KnowledgeIndexer()
+        indexer.index_timeline_event(event)
+    except Exception:
+        pass
+
+
+def _sync_event_after_delete(event_id, project_id):
+    """事件删除后异步清理图谱和知识库索引"""
+    try:
+        from apps.graph.tasks import delete_timeline_event_task
+        delete_timeline_event_task.delay(event_id)
+    except Exception:
+        pass
+    try:
+        from apps.knowledge.indexer import KnowledgeIndexer
+        from apps.knowledge.models import KnowledgeVector
+        indexer = KnowledgeIndexer()
+        KnowledgeVector.objects.filter(
+            project_id=project_id, id__startswith=f"{project_id}_timeline_{event_id}"
+        ).delete()
+    except Exception:
+        pass
 
 
 class BaseTimelineAPIView(BaseAPIView):
@@ -166,6 +199,9 @@ class ApiTimelineEventListView(BaseTimelineAPIView):
                     setattr(event, field, validated[field])
             event.save()
 
+            # 异步同步图谱和知识库索引
+            transaction.on_commit(lambda: _sync_event_after_save(event))
+
             return Response({
                 'success': True,
                 'message': '更新成功',
@@ -193,6 +229,9 @@ class ApiTimelineEventListView(BaseTimelineAPIView):
                 end_month=validated.get('end_month', 0),
                 is_active=validated.get('is_active', True)
             )
+
+            # 异步同步图谱和知识库索引
+            transaction.on_commit(lambda: _sync_event_after_save(event))
 
             return Response({
                 'success': True,
@@ -256,7 +295,11 @@ class ApiTimelineEventDetailView(BaseTimelineAPIView):
 
     def delete(self, request, project_id, pk):
         event = self.get_event(request, project_id, pk)
+        event_id = event.pk
+        project_id_val = project_id
         event.delete()
+        # 异步清理图谱和知识库索引
+        transaction.on_commit(lambda: _sync_event_after_delete(event_id, project_id_val))
         return Response({'success': True, 'message': '删除成功'})
 
 
@@ -757,3 +800,211 @@ class ApiTimelineCheckOptimizeView(BaseTimelineAPIView):
             project=project,
             task_type='timeline_check_optimize',
         )
+
+
+class ApiTimelineGraphView(BaseTimelineAPIView):
+    """时间线图谱聚合数据接口 — 支持全局/人物/地点三种视图"""
+
+    def get(self, request, project_id):
+        project = self.get_project(project_id)
+        if not project:
+            return Response({'success': False, 'message': '项目不存在'}, status=404)
+
+        view_type = request.query_params.get('view', 'global')
+        character_id = request.query_params.get('character_id')
+        location_name = request.query_params.get('location_name')
+        start_year = request.query_params.get('start_year')
+        end_year = request.query_params.get('end_year')
+
+        # 构建查询
+        events_qs = TimelineEvent.objects.filter(
+            project=project, is_active=True
+        ).prefetch_related('characters')
+
+        # 按视图类型过滤
+        if view_type == 'character' and character_id:
+            events_qs = events_qs.filter(characters__id=character_id)
+        elif view_type == 'location' and location_name:
+            events_qs = events_qs.filter(location=location_name)
+
+        # 时间窗口过滤
+        if start_year is not None:
+            try:
+                events_qs = events_qs.filter(start_year__gte=int(start_year))
+            except (ValueError, TypeError):
+                pass
+        if end_year is not None:
+            try:
+                events_qs = events_qs.filter(start_year__lte=int(end_year))
+            except (ValueError, TypeError):
+                pass
+
+        # 按故事时间排序
+        events_qs = events_qs.order_by('start_year', 'start_month', 'end_year', 'end_month')
+
+        # 序列化事件
+        timeline = []
+        for event in events_qs:
+            chars = [
+                {'id': c.id, 'name': c.name, 'role_type': c.role_type}
+                for c in event.characters.all()
+            ]
+            timeline.append({
+                'id': event.id,
+                'title': event.title,
+                'description': event.description,
+                'start_year': event.start_year,
+                'start_month': event.start_month,
+                'end_year': event.end_year,
+                'end_month': event.end_month,
+                'event_type': event.event_type,
+                'chapter_number': event.chapter.chapter_number if event.chapter else None,
+                'chapter_title': event.chapter.title if event.chapter else None,
+                'location': event.location,
+                'is_time_estimated': event.is_time_estimated,
+                'characters': chars,
+            })
+
+        # 如果是人物视图，附加角色轨迹
+        trajectories = []
+        if view_type == 'character' and character_id:
+            from apps.characters.models import CharacterTrajectory
+            from apps.chapter.models import ChapterList
+            traj_qs = CharacterTrajectory.objects.filter(
+                project=project, character_id=character_id
+            ).select_related('character').order_by('order', 'start_time', 'created_at')
+
+            # 批量查询章节信息
+            all_chapter_ids = set()
+            for t in traj_qs:
+                if t.chapter_ids:
+                    all_chapter_ids.update(t.chapter_ids)
+            chapter_map = {}
+            if all_chapter_ids:
+                for ch in ChapterList.objects.filter(id__in=all_chapter_ids):
+                    chapter_map[ch.id] = {
+                        'chapter_number': ch.chapter_number,
+                        'title': ch.title,
+                    }
+
+            for t in traj_qs:
+                details = t.details or {}
+                # 从 chapter_ids 获取章节信息
+                chapters_info = []
+                if t.chapter_ids:
+                    for ch_id in t.chapter_ids[:3]:  # 最多展示 3 个章节
+                        ch_info = chapter_map.get(ch_id)
+                        if ch_info:
+                            chapters_info.append({
+                                'id': ch_id,
+                                'chapter_number': ch_info['chapter_number'],
+                                'title': ch_info['title'],
+                            })
+
+                trajectories.append({
+                    'id': t.id,
+                    'title': t.title,
+                    'start_time': t.start_time,
+                    'end_time': t.end_time,
+                    'order': t.order,
+                    'source': t.source,
+                    'chapters': chapters_info,
+                    'location': details.get('location', ''),
+                    'power_level': details.get('power_level', ''),
+                    'emotional_state': details.get('emotional_state', ''),
+                    'key_events': details.get('key_events', []),
+                    'description': details.get('description', ''),
+                })
+
+        # 元数据
+        meta = {}
+        if timeline:
+            years = [e['start_year'] for e in timeline if e['start_year'] is not None]
+            if years:
+                meta['earliest_year'] = min(years)
+                meta['latest_year'] = max(years)
+        meta['total_events'] = len(timeline)
+        # 获取纪元单位
+        first_event = events_qs.first()
+        if first_event:
+            meta['era_unit'] = first_event.era_unit or ''
+
+        return Response({
+            'success': True,
+            'data': {
+                'timeline': timeline,
+                'trajectories': trajectories,
+                'meta': meta,
+            }
+        })
+
+
+class ApiTimelineGraphStatsView(BaseTimelineAPIView):
+    """时间线图谱统计视图"""
+
+    def get(self, request, project_id):
+        project = self.get_project(project_id)
+
+        # 事件统计
+        events_qs = TimelineEvent.objects.filter(project=project, is_active=True)
+        total_events = events_qs.count()
+        event_type_counts = {}
+        for etype in ['main', 'side', 'character', 'world']:
+            count = events_qs.filter(event_type=etype).count()
+            if count > 0:
+                event_type_counts[etype] = count
+
+        # 时间跨度
+        years = list(events_qs.values_list('start_year', flat=True).distinct())
+        years = [y for y in years if y is not None]
+        time_span = {
+            'earliest_year': min(years) if years else None,
+            'latest_year': max(years) if years else None,
+        }
+
+        # 角色统计
+        from apps.characters.models import Character
+        total_characters = Character.objects.filter(
+            project=project, is_deleted=False
+        ).count()
+
+        # 参与事件的角色统计（使用 annotate）
+        from django.db.models import Count
+        top_characters = Character.objects.filter(
+            project=project, is_deleted=False
+        ).annotate(
+            event_count=Count('timeline_events')
+        ).filter(event_count__gt=0).order_by('-event_count')[:10]
+
+        # 地点统计
+        location_counts = {}
+        for loc in events_qs.exclude(location='').values_list('location', flat=True):
+            location_counts[loc] = location_counts.get(loc, 0) + 1
+        top_locations = sorted(
+            location_counts.items(), key=lambda x: -x[1]
+        )[:10]
+
+        # 轨迹统计
+        from apps.characters.models import CharacterTrajectory
+        total_trajectories = CharacterTrajectory.objects.filter(
+            project=project
+        ).count()
+
+        return Response({
+            'success': True,
+            'data': {
+                'total_events': total_events,
+                'event_type_counts': event_type_counts,
+                'time_span': time_span,
+                'total_characters': total_characters,
+                'total_trajectories': total_trajectories,
+                'top_characters': [
+                    {'id': c.id, 'name': c.name, 'role_type': c.role_type, 'event_count': c.event_count}
+                    for c in top_characters
+                ],
+                'top_locations': [
+                    {'name': loc, 'count': count}
+                    for loc, count in top_locations
+                ],
+            }
+        })

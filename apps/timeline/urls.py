@@ -14,4 +14,6 @@ urlpatterns = [
     path('api/projects/<int:project_id>/timeline/generate-fields/', views.ApiTimelineGenerateFieldsView.as_view(), name='timeline_generate_fields'),
     path('api/projects/<int:project_id>/timeline/check/', views.ApiTimelineCheckView.as_view(), name='timeline_check'),
     path('api/projects/<int:project_id>/timeline/check/optimize/', views.ApiTimelineCheckOptimizeView.as_view(), name='timeline_check_optimize'),
+    path('api/projects/<int:project_id>/timeline/graph/', views.ApiTimelineGraphView.as_view(), name='timeline_graph'),
+    path('api/projects/<int:project_id>/timeline/graph/stats/', views.ApiTimelineGraphStatsView.as_view(), name='timeline_graph_stats'),
 ]

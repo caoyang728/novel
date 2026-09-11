@@ -42,6 +42,13 @@
         <el-icon><component :is="isVersionFinalized ? 'Unlock' : 'Lock'" /></el-icon>
         {{ isVersionFinalized ? '版本解锁' : '版本锁定' }}
       </AppButton>
+      <AppButton
+        v-if="isVersionFinalized && currentVersionId"
+        variant="ai"
+        @click="showCandidateModal = true"
+      >
+        <el-icon><MagicStick /></el-icon> 从卷生成角色
+      </AppButton>
     </Teleport>
     <div
       class="volume-workspace"
@@ -258,6 +265,14 @@
         </div>
       </template>
     </AppModal>
+
+  <CharacterCandidateModal
+    v-model:visible="showCandidateModal"
+    :project-id="projectId"
+    source="volume"
+    :volume-id="selectedVolumeId"
+    @created="onCandidatesCreated"
+  />
   </div>
 </template>
 
@@ -269,6 +284,7 @@ import AppModal from '@/components/common/AppModal.vue'
 import AppButton from '@/components/common/AppButton.vue'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
+import CharacterCandidateModal from '@/views/character/components/CharacterCandidateModal.vue'
 import { volumeApi } from '@/api/volume'
 import { outlineApi } from '@/api/outline'
 import { createSseController } from '@/api/sse'
@@ -320,6 +336,14 @@ const sortedVolumes = computed(() =>
 const selectedVolume = computed(
   () => volumes.value.find((v) => v.volume_number === selectedVolumeNumber.value) || null,
 )
+
+// ---- 从卷生成角色 ----
+const showCandidateModal = ref(false)
+const selectedVolumeId = computed(() => selectedVolume.value?.id || null)
+
+function onCandidatesCreated() {
+  showCandidateModal.value = false
+}
 
 // 聊天流式期间实时展示的卷内容
 const streamingContent = ref('')

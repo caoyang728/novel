@@ -41,4 +41,28 @@ export const characterApi = {
 
   // 关系类型配置
   getRelationshipTypes: (projectId) => api.get(`/api/projects/${projectId}/characters/relationship-types/`),
+
+  // 从大纲生成角色候选
+  generateFromOutline: (projectId, data) =>
+    api.post(`/api/projects/${projectId}/characters/generate-from-outline/`, data),
+
+  // 从卷生成角色候选
+  generateFromVolume: (projectId, data) =>
+    api.post(`/api/projects/${projectId}/characters/generate-from-volume/`, data),
+
+  // 批量确认创建角色
+  batchCreate: (projectId, data) =>
+    api.post(`/api/projects/${projectId}/characters/batch-create/`, data),
+
+  // 查询角色轨迹
+  getTrajectories: (projectId, characterId) =>
+    api.get(`/api/projects/${projectId}/characters/${characterId}/trajectories/`),
+
+  // 更新角色轨迹
+  updateTrajectory: (projectId, characterId, trajectoryId, data) =>
+    api.put(`/api/projects/${projectId}/characters/${characterId}/trajectories/${trajectoryId}/`, data),
+
+  // 删除角色轨迹
+  deleteTrajectory: (projectId, characterId, trajectoryId) =>
+    api.del(`/api/projects/${projectId}/characters/${characterId}/trajectories/${trajectoryId}/`),
 }

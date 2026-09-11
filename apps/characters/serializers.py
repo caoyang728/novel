@@ -1,7 +1,7 @@
 import re
 
 from rest_framework import serializers
-from apps.characters.models import Character
+from apps.characters.models import Character, CharacterTrajectory
 from apps.characters.constants import normalize_relationship_type
 
 # 角色名称安全过滤：只允许中文、英文字母、数字、空格、常用分隔符
@@ -27,51 +27,42 @@ class CharacterListSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Character
-        fields = ['id', 'name', 'role_type', 'faction', 'tagline', 'is_deleted']
+        fields = ['id', 'name', 'role_type', 'faction', 'tagline', 'is_deleted', 'source']
 
 
 class CharacterDetailSerializer(serializers.ModelSerializer):
-    """角色详情序列化器 - 完整字段"""
+    """角色详情序列化器 - 结构化字段 + Markdown 内容"""
     
     class Meta:
         model = Character
         fields = [
-            'id', 'name', 'role_type', 
-            'gender', 'appearance', 
-            'personality', 'backstory', 'motivation', 
-            'tagline', 'faction',
-            'age', 'identity', 'relationships', 'experiences',
-            'development', 'strengths', 'flaws', 'obsession',
-            'taboos', 'abilities', 'secrets', 'dark_history',
-            'weaknesses'
+            'id', 'name', 'role_type', 'gender', 'age',
+            'faction', 'identity', 'tagline', 'relationships',
+            'content', 'source',
         ]
 
 
+# CUD 序列化器公共字段：结构化字段 + content
 COMMON_CHARACTER_FIELDS = [
-    'name', 'role_type', 'gender', 'appearance',
-    'personality', 'backstory', 'motivation',
-    'tagline', 'faction',
-    'age', 'identity', 'relationships', 'experiences',
-    'development', 'strengths', 'flaws', 'obsession',
-    'taboos', 'abilities', 'secrets', 'dark_history',
-    'weaknesses'
+    'name', 'role_type', 'gender', 'age',
+    'faction', 'identity', 'tagline', 'relationships',
+    'content',
 ]
 
 
 class _BaseCharacterSerializer(serializers.ModelSerializer):
-    """角色CUD序列化器基类 - 提取公共字段和验证逻辑"""
+    """角色CUD序列化器基类 - 结构化字段 + content"""
     relationships = serializers.JSONField(required=False, default=list)
-    experiences = serializers.JSONField(required=False, default=list)
 
-    # 文本字段最大长度限制（超出则截断，防止超大数据提交）
-    MAX_TEXT_FIELD_LENGTH = 5000
+    # content 字段最大长度限制（超出则截断，防止超大数据提交）
+    MAX_CONTENT_LENGTH = 50000
 
     class Meta:
         model = Character
         fields = COMMON_CHARACTER_FIELDS
 
     def to_internal_value(self, data):
-        """预处理：age 空字符串或非数字值转为 None，避免 IntegerField 校验失败；文本字段超长截断"""
+        """预处理：age 空字符串或非数字值转为 None；content 超长截断"""
         if isinstance(data, dict):
             data = data.copy()
             # age 预处理
@@ -84,10 +75,10 @@ class _BaseCharacterSerializer(serializers.ModelSerializer):
                         int(age_val)
                     except (ValueError, TypeError):
                         data['age'] = None
-            # 文本字段超长截断
-            for key, value in data.items():
-                if isinstance(value, str) and len(value) > self.MAX_TEXT_FIELD_LENGTH:
-                    data[key] = value[:self.MAX_TEXT_FIELD_LENGTH]
+            # content 超长截断
+            if 'content' in data and isinstance(data['content'], str):
+                if len(data['content']) > self.MAX_CONTENT_LENGTH:
+                    data['content'] = data['content'][:self.MAX_CONTENT_LENGTH]
         return super().to_internal_value(data)
 
     def validate_relationships(self, value):
@@ -102,6 +93,34 @@ class _BaseCharacterSerializer(serializers.ModelSerializer):
         return value
 
 
+class CharacterTrajectorySerializer(serializers.ModelSerializer):
+    """角色轨迹序列化器"""
+    
+    class Meta:
+        model = CharacterTrajectory
+        fields = [
+            'id', 'title', 'start_time', 'end_time', 'chapter_ids',
+            'order', 'source', 'details', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class CharacterTrajectoryCreateSerializer(serializers.ModelSerializer):
+    """角色轨迹创建序列化器"""
+    
+    class Meta:
+        model = CharacterTrajectory
+        fields = [
+            'title', 'start_time', 'end_time', 'chapter_ids',
+            'order', 'source', 'details',
+        ]
+    
+    def validate_title(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError('轨迹标题不能为空')
+        return value.strip()
+
+
 class CharacterCreateSerializer(_BaseCharacterSerializer):
     """角色创建序列化器"""
     class Meta(_BaseCharacterSerializer.Meta):
@@ -110,15 +129,7 @@ class CharacterCreateSerializer(_BaseCharacterSerializer):
             'gender': {'default': '未知'},
             'age': {'required': False, 'allow_null': True},
             'identity': {'default': ''},
-            'development': {'default': ''},
-            'strengths': {'default': ''},
-            'flaws': {'default': ''},
-            'obsession': {'default': ''},
-            'taboos': {'default': ''},
-            'abilities': {'default': ''},
-            'secrets': {'default': ''},
-            'dark_history': {'default': ''},
-            'weaknesses': {'default': ''},
+            'content': {'required': False, 'default': ''},
         }
 
     def validate_name(self, value):
@@ -163,28 +174,16 @@ class CharacterUpdateSerializer(_BaseCharacterSerializer):
 
 
 class CharacterPolishSerializer(serializers.Serializer):
-    """角色润色序列化器 - 校验AI润色请求数据"""
+    """角色润色序列化器 - 结构化字段 + Markdown content"""
     name = serializers.CharField(required=True, max_length=100)
     gender = serializers.CharField(required=False, allow_blank=True, default='')
     role_type = serializers.CharField(required=False, allow_blank=True, default='')
     age = serializers.CharField(required=False, allow_blank=True, default='')
     identity = serializers.CharField(required=False, allow_blank=True, default='')
-    personality = serializers.CharField(required=False, allow_blank=True, default='')
-    strengths = serializers.CharField(required=False, allow_blank=True, default='')
-    flaws = serializers.CharField(required=False, allow_blank=True, default='')
-    obsession = serializers.CharField(required=False, allow_blank=True, default='')
-    motivation = serializers.CharField(required=False, allow_blank=True, default='')
-    appearance = serializers.CharField(required=False, allow_blank=True, default='')
     faction = serializers.CharField(required=False, allow_blank=True, default='')
-    relationships = serializers.JSONField(required=False, default=list)
-    abilities = serializers.CharField(required=False, allow_blank=True, default='')
-    taboos = serializers.CharField(required=False, allow_blank=True, default='')
-    dark_history = serializers.CharField(required=False, allow_blank=True, default='')
-    secrets = serializers.CharField(required=False, allow_blank=True, default='')
-    backstory = serializers.CharField(required=False, allow_blank=True, default='')
-    development = serializers.CharField(required=False, allow_blank=True, default='')
-    weaknesses = serializers.CharField(required=False, allow_blank=True, default='')
     tagline = serializers.CharField(required=False, allow_blank=True, default='')
+    content = serializers.CharField(required=False, allow_blank=True, default='')
+    relationships = serializers.JSONField(required=False, default=list)
 
     def validate_name(self, value):
         value = sanitize_character_name(value)

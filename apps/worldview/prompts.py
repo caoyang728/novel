@@ -33,6 +33,7 @@ WORLDVIEW_CONTEXT_TEMPLATE = """\
 
 
 # ============ 构建/修改文档的用户提示词 ============
+# 格式化时传入：user_input
 WORLDVIEW_BUILD_USER_PROMPT = """\
 请根据以下用户指令，输出更新世界观文档的 JSON 补丁：
 

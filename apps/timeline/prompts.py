@@ -4,6 +4,28 @@
 时间线相关提示词
 """
 
+# ==================== 事件输出结构共享片段 ====================
+# 供章节定稿合并提取提示词导入复用
+
+TIMELINE_EVENT_OUTPUT_SCHEMA = '''时间线事件 JSON 字段规范（每个事件对象必须包含以下字段）：
+{{
+  "title": "精炼的事件标题，概括核心主题",
+  "description": "事件描述，2-4句话概述核心内容",
+  "location": "发生地点",
+  "characters": ["涉及角色名1", "涉及角色名2"],
+  "event_type": "main/side/character/world（主线/支线/人物/世界）",
+  "start_year": 数字,
+  "start_month": 数字（0表示未指定）,
+  "end_year": 数字,
+  "end_month": 数字（0表示未指定）,
+  "is_time_estimated": false
+}}
+字段约束：
+- event_type 取值限枚举：main / side / character / world
+- characters 中的角色名必须在项目角色列表中存在
+- 年月为纯数字，0 表示未指定
+- is_time_estimated 为 true 表示时间是根据上下文推断的（无明确时间标记）'''
+
 # ==================== 时间线生成提示词 ====================
 
 TIMELINE_GENERATION_PROMPT = '''你是一位专业的小说时间线规划师，擅长根据世界观设定梳理宏观时间脉络。

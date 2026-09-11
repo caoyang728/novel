@@ -42,7 +42,7 @@ Novel Agent 是一个 Django 5.2 Web 应用，帮助作者通过聊天式 AI 交
 - **`agent/llm_scenes.py`**: 场景配置管理，定义不同使用场景的 LLM 参数
 - **`agent/memory.py`**: 记忆模块，管理对话上下文
 - **`prompts.py`**: **每个应用独立维护**提示模板，位于各自的 APP 目录下（如 `apps/outline/prompts.py`、`apps/worldview/prompts.py`）
-- **注意**: 项目**不使用** `services.py`（仅 `graph` 应用例外），所有业务逻辑直接在视图层或工具函数中处理
+- **注意**: 鼓励使用 `services.py` 封装业务逻辑，新接口应直接使用 `services.py`；已有视图中的逻辑可在接口重构时顺带迁移到 `services.py`
 
 ### 认证
 
@@ -55,22 +55,37 @@ Novel Agent 是一个 Django 5.2 Web 应用，帮助作者通过聊天式 AI 交
 ## 命令
 
 ```bash
-# 激活虚拟环境并运行开发服务器
-source .venv/Scripts/activate
-python manage.py runserver
-
 # 数据库迁移
-python manage.py makemigrations
-python manage.py migrate
+docker compose exec django python manage.py makemigrations
+docker compose exec django python manage.py migrate
 
 # 创建超级用户
-python manage.py createsuperuser
+docker compose exec django python manage.py createsuperuser
 
 # 运行单个测试文件
-python manage.py test apps.<app_name>.tests
+docker compose exec django python manage.py test apps.<app_name>.tests --keepdb
 
-# 安装依赖
-pip install -r requirements.txt
+# 运行单个测试类
+docker compose exec django python manage.py test apps.<app_name>.tests.<TestClass> --keepdb
+
+# 运行单个测试方法
+docker compose exec django python manage.py test apps.<app_name>.tests.<TestClass>.<test_method> --keepdb
+
+# 运行多个 app 的测试
+docker compose exec django python manage.py test apps.characters.tests apps.graph.tests apps.timeline.tests apps.chapter.tests --keepdb -v2
+
+# 运行全部测试
+docker compose exec django python manage.py test --keepdb -v2
+
+# 运行测试并生成覆盖率报告
+docker compose exec django coverage run --source='apps' manage.py test --keepdb
+docker compose exec django coverage report -m --fail-under=90
+docker compose exec django coverage html
+
+# 管理命令
+docker compose exec django python manage.py rebuild_graph       # 重建知识图谱
+docker compose exec django python manage.py rebuild_knowledge   # 重建知识库向量索引
+docker compose exec django python manage.py rebuild_trajectories  # 重建角色轨迹
 ```
 
 ### Docker Compose 操作
@@ -114,17 +129,17 @@ docker compose down -v
 
 | 应用 | 用途 |
 |-----|------|
-| `project` | 核心 ProjectList 模型、Character、Worldview、WorldviewChatHistory |
-| `outline` | OutlineVersion、OutlineChatHistory、OutlineExpansion — 聊天驱动的大纲构建，支持 SSE 流式传输 |
+| `project` | 核心 ProjectList 模型、BaseAPIView 根基类、项目 CRUD API |
+| `outline` | Outline、OutlineChatHistory — 聊天驱动的大纲构建，支持 SSE 流式传输 |
 | `volume` | VolumeVersion、VolumeList — 从大纲生成卷结构 |
-| `chapter` | ChapterVersion、ChapterList — 章节摘要、内容生成、流式传输 |
-| `worldview` | World — 结构化世界观设定，包含 JSON 字段和快照 |
-| `characters` | 仅角色生成提示（模型位于 `project` 中） |
+| `chapter` | ChapterList — 章节摘要、内容生成、流式传输、校验、评分、拆分 |
+| `worldview` | WorldView、WorldViewChatHistory — 结构化世界观设定，支持版本管理、聊天式 AI 构建 |
+| `characters` | Character、CharacterTrajectory 模型，角色 CRUD/生成/润色/校验/轨迹 API，序列化器、常量、管理命令 |
 | `timeline` | TimelineEvent、TimelineChatHistory — 基于章节范围的故事时间线 |
 | `note` | Note — 自由形式的"随手记"，支持 AI 润色 |
 | `user` | 用户 LLM 配置（LLMConfig、UserLLMConfig）、TokenUsageLog、JWT 认证视图 |
-| `knowledge` | KnowledgeVector（pgvector 向量存储）、向量索引、语义检索 |
-| `graph` | 知识图谱模块（GraphEdge）、services.py 封装图谱逻辑、management command rebuild_graph |
+| `knowledge` | KnowledgeVector（pgvector 向量存储）、embedder、indexer、retriever、reranker，语义检索全链路 |
+| `graph` | GraphNode、GraphEdge 模型，GraphService 同步逻辑、序列化器、signals、tasks、management command rebuild_graph |
 
 ### URL 和路由模式
 
@@ -133,7 +148,7 @@ docker compose down -v
 ### 数据模型约定
 
 - **软删除**: 大多数模型使用 `is_deleted` 布尔字段而非硬删除
-- **版本控制**: Outline、Volume 和 Chapter 有版本模型，支持每个父模型有多个版本，带有 `is_finalized`、`is_current` 和 `is_deleted` 标志。`version_number=0` 表示"构建/草稿"版本
+- **版本控制**: Outline（`version` 字段）和 Volume（`VolumeVersion` + `version_number` 字段）支持多版本管理，带有 `is_finalized`、`is_current`、`is_deleted` 标志。`version=0` 或 `version_number=0` 表示"构建中/草稿"版本
 - **聊天历史**: `OutlineChatHistory`、`WorldviewChatHistory`、`TimelineChatHistory` 存储与父模型关联的角色+内容对
 
 ### 视图继承架构
@@ -145,12 +160,14 @@ project/base.py:BaseAPIView (根基类)
 ├── volume/views.py:BaseVolumeAPIView
 ├── timeline/views.py:BaseTimelineAPIView
 ├── outline/views.py:BaseOutlineAPIView
+├── characters/views.py:BaseCharacterAPIView
 └── (其他 app...)
 ```
 
 - **`project/base.py:BaseAPIView`** — 根基类，提供鉴权、项目查询、SSE工具、Token统计等公共方法
 - **每个app的`views.py`** — 定义`Base*APIView`继承`BaseAPIView`，封装该app特有的公共方法
 - **App视图** — 继承app的base视图，实现具体业务逻辑
+- **注意**: `graph`、`note`、`user`、`project` 的视图直接继承 `BaseAPIView`，未定义中间 base 类
 
 ### 关键环境变量（`.env`）
 
@@ -167,8 +184,50 @@ project/base.py:BaseAPIView (根基类)
 1. **需求分析**: 接到任务后，首先分析需求，明确目标和范围
 2. **计划制定**: 列出详细的执行计划和任务清单
 3. **代码实现**: 按照计划进行代码开发和修改
-4. **测试验证**: 代码修改完成后，必须编写并执行单元测试用例，确保功能正确性
+4. **测试验证**: 代码修改完成后，必须检查测试用例是否完善，执行测试并确保覆盖率达标（详见「测试规范」）
 5. **代码审查**: 提交代码前进行自我审查，确保符合项目规范
+
+### 测试规范
+
+#### 测试工具
+
+- **框架**: Django 内置 `django.test.TestCase`（基于 unittest）
+- **覆盖率工具**: `coverage.py`（需安装：`pip install coverage`）
+- **测试数据库**: 使用 `--keepdb` 复用已有测试数据库，避免每次重建
+
+#### 覆盖率要求
+
+| 维度 | 最低要求 | 说明 |
+|------|---------|------|
+| **单个接口/方法** | ≥ 80% | 新增或修改的 API 视图、服务方法、工具函数 |
+| **单个文件** | ≥ 90% | 整个 `.py` 文件的行覆盖率 |
+| **整体项目** | ≥ 80% | `apps/` 目录下所有代码的平均覆盖率 |
+
+#### 测试编写流程
+
+修改接口或功能后，必须执行以下步骤：
+
+1. **检查现有测试**: 查看 `apps/<app_name>/tests/` 目录或 `tests.py` 中是否已有相关测试（如 `characters` 使用 `tests/` 目录包含多个测试文件）
+2. **补充测试用例**: 如果测试不完善，补充以下类型的测试：
+   - **模型测试**: 字段创建、约束、`__str__`、级联删除、JSON 字段
+   - **API 测试**: 正常请求、参数校验、权限校验、边界条件
+   - **服务方法测试**: 核心逻辑、异常处理、边界情况
+3. **执行测试**: `docker compose exec django python manage.py test apps.<app_name>.tests --keepdb -v2`
+4. **检查覆盖率**: `docker compose exec django coverage run --source='apps/<app_name>' manage.py test apps.<app_name>.tests --keepdb && docker compose exec django coverage report -m`
+5. **不达标则补充**: 如果文件覆盖率未达 90%，补充测试用例直到达标
+
+#### 测试命名规范
+
+- **文件**: `apps/<app_name>/tests.py`
+- **类名**: `<功能>Test`（如 `CharacterModelTest`、`BuildTrajectoriesTest`）
+- **方法名**: `test_<行为描述>`（如 `test_create_character`、`test_batch_create_empty_list`）
+
+#### 测试编写参考
+
+参考 `apps/worldview/tests.py` 的风格：
+- 使用辅助函数 `_create_test_data()` 创建测试数据
+- API 测试使用 `APIRequestFactory` + `force_authenticate`
+- 手动调用 `View.as_view()(request, **url_kwargs)` 并检查 `response.status_code` 和 `json.loads(response.content)`
 
 ## 开发规范
 
@@ -232,12 +291,15 @@ frontend/src/
 ├── composables/    # Vue 组合式函数（复用有状态逻辑）
 │   ├── useChat.js  # 聊天消息管理、SSE 收发、选择模式
 │   ├── useProjectId.js  # 从路由获取项目 ID
-│   └── useVersions.js   # 版本管理
+│   ├── useVersions.js   # 版本管理
+│   ├── useAiAction.js   # AI 按钮 loading/防重入
+│   └── useTokenUsage.js # Token 用量查询
 ├── layouts/        # 布局组件（AuthLayout / MainLayout / ProjectLayout）
 ├── router/         # Vue Router 路由配置
 ├── stores/         # Pinia 状态管理（auth / project / ui）
 ├── styles/         # 全局 SCSS（variables / index / element-dark / transitions）
 ├── utils/          # 工具函数（按功能域分文件）
+│   ├── crypto.js   # RSA 加密（node-forge，密码加密）
 │   ├── format.js   # 日期、Token 数量、HTML 转义、文本截断
 │   ├── json.js     # JSON 提取与安全解析
 │   ├── loading.js  # 全局 Loading（基于 ElLoading）
@@ -366,6 +428,24 @@ frontend/src/
 |------|------|
 | `useProjectId()` | 从路由参数获取当前项目 ID |
 
+#### AI Action Composable (`composables/useAiAction.js`)
+
+| 方法 | 说明 |
+|------|------|
+| `useAiAction()` | 返回 `{ loading, wrapAction }`，AI 按钮 loading 状态管理和防重入 |
+
+#### Token 用量 Composable (`composables/useTokenUsage.js`)
+
+| 方法 | 说明 |
+|------|------|
+| `useTokenUsage()` | 返回 `{ loading, fetchTodayUsage }`，查询今日 Token 用量 |
+
+#### 加密工具 (`utils/crypto.js`)
+
+| 方法 | 说明 |
+|------|------|
+| `encryptPassword(password)` | 使用 RSA-OAEP 加密密码（自动获取并缓存公钥） |
+
 **使用规则:**
 1. 优先使用上述公共模块中的方法
 2. 如果没有对应方法，再在自己的组件/composable 中构建
@@ -379,6 +459,7 @@ frontend/src/
 |------|------|------|
 | `AppModal` | `frontend/src/components/common/AppModal.vue` | 声明式弹窗（v-model:visible 控制） |
 | `AppButton` | `frontend/src/components/common/AppButton.vue` | 统一按钮（variant / size） |
+| `ConfirmButton` | `frontend/src/components/common/ConfirmButton.vue` | 带二次确认的按钮 |
 | `AppConfirmModal` | `frontend/src/components/common/AppConfirmModal.vue` | 确认弹窗 |
 | `EmptyState` | `frontend/src/components/common/EmptyState.vue` | 空状态占位 |
 | `PageHeader` | `frontend/src/components/common/PageHeader.vue` | 页面头部 |
@@ -437,7 +518,7 @@ frontend/src/
 
 ### 代码审查要点
 
-- 检查是否有不必要的 `services.py` 文件（仅 `graph` 应用允许有）
+- 检查业务逻辑是否合理封装在 `services.py` 中，新接口应使用 `services.py`
 - 确保 `prompts.py` 位于各自的 APP 目录下
 - 验证 Vue 组件是否正确使用 SFC 格式（template / script setup / style scoped）
 - 确认 SCSS 变量和 Element Plus 组件正确使用
@@ -446,3 +527,4 @@ frontend/src/
 - 检查敏感配置是否存在硬编码，应使用环境变量
 - 确认请求参数校验逻辑是否完善
 - 检查流式响应是否配置了超时机制
+- 检查修改的接口是否有对应的测试用例，覆盖率是否达标（单接口 ≥ 80%，文件 ≥ 90%）

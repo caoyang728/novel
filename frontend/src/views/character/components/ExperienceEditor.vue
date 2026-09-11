@@ -15,15 +15,15 @@
         placeholder="描述该章节发生的重要事件..."
         maxlength="2000"
       />
-      <el-button class="exp-del" circle text @click="removeExp(index)">
+      <AppButton variant="danger" size="small" circle text @click="removeExp(index)">
         <el-icon><Delete /></el-icon>
-      </el-button>
+      </AppButton>
     </div>
 
-    <el-button class="exp-add" plain @click="addExp">
+    <AppButton variant="accent" size="small" class="exp-add" @click="addExp">
       <el-icon><Plus /></el-icon>
       添加经历
-    </el-button>
+    </AppButton>
 
     <p v-if="!modelValue.length" class="exp-hint">暂无经历记录，可按章节记录角色的关键事件。</p>
   </div>

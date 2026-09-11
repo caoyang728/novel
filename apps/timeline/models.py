@@ -13,6 +13,29 @@ class TimelineEvent(models.Model):
     end_year = models.IntegerField(default=0, verbose_name='结束年')
     end_month = models.IntegerField(default=0, verbose_name='结束月')
     is_active = models.BooleanField(default=True, verbose_name='是否使用')
+
+    # 关联人物（一个事件可涉及多人）
+    characters = models.ManyToManyField(
+        'characters.Character', blank=True,
+        related_name='timeline_events', verbose_name='涉及人物'
+    )
+    # 关联地点（文本，自由填写或选择已有地点）
+    location = models.CharField(max_length=255, blank=True, default='', verbose_name='发生地点')
+    # 关联章节（章节定稿自动提取的事件回溯用）
+    chapter = models.ForeignKey(
+        'chapter.ChapterList', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='timeline_events',
+        verbose_name='来源章节'
+    )
+    # 事件类型：主线/支线/人物/世界
+    event_type = models.CharField(
+        max_length=20, default='main',
+        choices=[('main', '主线'), ('side', '支线'), ('character', '人物'), ('world', '世界')],
+        verbose_name='事件类型'
+    )
+    # 时间是否为推断值
+    is_time_estimated = models.BooleanField(default=False, verbose_name='时间是否为推断值')
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 

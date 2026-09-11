@@ -7,6 +7,8 @@ class GraphNode(models.Model):
     NODE_TYPE_CHOICES = [
         ('character', '角色'),
         ('faction', '势力/阵营'),
+        ('location', '地点'),
+        ('event', '事件'),
     ]
 
     project = models.ForeignKey(
@@ -52,6 +54,11 @@ class GraphEdge(models.Model):
         ('盟友', '盟友'), ('亲属', '亲属'), ('君主', '君主'),
         ('臣子', '臣子'), ('其他', '其他'),
         ('belongs_to', '隶属于'),
+        ('occurs_at', '发生于'),
+        ('involves', '涉及'),
+        ('located_in', '位于'),
+        ('present_at', '在场'),
+        ('trajectory', '轨迹'),
     ]
 
     project = models.ForeignKey(

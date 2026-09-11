@@ -33,7 +33,7 @@ class GraphService:
             node_type='character',
             name=char.name,
             defaults={
-                'description': char.tagline or char.personality or '',
+                'description': char.tagline or (char.content[:200] if char.content else ''),
                 'properties': {
                     'role_type': char.role_type,
                     'gender': char.gender,
@@ -135,6 +135,57 @@ class GraphService:
     # ------------------------------------------------------------------ #
     @staticmethod
     @transaction.atomic
+    def build_trajectories_for_project(project_id: int):
+        """遍历 CharacterTrajectory，生成 trajectory 类型的图谱边"""
+        from apps.characters.models import CharacterTrajectory
+
+        # 清理旧的 trajectory 边
+        GraphEdge.objects.filter(
+            project_id=project_id, edge_type='trajectory'
+        ).delete()
+
+        trajectories = CharacterTrajectory.objects.filter(
+            project_id=project_id
+        ).select_related('character')
+
+        created = 0
+        for traj in trajectories:
+            # 获取或创建角色节点
+            char_node = GraphNode.objects.filter(
+                node_type='character', source_id=traj.character_id, project_id=project_id
+            ).first()
+            if not char_node:
+                continue
+
+            # 创建轨迹边：角色 -> 自身（自环边，记录轨迹事件）
+            details = traj.details or {}
+            description_parts = [traj.title]
+            if details.get('location'):
+                description_parts.append(f"地点: {details['location']}")
+            if details.get('key_events'):
+                description_parts.append(f"事件: {', '.join(details['key_events'][:3])}")
+
+            GraphEdge.objects.create(
+                project_id=project_id,
+                source=char_node,
+                target=char_node,
+                edge_type='trajectory',
+                description='; '.join(description_parts),
+                properties={
+                    'trajectory_id': traj.pk,
+                    'start_time': traj.start_time,
+                    'end_time': traj.end_time,
+                    'order': traj.order,
+                },
+            )
+            created += 1
+
+        logger.info(
+            f"graph.build_trajectories: 项目 {project_id} 生成 {created} 条轨迹边"
+        )
+
+    @staticmethod
+    @transaction.atomic
     def rebuild_project(project_id: int):
         """全量重建项目图谱"""
         # 删除旧数据
@@ -146,6 +197,9 @@ class GraphService:
         )
         for char in characters:
             GraphService.sync_character(char.pk)
+
+        # 构建轨迹边
+        GraphService.build_trajectories_for_project(project_id)
 
         logger.info(
             f"graph.rebuild_project: 项目 {project_id} 图谱重建完成，"
@@ -311,3 +365,117 @@ class GraphService:
             'nodes_by_type': nodes_by_type,
             'edges_by_type': edges_by_type,
         }
+
+    # ------------------------------------------------------------------ #
+    #  地点节点同步
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def upsert_location(project_id, name, description=''):
+        """幂等创建或更新地点节点，返回 GraphNode 实例"""
+        if not name or not name.strip():
+            return None
+        node, created = GraphNode.objects.update_or_create(
+            project_id=project_id,
+            node_type='location',
+            name=name.strip(),
+            defaults={'description': description},
+        )
+        return node
+
+    # ------------------------------------------------------------------ #
+    #  时间线事件同步
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    @transaction.atomic
+    def sync_timeline_event(timeline_event):
+        """同步时间线事件到图谱：创建 event 节点 + occurs_at 边 + involves 边"""
+        project = timeline_event.project
+
+        # 1. 创建/更新事件节点
+        event_node, _ = GraphNode.objects.update_or_create(
+            project=project,
+            node_type='event',
+            name=timeline_event.title,
+            defaults={
+                'description': timeline_event.description or '',
+                'properties': {
+                    'event_type': timeline_event.event_type,
+                    'start_year': timeline_event.start_year,
+                    'start_month': timeline_event.start_month,
+                    'end_year': timeline_event.end_year,
+                    'end_month': timeline_event.end_month,
+                    'is_time_estimated': timeline_event.is_time_estimated,
+                },
+                'source_id': timeline_event.pk,
+            },
+        )
+
+        # 2. 创建 occurs_at 边（事件 → 地点）
+        if timeline_event.location:
+            location_node = GraphService.upsert_location(
+                project.pk, timeline_event.location
+            )
+            if location_node:
+                GraphEdge.objects.update_or_create(
+                    project=project,
+                    source=event_node,
+                    target=location_node,
+                    edge_type='occurs_at',
+                    defaults={'description': '', 'is_bidirectional': False},
+                )
+
+        # 3. 创建 involves 边（事件 → 人物）
+        characters = timeline_event.characters.all()
+        for char in characters:
+            char_node = GraphNode.objects.filter(
+                project=project, node_type='character', source_id=char.pk
+            ).first()
+            if char_node:
+                GraphEdge.objects.update_or_create(
+                    project=project,
+                    source=event_node,
+                    target=char_node,
+                    edge_type='involves',
+                    defaults={'description': '', 'is_bidirectional': False},
+                )
+
+    @staticmethod
+    def delete_timeline_event(timeline_event_id):
+        """清理时间线事件对应的图谱节点和边"""
+        GraphNode.objects.filter(
+            node_type='event', source_id=timeline_event_id
+        ).delete()
+
+    # ------------------------------------------------------------------ #
+    #  人物在场边同步
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def sync_present_at(character, location_name, story_year=None, story_month=None):
+        """同步人物在场边（properties 存故事时间）"""
+        if not location_name or not character:
+            return
+        project = character.project
+        char_node = GraphNode.objects.filter(
+            project=project, node_type='character', source_id=character.pk
+        ).first()
+        if not char_node:
+            return
+        location_node = GraphService.upsert_location(project.pk, location_name)
+        if not location_node:
+            return
+        properties = {}
+        if story_year is not None:
+            properties['story_year'] = story_year
+        if story_month is not None:
+            properties['story_month'] = story_month
+        GraphEdge.objects.update_or_create(
+            project=project,
+            source=char_node,
+            target=location_node,
+            edge_type='present_at',
+            defaults={
+                'description': '',
+                'is_bidirectional': False,
+                'properties': properties,
+            },
+        )

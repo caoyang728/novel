@@ -85,7 +85,9 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, useSlots } from 'vue'
+
+const slots = useSlots()
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -128,8 +130,10 @@ function handleClosed() {
 .app-modal-body {
   color: var(--text-regular);
   line-height: 1.6;
-  flex: 1;
-  min-height: 0; // 允许 flex 子元素收缩
   padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>

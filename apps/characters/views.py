@@ -12,6 +12,18 @@ from apps.project.models import ProjectList
 from apps.characters.models import Character
 from rest_framework.throttling import UserRateThrottle
 
+
+def _batch_sync_characters_to_graph(project, created_list):
+    """批量创建角色后异步同步图谱"""
+    try:
+        from apps.graph.tasks import sync_character_task
+        for item in created_list:
+            char_id = item.get('id')
+            if char_id:
+                sync_character_task.delay(char_id)
+    except Exception:
+        pass
+
 from apps.characters.serializers import (
     CharacterListSerializer,
     CharacterDetailSerializer,
@@ -25,7 +37,8 @@ from apps.characters.serializers import (
 class AIGenerationRateThrottle(UserRateThrottle):
     """AI 生成类接口专用限流，比普通接口更严格"""
     scope = 'ai_gen'
-from agent.llm import get_llm, collect_llm_response
+from django.db import close_old_connections
+from agent.llm import get_llm, collect_llm_response, call_llm_with_retry
 from apps.characters.constants import (
     RELATIONSHIP_REVERSE,
     VALID_RELATIONSHIP_TYPES,
@@ -41,6 +54,12 @@ from apps.characters.prompts import (
     CHARACTER_CHECK_USER_PROMPT,
     CHARACTER_OPTIMIZE_SYSTEM_PROMPT,
     CHARACTER_OPTIMIZE_USER_PROMPT,
+    CHARACTER_FROM_OUTLINE_SYSTEM_PROMPT,
+    CHARACTER_FROM_OUTLINE_USER_PROMPT,
+    CHARACTER_FROM_VOLUME_SYSTEM_PROMPT,
+    CHARACTER_FROM_VOLUME_USER_PROMPT,
+    get_genre_guide,
+    get_genre_name,
 )
 
 
@@ -82,37 +101,49 @@ class BaseCharacterAPIView(BaseAPIView):
             return worldview_text
         return '暂无世界观设定'
 
-    # 角色字段→LLM 显示标签映射
-    _CHARACTER_FIELD_DISPLAY = [
+    # 文本字段最大长度限制（供子类校验方法使用）
+    MAX_TEXT_FIELD_LENGTH = 2000
+
+    def _validate_field_length(self, field_name, value, warnings=None):
+        """校验文本字段长度，超长则截断"""
+        if isinstance(value, str) and len(value) > self.MAX_TEXT_FIELD_LENGTH:
+            msg = f"字段 '{field_name}' 值超长({len(value)}字符)，已截断至{self.MAX_TEXT_FIELD_LENGTH}字符"
+            logger.warning(f"优化保存: {msg}")
+            if warnings is not None:
+                warnings.append(msg)
+            return value[:self.MAX_TEXT_FIELD_LENGTH]
+        if isinstance(value, list):
+            # JSON 字段（relationships/experiences）序列化后检查总长度
+            serialized = json.dumps(value, ensure_ascii=False)
+            if len(serialized) > self.MAX_TEXT_FIELD_LENGTH:
+                msg = f"字段 '{field_name}' JSON超长({len(serialized)}字符)，已清空"
+                logger.warning(f"优化保存: {msg}")
+                if warnings is not None:
+                    warnings.append(msg)
+                return []
+        return value
+
+    # 结构化字段→LLM 显示标签映射
+    _CHARACTER_STRUCTURED_FIELDS = [
         ('定位', 'role_type'),
         ('性别', 'gender'),
         ('年龄', 'age'),
         ('身份', 'identity'),
-        ('性格', 'personality'),
-        ('外貌', 'appearance'),
         ('势力', 'faction'),
-        ('背景', 'backstory'),
-        ('动机', 'motivation'),
-        ('优点', 'strengths'),
-        ('缺点', 'flaws'),
-        ('执念', 'obsession'),
-        ('能力', 'abilities'),
-        ('禁忌', 'taboos'),
-        ('秘密', 'secrets'),
-        ('黑历史', 'dark_history'),
-        ('成长轨迹', 'development'),
-        ('弱点', 'weaknesses'),
     ]
 
     def _format_character_data(self, characters):
-        """将角色列表格式化为 LLM 输入字符串"""
+        """将角色列表格式化为 LLM 输入字符串（结构化字段 + Markdown content）"""
         characters_data_parts = []
         for c in characters:
             parts = [f"角色：{c.name}"]
-            for label, field_name in self._CHARACTER_FIELD_DISPLAY:
+            for label, field_name in self._CHARACTER_STRUCTURED_FIELDS:
                 val = getattr(c, field_name, None)
                 if val:
                     parts.append(f"  {label}：{val}")
+            # Markdown 内容直接输出
+            if c.content:
+                parts.append(f"  内容：\n{c.content}")
             # 关系字段需要特殊格式化
             if c.relationships:
                 rels = c.relationships
@@ -129,12 +160,6 @@ class BaseCharacterAPIView(BaseAPIView):
                     parts.append(f"  关系（以本人为基准，描述对方相对于本人的角色）：{'; '.join(rel_strs)}")
                 elif isinstance(rels, str):
                     parts.append(f"  关系（以本人为基准）：{rels}")
-            # 经历字段需要特殊格式化
-            if c.experiences:
-                exps = c.experiences
-                if isinstance(exps, list) and exps:
-                    exp_strs = [f"{e.get('chapter', '?')}: {e.get('event', '?')}" for e in exps if isinstance(e, dict)]
-                    parts.append(f"  经历：{'; '.join(exp_strs)}")
             characters_data_parts.append('\n'.join(parts))
         return '\n\n'.join(characters_data_parts)
 
@@ -621,12 +646,19 @@ class ApiCharacterGenerateView(BaseCharacterAPIView):
             count_str = "1个"
             extra_requirements = "请生成一个符合用户描述的角色。"
 
+        # 获取题材信息
+        genre = project.genre or '通用'
+        genre_name = get_genre_name(genre)
+        genre_guide = get_genre_guide(genre)
+
         prompt_vars = {
             "count": count_str,
             "requirement": requirement,
             "worldview": worldview_str,
             "existing_characters": existing_str,
-            "extra_requirements": extra_requirements
+            "extra_requirements": extra_requirements,
+            "genre_name": genre_name,
+            "genre_guide": genre_guide,
         }
 
         result = collect_llm_response(
@@ -662,13 +694,20 @@ class ApiCharacterPolishView(BaseCharacterAPIView):
         characters = project.characters.filter(is_deleted=False).exclude(name=character_data.get('name', ''))
         existing_str = self._format_character_data(characters) if characters.exists() else "暂无其他角色"
 
+        # 获取题材信息
+        genre = project.genre or '通用'
+        genre_name = get_genre_name(genre)
+        genre_guide = get_genre_guide(genre)
+
         result = collect_llm_response(
             CHARACTER_POLISH_SYSTEM_PROMPT,
             CHARACTER_POLISH_USER_PROMPT,
             {
                 "character_data": character_json,
                 "worldview": worldview_str,
-                "existing_characters": existing_str
+                "existing_characters": existing_str,
+                "genre_name": genre_name,
+                "genre_guide": genre_guide,
             },
             request.user,
             scene="character_polish",
@@ -840,37 +879,35 @@ class ApiCharacterRelationshipTypesView(BaseCharacterAPIView):
 class ApiCharacterOptimizeSaveView(BaseCharacterAPIView):
     """AI角色优化保存API - 批量保存用户选择的优化结果"""
 
-    # 中文字段名 → 模型字段名映射
+    # 中文字段名 → 模型字段名映射（叙事性字段统一映射到 content）
     FIELD_NAME_MAP = {
         '姓名': 'name', '名称': 'name',
         '性别': 'gender',
         '定位': 'role_type', '角色类型': 'role_type',
         '年龄': 'age',
         '身份': 'identity', '身份/称号': 'identity',
-        '性格': 'personality', '性格特点': 'personality',
-        '外貌': 'appearance', '外貌特征': 'appearance',
         '势力': 'faction', '势力/阵营': 'faction',
-        '背景': 'backstory', '背景故事': 'backstory',
-        '动机': 'motivation', '核心动机': 'motivation',
         '标签': 'tagline', '签名': 'tagline',
-        '优点': 'strengths', '优点/特长': 'strengths',
-        '缺点': 'flaws', '弱点/代价': 'weaknesses',
-        '执念': 'obsession', '执念/软肋': 'obsession',
-        '能力': 'abilities',
-        '禁忌': 'taboos',
-        '秘密': 'secrets',
-        '黑历史': 'dark_history', '过往黑历史': 'dark_history',
-        '成长': 'development', '成长轨迹': 'development',
         '关系': 'relationships', '人际关系': 'relationships',
-        '经历': 'experiences',
+        # 叙事性字段 → content（Markdown）
+        '性格': 'content', '性格特点': 'content',
+        '外貌': 'content', '外貌特征': 'content',
+        '背景': 'content', '背景故事': 'content',
+        '动机': 'content', '核心动机': 'content',
+        '优点': 'content', '优点/特长': 'content',
+        '缺点': 'content', '弱点/代价': 'content',
+        '执念': 'content', '执念/软肋': 'content',
+        '能力': 'content',
+        '禁忌': 'content',
+        '秘密': 'content',
+        '黑历史': 'content', '过往黑历史': 'content',
+        '成长': 'content', '成长轨迹': 'content',
+        '经历': 'content',
     }
 
     # 允许 setattr 设置的字段白名单（防止设置 is_deleted、project、name 等敏感字段）
     # name 不允许通过优化修改，因为后续用 name 做查找
     ALLOWED_FIELDS = set(FIELD_NAME_MAP.values()) - {'name'}
-
-    # 文本字段最大长度限制
-    MAX_TEXT_FIELD_LENGTH = 2000
 
     def post(self, request, pk):
         project = self.get_project(request, pk)
@@ -1006,23 +1043,375 @@ class ApiCharacterOptimizeSaveView(BaseCharacterAPIView):
                 return None
         return value
 
-    def _validate_field_length(self, field_name, value, warnings=None):
-        """校验文本字段长度，超长则截断"""
-        if isinstance(value, str) and len(value) > self.MAX_TEXT_FIELD_LENGTH:
-            msg = f"字段 '{field_name}' 值超长({len(value)}字符)，已截断至{self.MAX_TEXT_FIELD_LENGTH}字符"
-            logger.warning(f"优化保存: {msg}")
-            if warnings is not None:
-                warnings.append(msg)
-            return value[:self.MAX_TEXT_FIELD_LENGTH]
-        if isinstance(value, list):
-            # JSON 字段（relationships/experiences）序列化后检查总长度
-            serialized = json.dumps(value, ensure_ascii=False)
-            if len(serialized) > self.MAX_TEXT_FIELD_LENGTH:
-                msg = f"字段 '{field_name}' JSON超长({len(serialized)}字符)，已清空"
-                logger.warning(f"优化保存: {msg}")
-                if warnings is not None:
-                    warnings.append(msg)
-                return []
-        return value
+
+class ApiCharacterGenerateFromOutlineView(BaseCharacterAPIView):
+    """从大纲生成角色候选 — SSE 流式接口，实时返回 LLM 分析内容"""
+
+    throttle_classes = [AIGenerationRateThrottle]
+
+    def post(self, request, pk):
+        project = self.get_project(request, pk)
+
+        outline_id = request.data.get('outline_id')
+        if outline_id:
+            from apps.outline.models import Outline
+            outline = get_object_or_404(Outline, pk=outline_id, project=project, is_deleted=False)
+        else:
+            # 使用最新定稿大纲
+            from apps.outline.models import Outline
+            outline = Outline.objects.filter(
+                project=project, is_finalized=True, is_deleted=False, version__gte=1
+            ).order_by('-version').first()
+            if not outline:
+                return Response({'success': False, 'error': '项目还没有定稿的大纲，请先完成大纲定稿'}, status=400)
+
+        if not outline.content or not outline.content.strip():
+            return Response({'success': False, 'error': '大纲内容为空，无法提取角色'}, status=400)
+
+        # 获取世界观
+        worldview_str = self._get_worldview_str(project)
+
+        # 获取已有角色列表
+        existing_chars = project.characters.filter(is_deleted=False).order_by('name')
+        existing_names = [c.name for c in existing_chars]
+        existing_str = '\n'.join([f"- {c.name}({c.role_type})" for c in existing_chars[:20]]) or '暂无已有角色'
+
+        # 构建 LLM 调用
+        llm = get_llm(user=request.user, scene="character_design")
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", CHARACTER_FROM_OUTLINE_SYSTEM_PROMPT),
+            ("human", CHARACTER_FROM_OUTLINE_USER_PROMPT),
+        ])
+        chain = prompt | llm
+
+        def generate():
+            close_old_connections()
+            full_content = ''
+            try:
+                for chunk in call_llm_with_retry(
+                    chain,
+                    input_vars={
+                        "worldview": worldview_str,
+                        "existing_characters": existing_str,
+                        "outline_content": outline.content,
+                    },
+                    stream=True,
+                    user=request.user,
+                    scene="character_design",
+                    project=project,
+                    task_type='character_from_outline',
+                ):
+                    full_content += chunk
+                    yield self.sse_event('chunk', {'content': chunk})
+
+                # 流式输出结束后，解析 JSON 为角色候选列表
+                candidates = self._parse_candidates(full_content, existing_names)
+                yield self.sse_event('complete', {
+                    'candidates': candidates,
+                    'existing_characters': existing_names,
+                    'new_count': sum(1 for c in candidates if c.get('is_new')),
+                })
+            except Exception as e:
+                logger.error(f"从大纲提取角色失败: {e}")
+                yield self.sse_event('error', {'message': '从大纲提取角色失败，请重试'})
+
+        return self.sse_response(generate)
+
+    @staticmethod
+    def _parse_candidates(llm_content, existing_names):
+        """从 LLM 输出解析角色候选列表，标记已有角色"""
+        import re as _re
+        # 尝试从 LLM 输出中提取 JSON 数组
+        # 先尝试提取 markdown 代码块中的内容
+        code_block = _re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', llm_content)
+        if code_block:
+            llm_content = code_block.group(1)
+
+        array_match = _re.search(r'\[[\s\S]*\]', llm_content)
+        if not array_match:
+            logger.warning(f"从大纲提取角色: LLM 输出中未找到 JSON 数组, 原始内容前200字: {llm_content[:200]}")
+            return []
+
+        try:
+            parsed = json.loads(array_match.group(0))
+        except json.JSONDecodeError as e:
+            logger.warning(f"从大纲提取角色: JSON 解析失败: {e}, 提取内容前200字: {array_match.group(0)[:200]}")
+            return []
+
+        if not isinstance(parsed, list):
+            return []
+
+        candidates = []
+        for item in parsed:
+            if not isinstance(item, dict) or not item.get('name'):
+                continue
+            name = item['name'].strip()
+            item['name'] = name
+            item['is_new'] = name not in existing_names
+            candidates.append(item)
+
+        return candidates
+
+
+class ApiCharacterGenerateFromVolumeView(BaseCharacterAPIView):
+    """从卷生成角色候选 — SSE 流式接口，实时返回 LLM 分析内容"""
+
+    throttle_classes = [AIGenerationRateThrottle]
+
+    def post(self, request, pk):
+        project = self.get_project(request, pk)
+
+        volume_id = request.data.get('volume_id')
+        if not volume_id:
+            return Response({'success': False, 'error': '请提供卷 ID'}, status=400)
+
+        from apps.volume.models import VolumeList
+        volume = get_object_or_404(VolumeList, pk=volume_id, volume_version__project=project)
+
+        # 拼接卷内容：标题 + 摘要 + 大纲
+        volume_content_parts = [f'卷标题：{volume.title}']
+        if volume.summary:
+            volume_content_parts.append(f'卷摘要：{volume.summary}')
+        if volume.content:
+            volume_content_parts.append(f'卷大纲：{volume.content}')
+        volume_content = '\n'.join(volume_content_parts)
+
+        if not volume_content.strip():
+            return Response({'success': False, 'error': '卷内容为空，无法提取角色'}, status=400)
+
+        # 获取世界观
+        worldview_str = self._get_worldview_str(project)
+
+        # 获取已有角色列表
+        existing_chars = project.characters.filter(is_deleted=False).order_by('name')
+        existing_names = [c.name for c in existing_chars]
+        existing_str = '\n'.join([f"- {c.name}({c.role_type})" for c in existing_chars[:20]]) or '暂无已有角色'
+
+        # 构建 LLM 调用
+        llm = get_llm(user=request.user, scene="character_design")
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", CHARACTER_FROM_VOLUME_SYSTEM_PROMPT),
+            ("human", CHARACTER_FROM_VOLUME_USER_PROMPT),
+        ])
+        chain = prompt | llm
+
+        def generate():
+            close_old_connections()
+            full_content = ''
+            try:
+                for chunk in call_llm_with_retry(
+                    chain,
+                    input_vars={
+                        "worldview": worldview_str,
+                        "existing_characters": existing_str,
+                        "volume_content": volume_content,
+                    },
+                    stream=True,
+                    user=request.user,
+                    scene="character_design",
+                    project=project,
+                    task_type='character_from_volume',
+                ):
+                    full_content += chunk
+                    yield self.sse_event('chunk', {'content': chunk})
+
+                # 流式输出结束后，解析 JSON 为角色候选列表
+                candidates = ApiCharacterGenerateFromOutlineView._parse_candidates(full_content, existing_names)
+                yield self.sse_event('complete', {
+                    'candidates': candidates,
+                    'existing_characters': existing_names,
+                    'new_count': sum(1 for c in candidates if c.get('is_new')),
+                })
+            except Exception as e:
+                logger.error(f"从卷提取角色失败: {e}")
+                yield self.sse_event('error', {'message': '从卷提取角色失败，请重试'})
+
+        return self.sse_response(generate)
+
+
+class ApiCharacterBatchCreateView(BaseCharacterAPIView):
+    """批量确认创建角色 — 接收候选列表，创建用户确认的角色"""
+
+    throttle_classes = []
+
+    # 字段白名单，只允许设置这些字段
+    CREATE_FIELDS = {
+        'name', 'role_type', 'gender', 'age', 'identity', 'faction',
+        'tagline', 'relationships', 'content', 'source',
+    }
+
+    def post(self, request, pk):
+        project = self.get_project(request, pk)
+
+        characters_data = request.data.get('characters', [])
+        if not characters_data:
+            return Response({'success': False, 'error': '请提供要创建的角色列表'}, status=400)
+
+        if len(characters_data) > 50:
+            return Response({'success': False, 'error': '单次最多创建 50 个角色'}, status=400)
+
+        created = []
+        errors = []
+
+        # 预查已有角色名（含已删除的，用于恢复）
+        existing_active = set(
+            Character.objects.filter(project=project, is_deleted=False).values_list('name', flat=True)
+        )
+        existing_deleted = set(
+            Character.objects.filter(project=project, is_deleted=True).values_list('name', flat=True)
+        )
+
+        with transaction.atomic():
+            for i, char_data in enumerate(characters_data):
+                name = (char_data.get('name') or '').strip()
+                if not name:
+                    errors.append(f"第{i + 1}个角色缺少姓名，已跳过")
+                    continue
+
+                # 检查名称唯一性
+                if name in existing_active:
+                    errors.append(f"角色「{name}」已存在，已跳过")
+                    continue
+
+                # 如果已删除的角色同名，恢复它
+                if name in existing_deleted:
+                    try:
+                        deleted_char = Character.objects.select_for_update().get(
+                            project=project, name=name, is_deleted=True
+                        )
+                        deleted_char.is_deleted = False
+                        # 更新可更新的字段
+                        for field in self.CREATE_FIELDS - {'name'}:
+                            val = char_data.get(field)
+                            if val is not None:
+                                setattr(deleted_char, field, val)
+                        deleted_char.source = char_data.get('source', 'ai_generate')
+                        deleted_char.save()
+                        existing_active.add(name)
+                        created.append({'id': deleted_char.id, 'name': name})
+                        continue
+                    except Character.DoesNotExist:
+                        pass
+
+                # 新建角色
+                char = Character(project=project, name=name, source=char_data.get('source', 'ai_generate'))
+                for field in self.CREATE_FIELDS - {'name'}:
+                    val = char_data.get(field)
+                    if val is not None:
+                        setattr(char, field, val)
+                try:
+                    char.save()
+                    existing_active.add(name)
+                    created.append({'id': char.id, 'name': name})
+                except Exception as e:
+                    errors.append(f"创建角色「{name}」失败：{e}")
+
+        # 事务提交后异步同步图谱
+        if created:
+            transaction.on_commit(lambda: _batch_sync_characters_to_graph(project, created))
+
+        return Response({
+            'success': True,
+            'created': created,
+            'created_count': len(created),
+            'errors': errors,
+        })
+
+
+class ApiCharacterTrajectoryView(BaseCharacterAPIView):
+    """角色轨迹 CRUD — 以时间为主，关联章节"""
+
+    throttle_classes = []
+
+    def get(self, request, pk, character_id):
+        """获取角色的所有轨迹"""
+        project = self.get_project(request, pk)
+        character = get_object_or_404(Character, pk=character_id, project=project, is_deleted=False)
+
+        from apps.characters.models import CharacterTrajectory
+        from apps.characters.serializers import CharacterTrajectorySerializer
+
+        trajectories = CharacterTrajectory.objects.filter(
+            character=character, project=project
+        ).order_by('order', 'created_at')
+
+        serializer = CharacterTrajectorySerializer(trajectories, many=True)
+
+        return Response({
+            'success': True,
+            'data': {
+                'trajectories': serializer.data,
+            }
+        })
+
+
+class ApiCharacterTrajectoryDetailView(BaseCharacterAPIView):
+    """角色轨迹详情 CRUD"""
+
+    throttle_classes = []
+
+    def get(self, request, pk, character_id, trajectory_id):
+        """获取单个轨迹详情"""
+        project = self.get_project(request, pk)
+        character = get_object_or_404(Character, pk=character_id, project=project, is_deleted=False)
+
+        from apps.characters.models import CharacterTrajectory
+        from apps.characters.serializers import CharacterTrajectorySerializer
+
+        trajectory = get_object_or_404(
+            CharacterTrajectory, pk=trajectory_id, character=character, project=project
+        )
+
+        serializer = CharacterTrajectorySerializer(trajectory)
+
+        return Response({
+            'success': True,
+            'data': serializer.data
+        })
+
+    def put(self, request, pk, character_id, trajectory_id):
+        """更新轨迹"""
+        project = self.get_project(request, pk)
+        character = get_object_or_404(Character, pk=character_id, project=project, is_deleted=False)
+
+        from apps.characters.models import CharacterTrajectory
+        from apps.characters.serializers import CharacterTrajectoryCreateSerializer
+
+        trajectory = get_object_or_404(
+            CharacterTrajectory, pk=trajectory_id, character=character, project=project
+        )
+
+        serializer = CharacterTrajectoryCreateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        for attr, value in serializer.validated_data.items():
+            setattr(trajectory, attr, value)
+        trajectory.save()
+
+        from apps.characters.serializers import CharacterTrajectorySerializer
+        result_serializer = CharacterTrajectorySerializer(trajectory)
+
+        return Response({
+            'success': True,
+            'data': result_serializer.data
+        })
+
+    def delete(self, request, pk, character_id, trajectory_id):
+        """删除轨迹"""
+        project = self.get_project(request, pk)
+        character = get_object_or_404(Character, pk=character_id, project=project, is_deleted=False)
+
+        from apps.characters.models import CharacterTrajectory
+
+        trajectory = get_object_or_404(
+            CharacterTrajectory, pk=trajectory_id, character=character, project=project
+        )
+
+        trajectory.delete()
+
+        return Response({
+            'success': True,
+            'message': '轨迹已删除'
+        })
 
 

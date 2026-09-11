@@ -473,10 +473,31 @@ CHAPTER_BATCH_CONTENT_USER_PROMPT = '''请根据以下上下文，生成本批�
 【本批次章节概述】
 {batch_chapters}
 
+【上一批次章节摘要（保持风格和情节连续性）】
 {prev_batch_context}
+
+【已生成的前几章内容末尾】
 {prev_chapters_context}
+
+【后续章节概述】
 {next_chapters_context}
+
+【角色当前动态状态】
 {character_dynamic_states}
+
+【角色轨迹】
+{character_trajectories}
+
+【角色关系网络】
+{relationship_subgraph}
+
+【故事时间线】
+{timeline_context}
+
+【重要地点及最近事件】
+{location_context}
+
+【相关历史片段】
 {relevant_history}
 
 【重要】
@@ -487,7 +508,6 @@ CHAPTER_BATCH_CONTENT_USER_PROMPT = '''请根据以下上下文，生成本批�
 - 确保每个JSON对象格式完全合法'''
 
 # ========== 单章正文生成（与批量 prompt 风格一致但仅输出一章） ==========
-
 CHAPTER_SINGLE_CONTENT_USER_PROMPT = '''请根据以下上下文，撰写第{chapter_number}章的完整小说正文：
 
 卷号：{volume_number}
@@ -497,10 +517,31 @@ CHAPTER_SINGLE_CONTENT_USER_PROMPT = '''请根据以下上下文，撰写第{cha
 【本章概述】
 {batch_chapters}
 
+【上一批次章节摘要（保持风格和情节连续性）】
 {prev_batch_context}
+
+【已生成的前几章内容末尾】
 {prev_chapters_context}
+
+【后续章节概述】
 {next_chapters_context}
+
+【角色当前动态状态】
 {character_dynamic_states}
+
+【角色轨迹】
+{character_trajectories}
+
+【角色关系网络】
+{relationship_subgraph}
+
+【故事时间线】
+{timeline_context}
+
+【重要地点及最近事件】
+{location_context}
+
+【相关历史片段】
 {relevant_history}
 
 【重要】
@@ -564,34 +605,56 @@ CHAPTER_SCORING_USER_PROMPT = '''请对以下章节内容进行多维度评分�
 
 # ========== 角色动态状态提取 ==========
 
-CHARACTER_STATE_EXTRACT_SYSTEM_PROMPT = '''你是一位专业的小说角色分析师，擅长从章节内容中提取角色的动态状态变化。请严格按照JSON格式返回。
+CHARACTER_STATE_EXTRACT_SYSTEM_PROMPT = '''你是一位专业的小说剧情分析师，擅长从章节内容中提取角色状态变化、发现新角色、提取剧情事件。请严格按照JSON格式返回，一次调用输出四类结果。
 
-【提取维度】
+### 一、角色状态更新（state_updates）
+提取已有角色在本章中的动态状态变化：
 - current_location: 角色当前所在的地点
+- power_level: 角色当前的实力/等级
+- faction: 角色当前所属势力
+- identity: 角色当前身份/称号
 - emotional_state: 角色当前的情绪/心理状态
 - physical_state: 角色的身体/健康状态
-- relationship_changes: 人际关系变化（与哪些角色的关系有了什么变化）
+- relationship_changes: 人际关系变化
 - ability_progress: 能力/技能进展
 - key_events: 本章发生的对该角色有重大影响的事件
 
-【输出格式 - 严格JSON】
-[
-  {{
-    "character_name": "角色名",
-    "updates": {{
-      "current_location": "京城",
-      "emotional_state": "...",
-      "physical_state": "...",
-      "relationship_changes": {{"另一角色名": "关系变化描述"}},
-      "ability_progress": "能力变化描述",
-      "key_events": ["事件1", "事件2"]
+只提取确实在本章有变化的维度，无变化的不包含。
+
+### 二、新角色发现（new_characters）
+检测剧情中是否出现了已有角色列表之外的新角色。如果发现新角色，自动推断其基础设定：
+{character_output_schema}
+新发现的角色 role_type 默认为「配角」，并添加 summary 字段说明其在本章中的出场情况。
+
+### 三、剧情事件提取（timeline_events）
+提取本章中发生的重要剧情事件：
+{timeline_event_output_schema}
+
+### 四、当前故事时间（current_story_time）
+推断本章结束时的故事时间点，格式：{{"year": 数字, "month": 数字}}。如果无法推断，返回 null。
+
+### 输出格式 - 严格JSON
+仅输出一个 JSON 对象，不要输出任何其他内容：
+{{
+  "state_updates": [
+    {{
+      "character_name": "角色名",
+      "updates": {{
+        "current_location": "地点",
+        "power_level": "实力等级",
+        "emotional_state": "情绪状态",
+        "key_events": ["事件1"]
+      }}
     }}
-  }}
-]
+  ],
+  "new_characters": [],
+  "timeline_events": [],
+  "current_story_time": {{"year": 5, "month": 3}}
+}}
 
-【重要】只输出JSON数组，不要输出任何其他内容。只包含确实在本章有变化的维度，无变化的不要包含。'''
+各项为空时用空数组 [] 或 null，不要省略字段。'''
 
-CHARACTER_STATE_EXTRACT_USER_PROMPT = '''请从以下章节内容中提取角色的动态状态变化：
+CHARACTER_STATE_EXTRACT_USER_PROMPT = '''请从以下章节内容中进行合并提取（状态更新 + 新角色发现 + 剧情事件 + 故事时间）：
 
 项目角色列表（含当前状态）：
 {characters_with_states}
@@ -599,7 +662,7 @@ CHARACTER_STATE_EXTRACT_USER_PROMPT = '''请从以下章节内容中提取角色
 本章正文：
 {chapter_content}
 
-请提取本章中状态发生变化的角色及其具体变化，按JSON数组格式返回。'''
+请按上述JSON格式一次性输出四类提取结果。'''
 
 # ========== 概述微调 ==========
 

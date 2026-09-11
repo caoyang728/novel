@@ -52,6 +52,11 @@
       <template v-else-if="phase === 'optimizations'">
         <div class="check-summary">
           <span class="summary-item">AI 优化建议 <b>{{ optimizations.length }}</b> 项</span>
+          <span class="opt-select-all">
+            <el-checkbox v-model="allSelected" :indeterminate="isIndeterminate" @change="toggleAll">
+              {{ allSelected ? '取消全选' : '全选' }}
+            </el-checkbox>
+          </span>
         </div>
         <p class="opt-hint">勾选要应用的优化，点击「保存优化」确认；优化保存后会自动同步反向关系。</p>
 
@@ -165,14 +170,11 @@ const CHECK_TYPE_LABELS = {
 
 const OPT_TYPE_LABELS = { modify: '修改', add: '新增', delete: '删除' }
 
+// 结构化字段直接映射，叙事性字段统一归为 content
 const FIELD_LABELS = {
   name: '姓名', gender: '性别', role_type: '角色定位', age: '年龄',
-  identity: '身份/称号', personality: '性格特点', appearance: '外貌特征',
-  faction: '势力/阵营', backstory: '背景故事', motivation: '核心动机',
-  tagline: '标签', strengths: '优点', flaws: '缺点', obsession: '执念/软肋',
-  abilities: '能力', taboos: '禁忌', secrets: '秘密', dark_history: '过往黑历史',
-  development: '成长轨迹', weaknesses: '弱点/代价', relationships: '人际关系',
-  experiences: '经历',
+  identity: '身份/称号', faction: '势力/阵营', tagline: '标签',
+  relationships: '人际关系', content: '角色内容',
 }
 
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 }
@@ -242,6 +244,23 @@ function formatRel(r) {
     return r
   }
   return String(r)
+}
+
+// ---- 全选/取消全选 ----
+const allSelected = computed({
+  get() {
+    return optimizations.value.length > 0 && optimizations.value.every((i) => i.selected)
+  },
+  set() {},
+})
+
+const isIndeterminate = computed(() => {
+  const selected = optimizations.value.filter((i) => i.selected).length
+  return selected > 0 && selected < optimizations.value.length
+})
+
+function toggleAll(val) {
+  optimizations.value.forEach((i) => { i.selected = val })
 }
 
 function close() {
@@ -428,6 +447,11 @@ watch(
 
 .issue-instruction {
   margin-top: 4px;
+}
+
+.opt-select-all {
+  margin-left: auto;
+  font-size: 12px;
 }
 
 .opt-hint {

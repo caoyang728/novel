@@ -24,6 +24,8 @@ from utils.constants import (
     REDIS_KEY_CORNERSTONE_CTX, REDIS_KEY_VOLUME_LOCK,
 )
 from utils.helpers import safe_parse_json
+from apps.characters.prompts import CHARACTER_OUTPUT_SCHEMA
+from apps.timeline.prompts import TIMELINE_EVENT_OUTPUT_SCHEMA
 from apps.chapter.prompts import (
     CHAPTER_OUTLINE_SYSTEM_PROMPT,
     CHAPTER_OUTLINE_USER_PROMPT,
@@ -126,7 +128,7 @@ class BaseChapterAPIView(BaseAPIView):
             for pc in prev_list:
                 summary_text = pc.content[-CHAPTER_TAIL_CONTEXT_LENGTH:] if pc.content else (pc.summary or "")
                 parts.append(f"第{pc.chapter_number}章 {pc.title}\n{summary_text}")
-            prev_chapters_context = "【已生成的前几章内容末尾】\n" + "\n---\n".join(parts)
+            prev_chapters_context = "\n---\n".join(parts)
 
         # 后M章概述
         next_chapters_context = ""
@@ -140,7 +142,7 @@ class BaseChapterAPIView(BaseAPIView):
             parts = []
             for nc in next_chapters:
                 parts.append(f"第{nc.chapter_number}章 {nc.title}：{nc.summary}")
-            next_chapters_context = "【后续章节概述】\n" + "\n".join(parts)
+            next_chapters_context = "\n".join(parts)
 
         return prev_chapters_context, next_chapters_context
 
@@ -163,7 +165,7 @@ class BaseChapterAPIView(BaseAPIView):
             content = pc.content or ""
             summary_text = content[-PREV_BATCH_SUMMARY_TAIL_LENGTH:] if len(content) > PREV_BATCH_SUMMARY_TAIL_LENGTH else content
             parts.append(f"第{pc.chapter_number}章 {pc.title}：{summary_text}")
-        return "【上一批次章节摘要】\n" + "\n---\n".join(parts)
+        return "\n---\n".join(parts)
 
     def get_cornerstone_context(self, project, volume):
         """
@@ -198,11 +200,125 @@ class BaseChapterAPIView(BaseAPIView):
                 if state_lines:
                     parts.append(f"{ch.name}：\n" + "\n".join(state_lines))
         if parts:
-            return "【角色当前动态状态】\n" + "\n\n".join(parts)
+            return "\n\n".join(parts)
         return ""
 
-    def extract_and_update_character_states(self, project, chapter_content, user):
-        """从章节内容中提取角色动态状态并更新"""
+    def get_timeline_context(self, project):
+        """获取时间线结构化文本（用于 User Prompt 注入），展示与当前章节相关的历史事件"""
+        from apps.timeline.models import TimelineEvent
+        events = TimelineEvent.objects.filter(
+            project=project, is_active=True
+        ).order_by('start_year', 'start_month')[:30]  # 限制数量避免 token 过长
+        if not events:
+            return ""
+        lines = []
+        for ev in events:
+            era = ev.era_unit or ""
+            time_str = f"{era}{ev.start_year}年" if ev.start_year is not None else "未知时间"
+            if ev.end_year and ev.end_year != ev.start_year:
+                time_str += f" - {era}{ev.end_year}年"
+            loc = f" @{ev.location}" if ev.location else ""
+            chars = "、".join(c.name for c in ev.characters.all())
+            char_str = f"（{chars}）" if chars else ""
+            lines.append(f"- [{time_str}] {ev.title}{char_str}{loc}")
+        return "\n".join(lines)
+
+    def get_location_context(self, project, chapter=None):
+        """获取地点状态上下文：相关地点的最近事件"""
+        from apps.timeline.models import TimelineEvent
+        # 收集所有出现过的地点
+        locations = set(
+            TimelineEvent.objects.filter(
+                project=project, is_active=True, location__isnull=False
+            ).values_list('location', flat=True).distinct()[:20]
+        )
+        if not locations:
+            return ""
+        parts = []
+        for loc in sorted(locations):
+            recent_events = TimelineEvent.objects.filter(
+                project=project, is_active=True, location=loc
+            ).order_by('-start_year', '-start_month')[:3]
+            if recent_events:
+                ev_lines = []
+                for ev in recent_events:
+                    era = ev.era_unit or ""
+                    time_str = f"{era}{ev.start_year}年" if ev.start_year is not None else ""
+                    ev_lines.append(f"  - {ev.title}（{time_str}）")
+                parts.append(f"{loc}：\n" + "\n".join(ev_lines))
+        if parts:
+            return "\n".join(parts)
+        return ""
+
+    def get_character_trajectories_context(self, project):
+        """获取角色轨迹文本（用于 User Prompt 注入），展示角色在各章节中的变化"""
+        from apps.characters.models import CharacterTrajectory
+        trajectories = CharacterTrajectory.objects.filter(
+            project=project
+        ).select_related('character').order_by(
+            'character__name', 'order', 'created_at'
+        )
+        if not trajectories:
+            return ""
+        # 按角色分组
+        by_character = {}
+        for t in trajectories:
+            char_name = t.character.name if t.character else "未知"
+            if char_name not in by_character:
+                by_character[char_name] = []
+            by_character[char_name].append(t)
+        parts = []
+        for char_name, trajs in by_character.items():
+            lines = [f"{char_name}："]
+            for t in trajs[:10]:  # 每个角色最多 10 条
+                time_label = f"（{t.start_time}）" if t.start_time else ""
+                location = f" @{t.details.get('location', '')}" if t.details.get('location') else ""
+                desc = t.title or ""
+                lines.append(f"  {time_label}{location}：{desc}")
+            parts.append("\n".join(lines))
+        return "\n\n".join(parts)
+
+    def get_relationship_subgraph_context(self, project):
+        """获取角色关系子图上下文（结构化 N-hop），用于章节生成"""
+        from apps.graph.models import GraphNode, GraphEdge
+        characters = Character.objects.filter(project=project, is_deleted=False)
+        if not characters.exists():
+            return ""
+        try:
+            char_nodes = GraphNode.objects.filter(
+                project_id=project.pk, node_type='character'
+            ).values_list('id', 'name')
+            if not char_nodes:
+                return ""
+            char_id_map = {nid: nname for nid, nname in char_nodes}
+            char_ids = set(char_id_map.keys())
+            edges = GraphEdge.objects.filter(
+                project_id=project.pk,
+                source_id__in=char_ids
+            ).exclude(
+                edge_type__in=('located_in', 'occurs_at')
+            )[:30]
+            if not edges:
+                return ""
+            lines = []
+            for e in edges:
+                src = char_id_map.get(e.source_id, f"#{e.source_id}")
+                tgt = char_id_map.get(e.target_id, f"#{e.target_id}")
+                desc = f"（{e.description}）" if e.description else ""
+                lines.append(f"- {src} —[{e.edge_type}]→ {tgt}{desc}")
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
+    def extract_and_update_character_states(self, project, chapter_content, user, chapter=None):
+        """从章节内容中进行合并提取：状态更新 + 新角色发现 + 剧情事件 + 故事时间
+
+        Args:
+            project: 项目实例
+            chapter_content: 章节正文内容
+            user: 当前用户
+            chapter: ChapterList 实例（可选，用于创建轨迹记录和事件关联）
+        """
         try:
             characters = list(Character.objects.filter(project=project, is_deleted=False))
             if not characters:
@@ -224,6 +340,8 @@ class BaseChapterAPIView(BaseAPIView):
             result = call_llm_with_retry(
                 chain,
                 input_vars={
+                    "character_output_schema": CHARACTER_OUTPUT_SCHEMA,
+                    "timeline_event_output_schema": TIMELINE_EVENT_OUTPUT_SCHEMA,
                     "characters_with_states": characters_with_states,
                     "chapter_content": chapter_content[-8000:],
                 },
@@ -234,31 +352,254 @@ class BaseChapterAPIView(BaseAPIView):
             )
 
             text = result.content if hasattr(result, 'content') else str(result)
-            state_updates = safe_parse_json(text)
-            if not state_updates or not isinstance(state_updates, list):
-                logger.warning(f"角色状态提取返回格式异常: {text[:200]}")
+            parsed = safe_parse_json(text)
+
+            # 降级处理：如果返回格式异常，退化为仅做状态提取
+            if not parsed or not isinstance(parsed, dict):
+                logger.warning(f"合并提取返回格式异常，尝试降级为旧格式解析: {text[:200]}")
+                self._fallback_state_only_extract(parsed, characters, text, project)
                 return
 
-            char_map = {ch.name: ch for ch in characters}
-            updated = 0
-            for update_item in state_updates:
-                name = (update_item.get("character_name") or "").strip()
-                updates = update_item.get("updates", {})
-                if not name or not updates:
-                    continue
-                character = char_map.get(name)
-                if not character:
-                    continue
-                current_states = character.dynamic_states or {}
-                current_states.update(updates)
-                character.dynamic_states = current_states
-                character.save(update_fields=['dynamic_states'])
-                updated += 1
+            # 1. 处理角色状态更新
+            state_updates = parsed.get('state_updates') or []
+            if isinstance(state_updates, list):
+                self._process_state_updates(state_updates, characters, project)
 
-            if updated:
-                logger.info(f"角色动态状态更新完成，更新 {updated}/{len(characters)} 个角色")
+            # 2. 处理新角色发现
+            new_characters = parsed.get('new_characters') or []
+            if isinstance(new_characters, list) and new_characters:
+                self._process_new_characters(new_characters, project, chapter)
+                # 刷新角色列表，确保新创建的角色能被后续步骤引用
+                characters = list(Character.objects.filter(project=project, is_deleted=False))
+
+            # 3. 处理剧情事件
+            timeline_events = parsed.get('timeline_events') or []
+            if isinstance(timeline_events, list) and timeline_events:
+                self._process_timeline_events(timeline_events, project, chapter, characters)
+
+            # 4. 更新故事时间
+            current_story_time = parsed.get('current_story_time')
+            if current_story_time and chapter:
+                self._update_chapter_story_time(chapter, current_story_time)
+
+            # 5. 创建角色轨迹记录
+            if chapter and isinstance(state_updates, list):
+                self._create_character_trajectories(state_updates, project, chapter, characters, current_story_time)
+
+            logger.info("章节定稿合并提取完成")
+
         except Exception as e:
             logger.warning(f"角色状态提取失败（非致命）: {e}")
+
+    def _fallback_state_only_extract(self, parsed, characters, text, project):
+        """降级处理：仅做角色状态更新（兼容旧格式）"""
+        try:
+            # 尝试将 parsed 作为旧格式列表处理
+            state_list = parsed if isinstance(parsed, list) else None
+            if not state_list:
+                # 尝试从 text 中解析旧格式 JSON 数组
+                import re as _re
+                array_match = _re.search(r'\[[\s\S]*\]', text)
+                if array_match:
+                    state_list = safe_parse_json(array_match.group(0))
+
+            if not state_list or not isinstance(state_list, list):
+                logger.warning("降级提取也无法解析状态数据")
+                return
+
+            self._process_state_updates(
+                [{'character_name': item.get('character_name'), 'updates': item.get('updates', {})}
+                 for item in state_list if isinstance(item, dict)],
+                characters, project
+            )
+        except Exception as e:
+            logger.warning(f"降级状态提取也失败: {e}")
+
+    def _process_state_updates(self, state_updates, characters, project):
+        """处理角色状态更新（覆盖写入 dynamic_states）"""
+        char_map = {ch.name: ch for ch in characters}
+        updated = 0
+        for update_item in state_updates:
+            name = (update_item.get("character_name") or "").strip()
+            updates = update_item.get("updates", {})
+            if not name or not updates:
+                continue
+            character = char_map.get(name)
+            if not character:
+                continue
+            current_states = character.dynamic_states or {}
+            current_states.update(updates)
+            character.dynamic_states = current_states
+            character.save(update_fields=['dynamic_states'])
+            updated += 1
+        if updated:
+            logger.info(f"角色动态状态更新完成，更新 {updated}/{len(characters)} 个角色")
+
+    def _process_new_characters(self, new_characters, project, chapter=None):
+        """处理新发现的角色（自动创建 Character 记录）"""
+        from apps.characters.models import Character as CharacterModel
+
+        existing_names = set(
+            CharacterModel.objects.filter(project=project, is_deleted=False).values_list('name', flat=True)
+        )
+        created_count = 0
+        for char_data in new_characters:
+            if not isinstance(char_data, dict):
+                continue
+            name = (char_data.get('name') or '').strip()
+            if not name or name in existing_names:
+                continue
+            try:
+                char = CharacterModel(
+                    project=project,
+                    name=name,
+                    role_type=char_data.get('role_type', '配角'),
+                    gender=char_data.get('gender', '未知'),
+                    source='chapter_discover',
+                )
+                # 设置可选字段
+                for field in ['age', 'identity', 'faction', 'personality', 'appearance',
+                              'backstory', 'motivation', 'strengths', 'flaws', 'abilities',
+                              'weaknesses', 'secrets', 'dark_history', 'development']:
+                    val = char_data.get(field)
+                    if val is not None:
+                        setattr(char, field, val)
+                char.save()
+                existing_names.add(name)
+                created_count += 1
+                logger.info(f"章节发现新角色：{name}")
+            except Exception as e:
+                logger.warning(f"创建新角色「{name}」失败: {e}")
+        if created_count:
+            logger.info(f"章节定稿发现并创建 {created_count} 个新角色")
+
+    def _process_timeline_events(self, timeline_events, project, chapter, characters):
+        """处理剧情事件（创建 TimelineEvent 记录）"""
+        from apps.timeline.models import TimelineEvent
+
+        char_map = {ch.name: ch for ch in characters}
+        created_count = 0
+        for event_data in timeline_events:
+            if not isinstance(event_data, dict):
+                continue
+            title = (event_data.get('title') or '').strip()
+            if not title:
+                continue
+            try:
+                event = TimelineEvent(
+                    project=project,
+                    title=title,
+                    description=event_data.get('description', ''),
+                    era_unit=event_data.get('era_unit', ''),
+                    start_year=event_data.get('start_year', 0),
+                    start_month=event_data.get('start_month', 0),
+                    end_year=event_data.get('end_year', 0),
+                    end_month=event_data.get('end_month', 0),
+                    location=event_data.get('location', ''),
+                    event_type=event_data.get('event_type', 'main'),
+                    is_time_estimated=event_data.get('is_time_estimated', False),
+                    chapter=chapter,
+                )
+                event.save()
+                # 关联涉及人物
+                char_names = event_data.get('characters') or []
+                if isinstance(char_names, list):
+                    related_chars = [char_map[n] for n in char_names if n in char_map]
+                    if related_chars:
+                        event.characters.set(related_chars)
+                created_count += 1
+            except Exception as e:
+                logger.warning(f"创建时间线事件「{title}」失败: {e}")
+        if created_count:
+            logger.info(f"章节定稿提取并创建 {created_count} 个时间线事件")
+
+    def _create_character_trajectories(self, state_updates, project, chapter, characters, story_time=None):
+        """为涉及的角色创建轨迹记录"""
+        from apps.characters.models import CharacterTrajectory
+
+        char_map = {ch.name: ch for ch in characters}
+        story_year = story_time.get('year') if isinstance(story_time, dict) else None
+        story_month = story_time.get('month') if isinstance(story_time, dict) else None
+
+        # 构建时间字符串
+        time_str = ''
+        if story_year is not None:
+            time_str = f"开元{story_year}年"
+            if story_month:
+                time_str += f"{story_month}月"
+
+        # 获取章节编号用于排序
+        chapter_number = getattr(chapter, 'chapter_number', 0) or 0
+
+        trajectories = []
+        for update_item in state_updates:
+            name = (update_item.get('character_name') or '').strip()
+            updates = update_item.get('updates', {})
+            if not name:
+                continue
+            character = char_map.get(name)
+            if not character:
+                continue
+
+            # 生成轨迹摘要
+            summary_parts = []
+            if updates.get('current_location'):
+                summary_parts.append(f"所在地：{updates['current_location']}")
+            if updates.get('emotional_state'):
+                summary_parts.append(f"情绪：{updates['emotional_state']}")
+            if updates.get('key_events'):
+                summary_parts.append(f"事件：{', '.join(updates['key_events'])}")
+            summary = '；'.join(summary_parts)
+
+            # 将所有状态字段存入 details JSONField
+            details = {
+                'location': updates.get('current_location', ''),
+                'power_level': updates.get('power_level', ''),
+                'faction': updates.get('faction', ''),
+                'identity': updates.get('identity', ''),
+                'emotional_state': updates.get('emotional_state', ''),
+                'physical_state': updates.get('physical_state', ''),
+                'relationship_changes': updates.get('relationship_changes', {}),
+                'ability_progress': updates.get('ability_progress', ''),
+                'key_events': updates.get('key_events', []),
+                'summary': summary,
+                'raw_data': updates,
+            }
+
+            trajectory = CharacterTrajectory(
+                character=character,
+                project=project,
+                source='chapter',
+                title=f"第{chapter_number}章状态更新" if chapter_number else '状态更新',
+                start_time=time_str,
+                end_time=time_str,
+                chapter_ids=[chapter.id] if hasattr(chapter, 'id') and chapter.id else [],
+                order=chapter_number,
+                details=details,
+            )
+            trajectories.append(trajectory)
+
+        if trajectories:
+            CharacterTrajectory.objects.bulk_create(trajectories)
+            logger.info(f"创建 {len(trajectories)} 条角色轨迹记录")
+
+    def _update_chapter_story_time(self, chapter, story_time):
+        """更新章节的故事时间（存储在 chapter 的 extra_info 或直接记录）"""
+        if not isinstance(story_time, dict):
+            return
+        year = story_time.get('year')
+        month = story_time.get('month')
+        if year is not None:
+            # 将故事时间存储到章节的 content metadata 中（如果有）
+            # 这里使用 chapter 的 update_fields 来存储
+            try:
+                # 检查是否有 story_year/story_month 字段
+                if hasattr(chapter, 'story_year'):
+                    chapter.story_year = year
+                    chapter.story_month = month or 0
+                    chapter.save(update_fields=['story_year', 'story_month'])
+            except Exception:
+                pass
 
     def adjust_subsequent_outlines(self, volume, completed_chapters, user, project):
         """完成批次后微调后续章节概述"""
@@ -346,7 +687,7 @@ class BaseChapterAPIView(BaseAPIView):
                 parts = []
                 for doc_type, score, content in results[:5]:
                     parts.append(f"[{doc_type}] {content}")
-                return "【相关历史片段】\n" + "\n---\n".join(parts)
+                return "\n---\n".join(parts)
         except Exception as e:
             logger.warning(f"向量检索失败（非致命）: {e}")
         return ""
@@ -668,6 +1009,14 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                     # J3: 角色动态状态
                     character_dynamic_states = self.get_character_dynamic_states_context(project)
 
+                    # J3.5: 时间线 + 地点上下文
+                    timeline_context = self.get_timeline_context(project)
+                    location_context = self.get_location_context(project)
+
+                    # J3.6: 角色轨迹 + 关系子图上下文
+                    character_trajectories = self.get_character_trajectories_context(project)
+                    relationship_subgraph = self.get_relationship_subgraph_context(project)
+
                     # J4: 向量语义检索
                     search_query = batch_chapters[0]['summary'] or batch_chapters[0]['title']
                     retriever_context = self._get_vector_retrieval_context(project, search_query)
@@ -696,6 +1045,10 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                         prev_chapters_context=prev_chapters_context,
                         next_chapters_context=next_chapters_context,
                         character_dynamic_states=character_dynamic_states,
+                        character_trajectories=character_trajectories,
+                        relationship_subgraph=relationship_subgraph,
+                        timeline_context=timeline_context,
+                        location_context=location_context,
                         relevant_history=retriever_context,
                     )
 
@@ -1397,7 +1750,7 @@ class ApiChapterBatchFixView(BaseChapterAPIView):
                 project_obj = volume.volume_version.project
                 characters = Character.objects.filter(project=project_obj, is_deleted=False)
                 related_characters = "\n".join([
-                    f"- {ch.name}: {ch.personality or ''} {ch.motivation or ''}"
+                    f"- {ch.name}: {ch.tagline or (ch.content[:100] if ch.content else '')}"
                     for ch in characters[:5]
                 ]) if characters.exists() else ""
 
@@ -1581,6 +1934,14 @@ class ApiChapterContentView(BaseChapterAPIView):
         # 角色动态状态
         character_dynamic_states = self.get_character_dynamic_states_context(project)
 
+        # 时间线 + 地点上下文
+        timeline_context = self.get_timeline_context(project)
+        location_context = self.get_location_context(project)
+
+        # 角色轨迹 + 关系子图上下文
+        character_trajectories = self.get_character_trajectories_context(project)
+        relationship_subgraph = self.get_relationship_subgraph_context(project)
+
         # 向量语义检索
         search_query = chapter.summary or chapter.title
         retriever_context = self._get_vector_retrieval_context(project, search_query)
@@ -1604,7 +1965,7 @@ class ApiChapterContentView(BaseChapterAPIView):
 
         prev_batch_context = ""
         if reference_context:
-            prev_batch_context = f"【上一章正文（保持风格和情节连续性）】\n{reference_context[-3000:]}\n"
+            prev_batch_context = f"{reference_context[-3000:]}\n"
 
         # 构建与批量生成一致的 prompt
         system_text = CHAPTER_BATCH_CONTENT_SYSTEM_PROMPT.format(
@@ -1624,6 +1985,10 @@ class ApiChapterContentView(BaseChapterAPIView):
             prev_chapters_context=prev_chapters_context,
             next_chapters_context=next_chapters_context,
             character_dynamic_states=character_dynamic_states,
+            character_trajectories=character_trajectories,
+            relationship_subgraph=relationship_subgraph,
+            timeline_context=timeline_context,
+            location_context=location_context,
             relevant_history=retriever_context,
         )
 
@@ -1665,9 +2030,9 @@ class ApiChapterContentView(BaseChapterAPIView):
                 chapter.save()
                 yield self.sse_event('complete', {'word_count': word_count})
 
-                # 角色状态提取
+                # 角色状态提取（合并提取：状态更新 + 新角色 + 事件 + 轨迹）
                 try:
-                    self.extract_and_update_character_states(project, content, request.user)
+                    self.extract_and_update_character_states(project, content, request.user, chapter=chapter)
                 except Exception as e:
                     logger.warning(f"单章角色状态提取失败（非致命）: {e}")
 

@@ -134,3 +134,17 @@ a {
   margin: 0 auto;
   padding: 0 var(--space-lg);
 }
+
+// 弹窗 Footer 布局
+.modal-footer-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  width: 100%;
+}
+
+.footer-right {
+  display: flex;
+  gap: 8px;
+}

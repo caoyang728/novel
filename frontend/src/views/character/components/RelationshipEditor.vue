@@ -53,6 +53,7 @@
 
 <script setup>
 import { Delete, Plus } from '@element-plus/icons-vue'
+import AppButton from '@/components/common/AppButton.vue'
 
 const props = defineProps({
   // [{ targetName, relationshipType, description, createReverse }]

@@ -55,51 +55,79 @@ function computeLcsDiff(oldText, newText) {
 }
 
 /**
- * 标记型 diff：逐行用 marked 解析，通过标记文本识别 diff 类型。
- * 流程：标记行 → marked 逐行解析 → DOMPurify → 识别标记 → 包裹 diff class → 清除标记
+ * 标记型 diff：将连续相同 diff 类型的行分组后逐组用 marked 解析，
+ * 保留标题、列表等块级 Markdown 结构。
+ * 流程：行级 LCS diff → 按类型分组 → 每组整体解析 → DOMPurify → 识别标记 → 包裹 diff class → 清除标记
  */
 function renderMarkdownDiff(content, baseline, showRemoved) {
   const MA = '%%DA%%'   // added marker
   const MR = '%%DR%%'   // removed marker
-  // 匹配标记文本（可能被 DOMPurify 保留或去掉 * 包裹）
   const markerRe = /\*?%%D[AR]%%\*?\s*/
 
   const diffResult = computeLcsDiff(baseline, content)
 
-  // 用 marked 逐行解析（带标记前缀）
-  const rendered = diffResult.map(item => {
+  // 将连续相同 diff 类型的行合并为组，避免逐行解析破坏块级 Markdown 结构
+  const groups = []
+  let currentGroup = null
+  for (const item of diffResult) {
     const line = item.text || ''
-    if (item.type === 'added') {
-      return { type: 'added', html: marked.parse(`*${MA}* ${line}`) }
+    if (currentGroup && currentGroup.type === item.type) {
+      currentGroup.lines.push(line)
+    } else {
+      currentGroup = { type: item.type, lines: [line] }
+      groups.push(currentGroup)
     }
-    if (item.type === 'removed' && showRemoved) {
-      return { type: 'removed', html: marked.parse(`*${MR}* ${line}`) }
+  }
+
+  // 每组作为一个完整 Markdown 块解析
+  const rendered = groups.map(group => {
+    const fullText = group.lines.join('\n')
+    if (group.type === 'added') {
+      return { type: 'added', html: marked.parse(`*${MA}* ${fullText}`) }
     }
-    return { type: 'equal', html: marked.parse(line) }
+    if (group.type === 'removed' && showRemoved) {
+      return { type: 'removed', html: marked.parse(`*${MR}* ${fullText}`) }
+    }
+    return { type: 'equal', html: marked.parse(fullText) }
   })
 
-  // DOMPurify 消毒
-  const fullHtml = rendered.map(r => r.html).join('')
-  const cleanHtml = DOMPurify.sanitize(fullHtml)
+  // DOMPurify 消毒并插入分隔符：<span class="ds"> 标记每个 added/removed 组的起始，
+  // DOMPurify 会保留 <span> 元素，遍历时用它追踪 diff 组边界
+  const SEP = 'ds'  // diff-separator class
+  const allParts = []
+  for (const r of rendered) {
+    const clean = DOMPurify.sanitize(r.html)
+    if (r.type === 'added') {
+      allParts.push(`<span class="${SEP}" data-diff="a"></span>${clean}`)
+    } else if (r.type === 'removed') {
+      allParts.push(`<span class="${SEP}" data-diff="r"></span>${clean}`)
+    } else {
+      allParts.push(clean)
+    }
+  }
+  const finalHtml = allParts.join('')
 
-  // 解析 DOM，识别标记行，直接清除标记文本（不再二次解析，避免多余 <p> 嵌套）
-  const doc = new DOMParser().parseFromString(`<div id="dr">${cleanHtml}</div>`, 'text/html')
+  // 解析 DOM，识别分隔符 span，清除标记文本，包裹 diff class
+  const doc = new DOMParser().parseFromString(`<div id="dr">${finalHtml}</div>`, 'text/html')
   const root = doc.getElementById('dr')
   const output = []
+  let currentDiffType = null
 
   for (const node of Array.from(root.childNodes)) {
+    // 分隔符 span：更新当前组类型并跳过
+    if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains(SEP)) {
+      const d = node.getAttribute('data-diff')
+      currentDiffType = d === 'a' ? 'added' : d === 'r' ? 'removed' : null
+      continue
+    }
+
     if (node.nodeType !== Node.ELEMENT_NODE) {
       output.push(node.textContent || '')
       continue
     }
 
-    const text = node.textContent || ''
-    const isAdded = text.includes(MA)
-    const isRemoved = text.includes(MR)
-
-    if (isAdded || isRemoved) {
-      const cls = isAdded ? 'diff-added' : 'diff-removed'
-      // 直接从 outerHTML 中清除标记，避免二次解析
+    if (currentDiffType) {
+      const cls = currentDiffType === 'added' ? 'diff-added' : 'diff-removed'
       const cleaned = node.outerHTML.replace(markerRe, '')
       output.push(`<div class="diff-block ${cls}">${cleaned}</div>`)
     } else {
@@ -216,6 +244,11 @@ const parsedHtml = computed(() => {
   img {
     max-width: 100%;
     border-radius: var(--radius-sm);
+  }
+
+  // diff 分隔符（仅用于 DOM 追踪，不显示）
+  .ds {
+    display: none;
   }
 
   // Diff 区块样式（文字颜色模式）

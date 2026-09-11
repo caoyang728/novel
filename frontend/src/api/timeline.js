@@ -37,4 +37,10 @@ export const timelineApi = {
 
   // 拆分事件（普通 POST JSON）
   split: (projectId, data) => api.post(`/api/projects/${projectId}/timeline/split/`, data),
+
+  // 图谱聚合数据（支持 view=global|character|location）
+  getGraph: (projectId, params) => api.get(`/api/projects/${projectId}/timeline/graph/`, { params }),
+
+  // 图谱统计数据
+  getGraphStats: (projectId) => api.get(`/api/projects/${projectId}/timeline/graph/stats/`),
 }

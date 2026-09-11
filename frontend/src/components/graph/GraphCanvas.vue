@@ -26,6 +26,7 @@ const EDGE_COLORS = {
   '对手': '#f97316', '导师': '#8b5cf6', '门生': '#a78bfa',
   '盟友': '#06b6d4', '亲属': '#fbbf24', '君主': '#7c3aed',
   '臣子': '#8b5cf6', '其他': '#6b7280', '所属': '#475569',
+  '发生于': '#22c55e', '涉及': '#f59e0b', '位于': '#06b6d4', '在场': '#8b5cf6',
 }
 const EDGE_HIGHLIGHT = '#22d3ee'
 
@@ -87,6 +88,28 @@ function getStyle() {
         'text-valign': 'bottom', 'text-margin-y': 10, 'text-halign': 'center',
         'text-outline-color': '#0f172a', 'text-outline-width': 2.5,
         'width': 48, 'height': 48,
+      },
+    },
+    {
+      selector: 'node[ntype="location"]',
+      style: {
+        'background-color': '#166534', 'border-color': '#22c55e', 'border-width': 2,
+        'shape': 'diamond', 'label': 'data(label)', 'color': '#bbf7d0',
+        'font-size': '11px',
+        'text-valign': 'bottom', 'text-margin-y': 8, 'text-halign': 'center',
+        'text-outline-color': '#0f172a', 'text-outline-width': 2.5,
+        'width': 40, 'height': 40,
+      },
+    },
+    {
+      selector: 'node[ntype="event"]',
+      style: {
+        'background-color': '#92400e', 'border-color': '#f59e0b', 'border-width': 2,
+        'shape': 'tag', 'label': 'data(label)', 'color': '#fef3c7',
+        'font-size': '10px',
+        'text-valign': 'bottom', 'text-margin-y': 8, 'text-halign': 'center',
+        'text-outline-color': '#0f172a', 'text-outline-width': 2.5,
+        'width': 36, 'height': 36,
       },
     },
     {

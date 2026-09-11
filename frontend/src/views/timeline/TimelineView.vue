@@ -1,6 +1,16 @@
 <template>
   <div class="timeline-view">
     <Teleport defer to="#header-right-teleport">
+      <div class="view-mode-toggle">
+        <button :class="['mode-btn', { active: viewMode === 'list' }]" @click="viewMode = 'list'" title="列表视图">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          列表
+        </button>
+        <button :class="['mode-btn', { active: viewMode === 'graph' }]" @click="toggleViewMode" title="图谱视图">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-8"/></svg>
+          图谱
+        </button>
+      </div>
       <AppButton variant="ai" @click="runCheck">
         一致性检查
       </AppButton>
@@ -9,8 +19,8 @@
       </AppButton>
     </Teleport>
     <div class="timeline-panel glass-panel" v-loading="loading">
-      <!-- 时间线事件流 -->
-      <div class="timeline-scroll">
+      <!-- 时间线事件流（列表视图） -->
+      <div class="timeline-scroll" v-show="viewMode === 'list'">
         <EmptyState
           v-if="filteredEvents.length === 0"
           icon="Clock"
@@ -39,6 +49,35 @@
             </div>
           </div>
         </div>
+      </div>
+      <!-- 图谱视图 -->
+      <div v-show="viewMode === 'graph'" class="timeline-graph-container">
+        <div class="graph-view-tabs">
+          <button :class="['graph-tab', { active: graphView === 'global' }]" @click="switchGraphView('global')">全局时间线</button>
+          <button :class="['graph-tab', { active: graphView === 'character' }]" @click="switchGraphView('character')">人物时间线</button>
+          <button :class="['graph-tab', { active: graphView === 'location' }]" @click="switchGraphView('location')">地点时间线</button>
+        </div>
+        <div v-if="graphView === 'character'" class="graph-filter-bar">
+          <span class="graph-filter-label">选择角色：</span>
+          <el-select v-model="graphCharacterId" placeholder="全部角色" clearable size="small" @change="loadGraphData">
+            <el-option v-for="c in characterList" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </div>
+        <div v-else-if="graphView === 'location'" class="graph-filter-bar">
+          <span class="graph-filter-label">选择地点：</span>
+          <el-select v-model="graphLocation" placeholder="全部地点" clearable size="small" @change="loadGraphData">
+            <el-option v-for="loc in locationList" :key="loc" :label="loc" :value="loc" />
+          </el-select>
+        </div>
+        <TimelineGraphCanvas
+          v-if="graphTimeline.length > 0"
+          :timeline="graphTimeline"
+          :trajectories="graphTrajectories"
+          :view="graphView"
+          :meta="graphMeta"
+          class="graph-canvas-wrapper"
+        />
+        <EmptyState v-else icon="Clock" text="暂无数据，请先在列表视图中添加时间线事件" />
       </div>
     </div>
 
@@ -357,6 +396,7 @@
 
 <script setup>
 import { ref, reactive, computed, inject, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   /* Search, */ Plus, Edit, View, Delete, MagicStick, Connection, Scissor,
   CircleCheckFilled, /* WarningFilled, */ Clock,
@@ -366,8 +406,11 @@ import AppModal from '@/components/common/AppModal.vue'
 import AppButton from '@/components/common/AppButton.vue'
 import { timelineApi, timelineUrls } from '@/api/timeline'
 import { createSseController, streamRequest } from '@/api/sse'
+import TimelineGraphCanvas from './components/TimelineGraphCanvas.vue'
+import { characterApi } from '@/api/character'
 
 const sseController = createSseController()
+const route = useRoute()
 import { useProjectId } from '@/composables/useProjectId'
 import { showSuccess, showError, showWarning } from '@/utils/notify'
 import { showConfirmModal } from '@/utils/modal'
@@ -435,6 +478,18 @@ const events = ref([])
 const worldviewInfo = ref(null)
 const searchQuery = ref('')
 const timeFilter = ref('')
+const viewMode = ref('list') // 'list' | 'graph'
+
+// ===== 图谱视图状态 =====
+const graphView = ref('global') // 'global' | 'character' | 'location'
+const graphTimeline = ref([])
+const graphTrajectories = ref([])
+const graphMeta = ref({})
+const graphCharacterId = ref(null)
+const graphLocation = ref('')
+const characterList = ref([])
+const locationList = ref([])
+const graphLoading = ref(false)
 
 async function loadEvents() {
   loading.value = true
@@ -454,6 +509,54 @@ async function loadEvents() {
     // request.js 已统一提示
   } finally {
     loading.value = false
+  }
+}
+
+// ===== 图谱视图 =====
+async function loadGraphData() {
+  graphLoading.value = true
+  try {
+    const params = { view: graphView.value }
+    if (graphView.value === 'character' && graphCharacterId.value) {
+      params.character_id = graphCharacterId.value
+    } else if (graphView.value === 'location' && graphLocation.value) {
+      params.location_name = graphLocation.value
+    }
+    const res = await timelineApi.getGraph(projectId.value, params)
+    const data = res?.data || res
+    graphTimeline.value = data.timeline || []
+    graphTrajectories.value = data.trajectories || []
+    graphMeta.value = data.meta || {}
+  } catch {
+    // request.js 已统一提示
+  } finally {
+    graphLoading.value = false
+  }
+}
+
+async function loadGraphFilters() {
+  try {
+    const res = await characterApi.list(projectId.value)
+    characterList.value = (res?.characters || res || []).filter(c => !c.is_deleted)
+    // 从事件中提取去重地点列表
+    const locs = new Set()
+    events.value.forEach(e => { if (e.location) locs.add(e.location) })
+    locationList.value = [...locs].sort()
+  } catch {
+    // ignore
+  }
+}
+
+function switchGraphView(view) {
+  graphView.value = view
+  loadGraphData()
+}
+
+function toggleViewMode() {
+  viewMode.value = viewMode.value === 'list' ? 'graph' : 'list'
+  if (viewMode.value === 'graph') {
+    loadGraphFilters()
+    loadGraphData()
   }
 }
 
@@ -1381,6 +1484,21 @@ window.__tlFilterTime = (e) => { timeFilter.value = e.target.value }
 onMounted(() => {
   setPageHeader('时间线', '故事时间线管理与 AI 一致性审查')
   refreshHeader()
+  // 从 URL query 参数恢复视图状态（支持从角色轨迹跳转）
+  if (route.query.view === 'graph') {
+    viewMode.value = 'graph'
+    if (route.query.graph_view) {
+      graphView.value = route.query.graph_view
+    }
+    if (route.query.character_id) {
+      graphCharacterId.value = Number(route.query.character_id)
+    }
+    if (route.query.location_name) {
+      graphLocation.value = route.query.location_name
+    }
+    loadGraphFilters()
+    loadGraphData()
+  }
   loadEvents()
 })
 
@@ -2201,6 +2319,105 @@ onBeforeUnmount(() => {
   }
   .edit-time-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+// ===== 图谱视图 =====
+.timeline-graph-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.graph-view-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 20px 0;
+  border-bottom: 1px solid rgba(75, 85, 99, 0.4);
+  flex-shrink: 0;
+}
+
+.graph-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+
+  &:hover {
+    color: var(--text-secondary);
+  }
+
+  &.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+}
+
+.graph-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  flex-shrink: 0;
+}
+
+.graph-filter-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.graph-canvas-wrapper {
+  flex: 1;
+  min-height: 400px;
+  padding: 8px;
+}
+</style>
+
+<style lang="scss">
+// ===== 视图切换按钮（注入到 header，需 unscoped） =====
+.view-mode-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(75, 85, 99, 0.4);
+  margin-right: 8px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--text-secondary);
+    background: rgba(75, 85, 99, 0.3);
+  }
+
+  &.active {
+    color: var(--primary);
+    background: rgba(99, 102, 241, 0.15);
+  }
+
+  svg {
+    flex-shrink: 0;
   }
 }
 </style>

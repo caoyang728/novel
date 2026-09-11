@@ -21,7 +21,6 @@
         <div class="version-info">
           <span class="version-number">v{{ version.version_number }}</span>
           <el-tag v-if="version.is_finalized" type="success" size="small">已定稿</el-tag>
-          <el-tag v-if="version.is_current" type="primary" size="small">当前</el-tag>
         </div>
         <div class="version-meta">
           {{ formatDate(version.created_at, 'datetime') }}

@@ -1,16 +1,5 @@
 from django.db import models
-
-
-GENRE_CHOICES = [
-    ('xuanhuan', '玄幻/仙侠'),
-    ('wuxia', '武侠'),
-    ('fantasy', '西方奇幻'),
-    ('scifi', '科幻'),
-    ('history', '历史/架空'),
-    ('urban', '都市'),
-    ('apocalypse', '末世/灾变'),
-    ('general', '通用'),
-]
+from apps.project.models import GENRE_CHOICES  # noqa: F401 — 唯一定义源在 project.models
 
 
 class WorldView(models.Model):
@@ -28,12 +17,6 @@ class WorldView(models.Model):
         verbose_name='所属项目'
     )
     version = models.PositiveIntegerField(default=1, verbose_name='版本号')
-    genre = models.CharField(
-        max_length=20,
-        choices=GENRE_CHOICES,
-        default='general',
-        verbose_name='题材类型'
-    )
     title = models.CharField(max_length=200, blank=True, default='', verbose_name='文档标题')
     content = models.TextField(blank=True, default='', verbose_name='世界观内容（Markdown）')
     faction_index = models.JSONField(default=list, blank=True, verbose_name='阵营索引缓存')

@@ -1,12 +1,12 @@
 from django.db import models
 from apps.project.models import ProjectList
-from apps.outline.models import OutlineVersion
+from apps.outline.models import Outline
 
 
 class VolumeVersion(models.Model):
     """卷版本"""
     project = models.ForeignKey(ProjectList, on_delete=models.CASCADE, related_name='volume_versions', verbose_name='项目')
-    outline_version = models.ForeignKey(OutlineVersion, on_delete=models.CASCADE, related_name='volume_versions', verbose_name='关联大纲版本')
+    outline = models.ForeignKey(Outline, on_delete=models.CASCADE, related_name='volume_versions', verbose_name='关联大纲')
     version_number = models.IntegerField(default=1, verbose_name='版本号')
     is_finalized = models.BooleanField(default=False, verbose_name='是否定稿')
     is_deleted = models.BooleanField(default=False, verbose_name='是否删除')

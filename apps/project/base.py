@@ -74,11 +74,11 @@ class BaseAPIView(APIView):
         """
         try:
             from apps.knowledge.retriever import KnowledgeRetriever
-            from apps.outline.models import OutlineVersion
+            from apps.outline.models import Outline
 
             retriever = KnowledgeRetriever()
             # 获取当前大纲版本，知识库检索只返回该版本的 chunks
-            current_outline = OutlineVersion.objects.filter(
+            current_outline = Outline.objects.filter(
                 project=project, is_current=True, is_deleted=False
             ).first()
             outline_version_id = current_outline.pk if current_outline else None

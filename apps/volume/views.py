@@ -11,7 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from apps.project.base import BaseAPIView
 from apps.project.models import ProjectList
-from apps.outline.models import OutlineVersion
+from apps.outline.models import Outline
 from apps.volume.models import VolumeVersion, VolumeList
 from apps.volume.serializers import VolumeListSerializer
 from agent.llm import get_llm
@@ -58,13 +58,13 @@ class BaseVolumeAPIView(BaseAPIView):
         return serializer.save()
 
     @staticmethod
-    def create_new_version(project, outline_version):
+    def create_new_version(project, outline):
         """创建新的卷版本"""
         latest_version = project.volume_versions.order_by('-version_number').first()
         new_version_number = latest_version.version_number + 1 if latest_version else 1
         return VolumeVersion.objects.create(
             project=project,
-            outline_version=outline_version,
+            outline=outline,
             version_number=new_version_number
         )
 
@@ -175,7 +175,7 @@ class ApiVolumeVersionListView(BaseVolumeAPIView):
                 'version_number': v.version_number,
                 'is_finalized': v.is_finalized,
                 'created_at': v.created_at.strftime('%Y-%m-%d %H:%M'),
-                'outline_version_number': v.outline_version.version_number,
+                'outline_version_number': v.outline.version,
                 'volume_count': v.volumes.count()
             })
 
@@ -191,7 +191,7 @@ class ApiVolumeVersionListView(BaseVolumeAPIView):
         project, err = self.get_project(request, project_id)
         if err:
             return err
-        outline_version = get_object_or_404(OutlineVersion, pk=outline_version_id, project=project)
+        outline = get_object_or_404(Outline, pk=outline_version_id, project=project)
 
         MAX_RETRIES = 2
 
@@ -214,7 +214,7 @@ class ApiVolumeVersionListView(BaseVolumeAPIView):
                 ])
                 analysis_chain = analysis_prompt | llm
 
-                analysis_result = analysis_chain.invoke({"outline": outline_version.content})
+                analysis_result = analysis_chain.invoke({"outline": outline.content})
                 self.log_token_usage('volume_analysis', result=analysis_result, user=request.user, project=project)
                 analysis_content = self.get_chunk_text(analysis_result)
 
@@ -254,7 +254,7 @@ class ApiVolumeVersionListView(BaseVolumeAPIView):
                     for attempt in range(1, MAX_RETRIES + 1):
                         vol_buffer = ""
                         input_vars = {
-                            "outline": outline_version.content,
+                            "outline": outline.content,
                             "volume_number": vol_num,
                             "title": vol_title,
                             "chapter_count": chapter_count,
@@ -298,7 +298,7 @@ class ApiVolumeVersionListView(BaseVolumeAPIView):
 
                     # 确保版本已创建（首卷生成失败时也需要版本记录）
                     if volume_version is None:
-                        volume_version = self.create_new_version(project, outline_version)
+                        volume_version = self.create_new_version(project, outline)
 
                     if vol_buffer.strip():
                         # 生成成功
@@ -372,7 +372,7 @@ class ApiVolumeVersionDetailView(BaseVolumeAPIView):
         return JsonResponse({
             'success': True,
             'volumes': self.get_volumes_list(volume_version),
-            'outline_version_id': volume_version.outline_version.pk,
+            'outline_version_id': volume_version.outline.pk,
             'is_finalized': volume_version.is_finalized
         })
 
@@ -391,7 +391,7 @@ class ApiVolumeVersionDetailView(BaseVolumeAPIView):
         project, err = self.get_project(request, project_id)
         if err:
             return err
-        outline_version = get_object_or_404(OutlineVersion, pk=outline_version_id, project=project)
+        outline = get_object_or_404(Outline, pk=outline_version_id, project=project)
 
         volume_version = get_object_or_404(VolumeVersion, pk=version_id, project=project)
         if volume_version.is_finalized:
@@ -416,8 +416,8 @@ class ApiVolumeVersionDetailView(BaseVolumeAPIView):
 
         with transaction.atomic():
             volume_version.volumes.all().delete()
-            volume_version.outline_version = outline_version
-            volume_version.save(update_fields=['outline_version'])
+            volume_version.outline = outline
+            volume_version.save(update_fields=['outline'])
 
             for vol_data in volumes_data:
                 # 已锁定卷保留原数据
@@ -476,13 +476,13 @@ class ApiVolumeVersionSaveView(BaseVolumeAPIView):
         project, err = self.get_project(request, project_id)
         if err:
             return err
-        outline_version = get_object_or_404(OutlineVersion, pk=outline_version_id, project=project)
+        outline = get_object_or_404(Outline, pk=outline_version_id, project=project)
 
         # 获取源版本
         source_version = get_object_or_404(VolumeVersion, pk=version_id, project=project)
 
         # 创建新版本
-        new_version = self.create_new_version(project, outline_version)
+        new_version = self.create_new_version(project, outline)
 
         for vol_data in volumes_data:
             self.create_volume(new_version, vol_data)
@@ -553,7 +553,7 @@ class ApiVolumeVersionOptimizeView(BaseVolumeAPIView):
                     # 已锁定卷跳过优化，直接复制到新版本
                     if vol_info.get('is_locked'):
                         if new_volume_version is None:
-                            new_volume_version = self.create_new_version(project, volume_version.outline_version)
+                            new_volume_version = self.create_new_version(project, volume_version.outline)
                         self.create_volume(new_volume_version, vol_info)
                         volume_count += 1
                         yield self.sse_event('volume', {
@@ -570,7 +570,7 @@ class ApiVolumeVersionOptimizeView(BaseVolumeAPIView):
                     vol_buffer = ""
                     input_vars = {
                         "current_volumes": json.dumps(current_volumes, ensure_ascii=False),
-                        "outline": volume_version.outline_version.content,
+                        "outline": volume_version.outline.content,
                         "user_feedback": user_feedback,
                         "worldview": worldview_context,
                         "characters": characters_context,
@@ -600,7 +600,7 @@ class ApiVolumeVersionOptimizeView(BaseVolumeAPIView):
                         total_chars += len(vol_buffer)
 
                         if new_volume_version is None:
-                            new_volume_version = self.create_new_version(project, volume_version.outline_version)
+                            new_volume_version = self.create_new_version(project, volume_version.outline)
 
                         # 合并 chapter_count：优先用 LLM 输出，回退到原卷数据
                         if 'chapter_count' not in vol_data:
@@ -716,7 +716,7 @@ class ApiVolumeVersionChatView(BaseVolumeAPIView):
                     "current_volume_summary": cv_summary,
                     "current_content": cv_content or '（暂无卷大纲）',
                     "volumes_list": volumes_list,
-                    "outline": volume_version.outline_version.content,
+                    "outline": volume_version.outline.content,
                     "worldview": worldview_context,
                     "characters": characters_context,
                     "timeline": timeline_context,
@@ -839,7 +839,7 @@ class ApiVolumeVersionChatView(BaseVolumeAPIView):
                 "target_volume_summary": target_vol.summary or '',
                 "target_content": target_vol.content or '（暂无卷大纲）',
                 "target_addition": target_addition,
-                "outline": volume_version.outline_version.content,
+                "outline": volume_version.outline.content,
                 "worldview": worldview_context,
                 "characters": characters_context,
                 "timeline": timeline_context,
@@ -924,7 +924,7 @@ class ApiVolumeOptimizeView(BaseVolumeAPIView):
 
         # 获取大纲
         outline_text = '（暂无大纲）'
-        latest_outline = project.outline_versions.filter(is_deleted=False).order_by('-version_number').first()
+        latest_outline = project.outlines.filter(is_deleted=False).order_by('-version').first()
         if latest_outline:
             outline_text = latest_outline.content
 
@@ -1000,8 +1000,8 @@ class ApiVolumeGenerateView(BaseVolumeAPIView):
 
         # 获取大纲
         outline_text = ''
-        if volume_version.outline_version:
-            outline_text = volume_version.outline_version.content
+        if volume_version.outline:
+            outline_text = volume_version.outline.content
 
         if not outline_text:
             return JsonResponse({'success': False, 'message': '缺少大纲内容'}, status=400)

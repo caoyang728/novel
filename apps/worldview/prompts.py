@@ -8,36 +8,35 @@
 4. 输出协议：JSON，包含 patch_list、reply、options
 
 文件职责：
-- 本文件存放提示词模板和工具函数
+- 本文件存放提示词模板
 - 题材相关的提示词数据存放在 prompts_worldview_genre.py
+- 题材元数据（GENRE_CHOICES）定义在 project.models
+- 题材指引/中文名查询函数定义在 project.utils
 """
 
-from .models import GENRE_CHOICES  # noqa: F401 — 唯一定义源在 models.py
-from .prompts_worldview_genre import WORLDVIEW_GENRE_BASE_PROMPT, WORLDVIEW_GENRE_PROMPTS_DICT  # noqa: F401
-
-# ============ 题材元数据 ============
-GENRE_LABELS = dict(GENRE_CHOICES)
+from .prompts_worldview_genre import WORLDVIEW_GENRE_SYSTEM_PROMPT, WORLDVIEW_GENRE_PROMPTS_DICT  # noqa: F401
 
 
-# ============ 系统提示词（patch_list 增量补丁协议） ============
-# 系统提示词 = 通用基础（WORLDVIEW_GENRE_BASE_PROMPT），由 prompts_worldview_genre.py 提供
-WORLDVIEW_SYSTEM_PROMPT = WORLDVIEW_GENRE_BASE_PROMPT
+# ============ 上下文模板 ============
+# genre_guide 由 get_genre_guide(genre, WORLDVIEW_GENRE_PROMPTS_DICT) 获取后
+# 在 views.py 中与本模板格式化结果拼接，不在模板内作为变量
+# 格式化时传入：current_doc, novel_name
+WORLDVIEW_CONTEXT_TEMPLATE = """\
+
+# 当前项目上下文
+
+## 当前世界观文档（Markdown）
+{current_doc}
+
+## 基本规则
+- 世界观文档的 H1 标题（首行 `# xxx`）使用「{novel_name} 世界观」格式，不要写其他通用标题"""
 
 
 # ============ 构建/修改文档的用户提示词 ============
-WORLDVIEW_BUILD_PROMPT = """\
-{genre_guide}
+WORLDVIEW_BUILD_USER_PROMPT = """\
+请根据以下用户指令，输出更新世界观文档的 JSON 补丁：
 
-# 当前世界观文档（Markdown）
-{current_doc}
-
-# 对话历史
-{history_messages}
-
-# 作者最新输入
-{user_input}
-
-请根据作者输入更新世界观。输出格式严格按照系统提示中的 JSON 规范。"""
+{user_input}"""
 
 
 # ============ JSON 修复提示词（解析失败时由修复 LLM 使用） ============
@@ -99,33 +98,3 @@ WORLDVIEW_FACTION_EXTRACT_PROMPT = """\
 
 # 世界观文档
 {doc_content}"""
-
-
-# ============ 工具函数 ============
-
-def get_genre_guide(genre):
-    """
-    获取题材构建指引，三级 fallback：精确匹配 → 父题材 → general
-    例：'history/chuan_yue' → 'history' → 'general'
-    """
-    # 1. 精确匹配
-    if genre in WORLDVIEW_GENRE_PROMPTS_DICT:
-        return WORLDVIEW_GENRE_PROMPTS_DICT[genre]
-
-    # 2. 回退到父题材（取 / 前的部分）
-    parent = genre.split('/')[0]
-    if parent in WORLDVIEW_GENRE_PROMPTS_DICT:
-        return WORLDVIEW_GENRE_PROMPTS_DICT[parent]
-
-    # 3. 兜底
-    return WORLDVIEW_GENRE_PROMPTS_DICT['general']
-
-
-def get_genre_label(genre):
-    """获取题材中文名"""
-    # 精确匹配
-    if genre in GENRE_LABELS:
-        return GENRE_LABELS[genre]
-    # 回退到父题材
-    parent = genre.split('/')[0]
-    return GENRE_LABELS.get(parent, '通用')

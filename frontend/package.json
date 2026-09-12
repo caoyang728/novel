@@ -13,6 +13,7 @@
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
     "cytoscape": "^3.30.4",
+    "diff": "^9.0.0",
     "dompurify": "^3.2.4",
     "echarts": "^6.1.0",
     "element-plus": "^2.9.1",

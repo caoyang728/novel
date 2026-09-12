@@ -22,9 +22,9 @@
       >
         <el-option
           v-for="v in volumeVersions"
-          :key="v.id"
-          :label="`卷 v${v.version_number}${v.is_finalized ? '（锁定）' : ''}`"
-          :value="v.id"
+          :key="v.version"
+          :label="`卷 v${v.version}（${v.volume_count}卷）`"
+          :value="v.version"
         />
       </el-select>
       <AppButton
@@ -141,11 +141,7 @@
           </div>
 
           <div class="detail-body">
-            <!-- 聊天流式生成中的实时内容 -->
-            <template v-if="isStreaming && streamingContent">
-              <MarkdownRenderer :content="streamingContent" />
-            </template>
-            <template v-else-if="selectedVolume.content">
+            <template v-if="selectedVolume.content">
               <MarkdownRenderer :content="selectedVolume.content" />
             </template>
             <div v-else class="detail-empty">
@@ -180,26 +176,69 @@
 
       <!-- 右：AI 聊天 -->
       <transition name="chat-slide">
-        <ChatPanel
-          v-if="chatVisible"
-          class="volume-chat"
-          title="卷调整助手"
-          :messages="messages"
-          :is-streaming="isStreaming"
-          :selection-mode="selectionMode"
-          :selected-count="selectedMessages.size"
-          :is-selected="isSelected"
-          input-placeholder="选中一卷后，描述调整需求..."
-          @send="handleSend"
-          @stop="stopStreaming"
-          @clear="clearMessages"
-          @toggle-selection="enterSelectionMode"
-          @exit-selection="exitSelectionMode"
-          @toggle-select="toggleMessageSelect"
-          @copy-selected="handleCopySelected"
-        />
+        <div v-if="chatVisible" class="volume-chat">
+          <ChatPanel
+            title="卷调整助手"
+            :messages="messages"
+            :is-streaming="isStreaming"
+            :selection-mode="selectionMode"
+            :selected-count="selectedMessages.size"
+            :is-selected="isSelected"
+            input-placeholder="选中一卷后，描述调整需求..."
+            @send="handleSend"
+            @stop="stopStreaming"
+            @clear="clearMessages"
+            @toggle-selection="enterSelectionMode"
+            @exit-selection="exitSelectionMode"
+            @toggle-select="toggleMessageSelect"
+            @copy-selected="handleCopySelected"
+          />
+          <!-- 流式预览：loading 下方显示最后 3 行 -->
+          <transition name="fade">
+            <div v-if="isStreaming && streamingPreviewText" class="streaming-preview">
+              <div class="streaming-preview-header">
+                <el-icon class="is-loading"><Loading /></el-icon>
+                <span>AI 正在生成...</span>
+              </div>
+              <pre class="streaming-preview-text">{{ streamingPreviewText }}</pre>
+            </div>
+          </transition>
+        </div>
       </transition>
     </div>
+
+    <!-- 聊天结果弹窗 -->
+    <AppModal
+      v-model:visible="chatResultModalVisible"
+      :title="`卷调整结果 — 第${chatResultData?.volumeNumber || ''}卷 ${chatResultData?.volumeTitle || ''}`"
+      width="720px"
+      height="65vh"
+    >
+      <div v-if="chatResultData" class="chat-result-container">
+        <div class="chat-result-reply">
+          <div class="result-section-label">AI 回复</div>
+          <MarkdownRenderer :content="chatResultData.reply" />
+        </div>
+        <div v-if="chatResultData.content" class="chat-result-content">
+          <div class="result-section-label">更新后卷大纲</div>
+          <MarkdownRenderer :content="chatResultData.content" />
+        </div>
+        <div v-if="chatResultData.targetVolume" class="chat-result-target">
+          <div class="result-section-label">
+            跨卷更新 — 第{{ chatResultData.targetVolume.volume_number }}卷 {{ chatResultData.targetVolume.title }}
+          </div>
+          <MarkdownRenderer :content="chatResultData.targetVolume.content" />
+        </div>
+      </div>
+      <template #footer>
+        <div class="modal-footer-content">
+          <div />
+          <div class="footer-right">
+            <AppButton variant="accent" @click="chatResultModalVisible = false">确定</AppButton>
+          </div>
+        </div>
+      </template>
+    </AppModal>
 
     <!-- 新增/编辑卷弹窗 -->
     <AppModal
@@ -278,7 +317,7 @@
 
 <script setup>
 import { ref, reactive, computed, inject, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { MagicStick, Plus, EditPen, Delete, Lock, Unlock } from '@element-plus/icons-vue'
+import { MagicStick, Plus, EditPen, Delete, Lock, Unlock, Loading, DocumentCopy } from '@element-plus/icons-vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import AppModal from '@/components/common/AppModal.vue'
 import AppButton from '@/components/common/AppButton.vue'
@@ -345,8 +384,11 @@ function onCandidatesCreated() {
   showCandidateModal.value = false
 }
 
-// 聊天流式期间实时展示的卷内容
-const streamingContent = ref('')
+// 流式预览：最后 3 行原始输出
+const streamingPreviewText = ref('')
+// 聊天结果弹窗
+const chatResultModalVisible = ref(false)
+const chatResultData = ref(null)
 
 // ---- 初始加载 ----
 async function loadAll() {
@@ -363,7 +405,7 @@ async function loadAll() {
     volumeVersions.value = versionData.versions || []
     // 默认选最新版本（后端按创建时间倒序）
     if (volumeVersions.value.length > 0) {
-      currentVersionId.value = volumeVersions.value[0].id
+      currentVersionId.value = volumeVersions.value[0].version
       await doLoadVersion(currentVersionId.value)
     }
   } catch {
@@ -387,7 +429,7 @@ async function doLoadVersion(versionId) {
     const data = await volumeApi.getVersion(projectId.value, versionId)
     currentVersionId.value = versionId
     volumes.value = data.volumes || []
-    isVersionFinalized.value = data.is_finalized || false
+    isVersionFinalized.value = data.is_version_locked || false
     if (data.outline_version_id) outlineVersionId.value = data.outline_version_id
     selectedVolumeNumber.value = null
     clearMessages()
@@ -441,6 +483,13 @@ async function generateAll() {
             case 'complete':
               showSuccess(`共生成 ${evt.volume_count} 卷`)
               break
+            case 'phase3_result':
+              if (evt.quality) {
+                const score = evt.quality.score
+                const issues = evt.validation?.errors?.length || 0
+                genStatus.value = `校验完成：评分 ${score}/100，${issues} 个问题`
+              }
+              break
             case 'error':
             case 'volume_error':
               showError(evt.message || '生成失败')
@@ -454,7 +503,7 @@ async function generateAll() {
     const versionData = await volumeApi.getVersions(projectId.value)
     volumeVersions.value = versionData.versions || []
     if (volumeVersions.value.length > 0) {
-      currentVersionId.value = volumeVersions.value[0].id
+      currentVersionId.value = volumeVersions.value[0].version
       await doLoadVersion(currentVersionId.value)
     }
   } catch (err) {
@@ -533,7 +582,7 @@ function toggleFinalize() {
       close()
       try {
         const data = await volumeApi.finalizeVersion(projectId.value, currentVersionId.value)
-        isVersionFinalized.value = data.is_finalized
+        isVersionFinalized.value = data.is_locked
         showSuccess(`版本${action}成功`)
         const list = await volumeApi.getVersions(projectId.value)
         volumeVersions.value = list.versions || []
@@ -562,11 +611,11 @@ function saveAsNewVersion() {
           outline_version_id: outlineVersionId.value || '',
           volumes: volumes.value,
         })
-        showSuccess(`另存成功！版本号：v${data.version_number}`)
+        showSuccess(`另存成功！版本号：v${data.version}`)
         const list = await volumeApi.getVersions(projectId.value)
         volumeVersions.value = list.versions || []
-        currentVersionId.value = data.version_id
-        await doLoadVersion(data.version_id)
+        currentVersionId.value = data.version
+        await doLoadVersion(data.version)
       } catch {
         // 统一提示
       } finally {
@@ -678,10 +727,17 @@ async function aiOptimize() {
 }
 
 async function persistVolumes(volumesToSave) {
-  return volumeApi.updateVersion(projectId.value, currentVersionId.value, {
+  const payload = {
     outline_version_id: outlineVersionId.value || '',
     volumes: volumesToSave,
-  })
+  }
+  if (currentVersionId.value) {
+    return volumeApi.updateVersion(projectId.value, currentVersionId.value, payload)
+  }
+  // 无现有版本时，通过另存为接口创建新版本（后端会自动分配新版本号）
+  const data = await volumeApi.saveVersion(projectId.value, 0, payload)
+  currentVersionId.value = data.version
+  return data
 }
 
 async function saveEditVolume() {
@@ -782,7 +838,7 @@ function deleteVolume() {
           showSuccess('版本已删除')
           const list = await volumeApi.getVersions(projectId.value)
           volumeVersions.value = list.versions || []
-          currentVersionId.value = volumeVersions.value[0]?.id || null
+          currentVersionId.value = volumeVersions.value[0]?.version || null
           if (currentVersionId.value) {
             await doLoadVersion(currentVersionId.value)
           } else {
@@ -808,11 +864,13 @@ function deleteVolume() {
   })
 }
 
-// ---- AI 聊天（流式，解析 CONTENT/QUESTION/TARGET 标记） ----
-const CONTENT_START = '════CONTENT_START════'
-const CONTENT_END = '════CONTENT_END════'
-const QUESTION_START = '════QUESTION_START════'
-const QUESTION_END = '════QUESTION_END════'
+// ---- AI 聊天（流式，JSON 补丁模式） ----
+
+/** 从文本中提取最后 N 行 */
+function getLastNLines(text, n) {
+  const lines = text.split('\n')
+  return lines.slice(-n).join('\n')
+}
 
 async function handleSend(message) {
   if (isStreaming.value) return
@@ -843,10 +901,9 @@ async function handleSend(message) {
   messages.value.push(aiMsg)
 
   isStreaming.value = true
-  streamingContent.value = ''
+  streamingPreviewText.value = ''
   const targetNumber = selectedVolume.value.volume_number
   let rawBuffer = ''
-  let parsedQuestion = ''
   let completeEvt = null
 
   try {
@@ -859,9 +916,7 @@ async function handleSend(message) {
           current_volume_number: targetNumber,
         },
         onEvent: (evt) => {
-          if (evt.type === 'target_merge') {
-            aiMsg.content += `\n\n_正在优化第 ${evt.target_volume_number} 卷「${evt.target_volume_title}」..._`
-          } else if (evt.type === 'complete') {
+          if (evt.type === 'complete') {
             completeEvt = evt
           } else if (evt.type === 'error') {
             showError(evt.message || 'AI 处理失败')
@@ -870,44 +925,44 @@ async function handleSend(message) {
       },
       (chunk) => {
         rawBuffer += chunk
-
-        // 卷内容区
-        const cs = rawBuffer.indexOf(CONTENT_START)
-        if (cs !== -1) {
-          const ce = rawBuffer.indexOf(CONTENT_END)
-          const end = ce !== -1 && ce > cs ? ce : rawBuffer.length
-          streamingContent.value = rawBuffer.substring(cs + CONTENT_START.length, end).trim()
-        }
-
-        // 问题区
-        const qs = rawBuffer.indexOf(QUESTION_START)
-        if (qs !== -1) {
-          const qe = rawBuffer.indexOf(QUESTION_END)
-          const end = qe !== -1 && qe > qs ? qe : rawBuffer.length
-          parsedQuestion = rawBuffer.substring(qs + QUESTION_START.length, end).trim()
-          // 保留 target_merge 追加的提示
-          const mergeHint = aiMsg.content.startsWith('_正在优化') || aiMsg.content.includes('\n\n_正在优化')
-            ? aiMsg.content
-            : ''
-          aiMsg.content = parsedQuestion + (mergeHint ? `\n\n${mergeHint.split('\n\n').pop()}` : '')
-        }
+        // 实时更新预览：显示最后 3 行
+        streamingPreviewText.value = getLastNLines(rawBuffer, 3)
       },
     )
 
-    if (!parsedQuestion) aiMsg.content = aiMsg.content || '修改完成'
-    if (!aiMsg.content) {
-      messages.value = messages.value.filter((m) => m.id !== aiMsg.id)
+    // 解析 complete 事件中的回复
+    if (completeEvt) {
+      // 从 rawBuffer 中尝试解析 reply（JSON 格式）
+      let reply = ''
+      try {
+        const parsed = JSON.parse(rawBuffer)
+        reply = parsed.reply || ''
+      } catch {
+        reply = rawBuffer
+      }
+      aiMsg.content = reply || '调整完成'
+
+      // 用后端返回的最新卷数据刷新
+      if (completeEvt.volumes) {
+        volumes.value = completeEvt.volumes
+        const stillExists = volumes.value.some((v) => v.volume_number === targetNumber)
+        selectedVolumeNumber.value = stillExists
+          ? targetNumber
+          : volumes.value[0]?.volume_number ?? null
+      }
+
+      // 获取更新后的卷内容，打开结果弹窗
+      const updatedVol = volumes.value.find((v) => v.volume_number === targetNumber)
+      chatResultData.value = {
+        reply: aiMsg.content,
+        volumeNumber: targetNumber,
+        volumeTitle: updatedVol?.title || selectedVolume.value?.title || '',
+        content: updatedVol?.content || '',
+        targetVolume: completeEvt.target_volume || null,
+      }
+      chatResultModalVisible.value = true
     }
 
-    // 用后端返回的最新卷数据刷新
-    if (completeEvt?.volumes) {
-      volumes.value = completeEvt.volumes
-      const stillExists = volumes.value.some((v) => v.volume_number === targetNumber)
-      selectedVolumeNumber.value = stillExists
-        ? targetNumber
-        : volumes.value[0]?.volume_number ?? null
-    }
-    streamingContent.value = ''
     showSuccess('调整完成')
   } catch (err) {
     if (err.message !== '请求已取消或超时') {
@@ -918,7 +973,7 @@ async function handleSend(message) {
     }
   } finally {
     isStreaming.value = false
-    streamingContent.value = ''
+    streamingPreviewText.value = ''
   }
 }
 
@@ -1169,6 +1224,86 @@ onBeforeUnmount(() => {
 .volume-chat {
   width: 360px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  :deep(.chat-panel) {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+}
+
+// 流式预览
+.streaming-preview {
+  flex-shrink: 0;
+  margin: 0 8px 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.streaming-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+
+  .el-icon {
+    color: var(--primary);
+    font-size: 14px;
+  }
+}
+
+.streaming-preview-text {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+// fade 过渡
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--transition-fast);
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+// 聊天结果弹窗
+.chat-result-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.result-section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.chat-result-reply,
+.chat-result-content,
+.chat-result-target {
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .chat-slide-enter-active,

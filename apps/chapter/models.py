@@ -1,5 +1,5 @@
 from django.db import models
-from apps.volume.models import VolumeList
+from apps.volume.models import Volume
 
 
 class ChapterList(models.Model):
@@ -28,7 +28,7 @@ class ChapterList(models.Model):
         (STATE_DELETED, '已删除'),
     ]
 
-    volume = models.ForeignKey(VolumeList, on_delete=models.CASCADE, related_name='chapter_list', verbose_name='卷')
+    volume = models.ForeignKey(Volume, on_delete=models.CASCADE, related_name='chapter_list', verbose_name='卷')
     chapter_number = models.IntegerField(verbose_name='章节号')
     title = models.CharField(max_length=255, verbose_name='章节标题', default='')
     summary = models.TextField(blank=True, default='', verbose_name='章节摘要')

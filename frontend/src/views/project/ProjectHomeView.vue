@@ -16,7 +16,7 @@
 </template>
 
 <script setup>
-import { inject, onMounted } from 'vue'
+import { inject, watch } from 'vue'
 import {
     ChatLineRound, Document, Notebook, Reading, Collection,
     User, Calendar, EditPen, Share,
@@ -28,9 +28,9 @@ const projectStore = useProjectStore()
 const { projectId } = useProjectId()
 const setPageHeader = inject('setPageHeader')
 
-onMounted(() => {
-  setPageHeader(projectStore.projectTitle, '项目概览')
-})
+watch(() => projectStore.projectTitle, (title) => {
+  setPageHeader(title || '项目概览', '项目概览')
+}, { immediate: true })
 
 const modules = [
   { name: 'Worldview', label: '世界观构建', icon: ChatLineRound, to: { name: 'Worldview' }, desc: '与 AI 对话构建世界观' },

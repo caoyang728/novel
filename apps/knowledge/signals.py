@@ -64,11 +64,11 @@ def on_worldview_deleted(sender, instance, **kwargs):  # noqa: ARG001
 # ====================================================================
 # 卷大纲
 # ====================================================================
-@receiver(post_save, sender='volume.VolumeList')
+@receiver(post_save, sender='volume.Volume')
 def on_volume_saved(sender, instance, created, **kwargs):  # noqa: ARG001
     _tasks._enqueue(_tasks.index_volume_task, instance.pk)
 
 
-@receiver(post_delete, sender='volume.VolumeList')
+@receiver(post_delete, sender='volume.Volume')
 def on_volume_deleted(sender, instance, **kwargs):  # noqa: ARG001
     _tasks._enqueue(_tasks.delete_volume_task, instance.pk)

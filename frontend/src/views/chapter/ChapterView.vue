@@ -4,9 +4,9 @@
       <el-select v-model="currentVersionId" size="small" style="width: 140px" @change="onVersionChange">
         <el-option
           v-for="v in volumeVersions"
-          :key="v.id"
-          :label="`v${v.version_number} (${v.volume_count}卷)${v.is_finalized ? ' ✓' : ''}`"
-          :value="v.id"
+          :key="v.version"
+          :label="`v${v.version} (${v.volume_count}卷)`"
+          :value="v.version"
         />
       </el-select>
       <el-select v-model="currentVolumeId" size="small" style="width: 140px" :disabled="!currentVersionId" @change="onVolumeChange">
@@ -822,11 +822,10 @@ async function loadVolumeVersions() {
     const data = await volumeApi.getVersions(projectId.value)
     if (data && data.success) {
       volumeVersions.value = data.versions || []
-      const finalized = volumeVersions.value.find((v) => v.is_finalized)
-      const target = finalized || volumeVersions.value[0]
-      if (target) {
-        currentVersionId.value = target.id
-        await loadVolumes(target.id)
+      if (volumeVersions.value.length > 0) {
+        const target = volumeVersions.value[0]
+        currentVersionId.value = target.version
+        await loadVolumes(target.version)
       }
     }
   } catch (e) {

@@ -5,6 +5,7 @@
 """
 import json
 from loguru import logger
+from langchain_core.prompts import ChatPromptTemplate
 
 
 # ============ JSON 解析辅助函数 ============
@@ -115,6 +116,7 @@ def run_retry_loop(
     max_rounds=3,
     get_stream_input=None,
     wrap_stream_fn=None,
+    json_repair_prompt=None,
 ):
     """三轮容错机制：解析 → 失败则重新生成
 
@@ -134,6 +136,7 @@ def run_retry_loop(
         max_rounds: 最大轮数
         get_stream_input: 获取 stream 输入的回调 (round_input) -> dict，默认 {}
         wrap_stream_fn: 包装 stream 的回调 (stream) -> wrapped_stream，默认不包装
+        json_repair_prompt: JSON 修复提示词模板（含 {error} 和 {raw_content} 占位符），为 None 时跳过修复
 
     Yields:
         SSE 事件
@@ -229,9 +232,42 @@ def run_retry_loop(
             last_error = parse_error
             continue
 
-        # JSON 存在但解析失败 → 记录错误，下轮重新生成
+        # JSON 存在但解析失败 → 尝试 JSON 修复
         last_error = parse_error or 'JSON 格式错误'
         logger.warning(f'{log_prefix} 第{round_idx}轮JSON解析失败: {last_error}')
+
+        # ---- JSON 修复尝试（仅当有修复提示词且非截断时） ----
+        if json_repair_prompt is not None and json_str is not None:
+            try:
+                repair_llm = get_llm(user=user, scene=scene, temperature=0.2)
+                repair_prompt_text = json_repair_prompt.format(
+                    error=last_error, raw_content=json_str
+                )
+                repair_messages = [
+                    ("system", "你是 JSON 格式修复专家，只输出修复后的 JSON，不要输出任何解释。"),
+                    ("user", repair_prompt_text),
+                ]
+                repair_chain = ChatPromptTemplate.from_messages(repair_messages) | repair_llm
+                repair_result = repair_chain.invoke({})
+                repair_text = repair_result.content if hasattr(repair_result, 'content') else str(repair_result)
+                repair_text = strip_think(repair_text).strip()
+
+                # 检查修复结果是否为不可修复标记
+                if repair_text in ('{"status": "truncated"}', '{"status": "unrepairable"}'):
+                    logger.info(f'{log_prefix} 第{round_idx}轮JSON修复判定为不可修复: {repair_text}')
+                    continue
+
+                # 解析修复后的 JSON
+                repair_data = strict_parse(repair_text)
+                if repair_data is not None and validate_patch_data(repair_data):
+                    result = apply_fn(repair_data, base_content)
+                    logger.info(f'{log_prefix} 第{round_idx}轮JSON修复成功并应用补丁')
+                    full_content = repair_text
+                    break
+                else:
+                    logger.warning(f'{log_prefix} 第{round_idx}轮JSON修复后仍无法解析')
+            except Exception as repair_err:
+                logger.warning(f'{log_prefix} 第{round_idx}轮JSON修复调用失败: {repair_err}')
 
     # 所有轮次均失败
     if result is None:

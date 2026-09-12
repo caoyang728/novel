@@ -3,6 +3,7 @@
 提供：鉴权、参数获取、项目查询、SSE工具、LLM chunk 解析、项目上下文
 """
 import json
+import threading
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
@@ -173,11 +174,32 @@ class BaseAPIView(APIView):
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     @staticmethod
-    def sse_response(generator_func):
-        """创建 SSE StreamingHttpResponse"""
-        response = StreamingHttpResponse(generator_func(), content_type='text/event-stream')
+    def sse_response(generator_func, timeout=600):
+        """创建 SSE StreamingHttpResponse
+
+        Args:
+            generator_func: 生成器函数（无参数）
+            timeout: 超时时间（秒），默认 600 秒（10分钟）
+        """
+        stop_event = threading.Event()
+
+        def timed_generator():
+            for item in generator_func():
+                if stop_event.is_set():
+                    break
+                yield item
+
+        response = StreamingHttpResponse(timed_generator(), content_type='text/event-stream')
         response['Cache-Control'] = 'no-cache'
         response['X-Accel-Buffering'] = 'no'
+
+        # 超时后设置 stop_event，中断生成器
+        timer = threading.Timer(timeout, stop_event.set)
+        timer.daemon = True
+        timer.start()
+        # 响应关闭时取消定时器
+        response.close = lambda: (timer.cancel(), StreamingHttpResponse.close(response))
+
         return response
 
     # ---------- Token 统计 ----------

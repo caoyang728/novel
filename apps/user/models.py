@@ -80,10 +80,13 @@ class UserLLMConfig(models.Model):
         ('timeline_check', '时间线检查'),
         ('outline_optimize', '大纲优化'),
 
-        ('volume_batch_generate', '卷批量生成'),
+        ('volume_structure_analyze', '卷结构分析'),
+        ('volume_detail_expand', '卷详情扩展'),
+        ('volume_quality_eval', '卷质量评分'),
         ('volume_single_generate', '单卷生成'),
         ('volume_single_optimize', '单卷优化'),
         ('volume_chat', '卷对话写作'),
+        ('volume_chat_merge', '卷对话合并'),
         
         ('chapter_batch_generate', '章节批量生成'),
         ('chapter_split', '章节拆分'),

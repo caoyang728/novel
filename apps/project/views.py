@@ -15,7 +15,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from apps.project.models import ProjectList, GENRE_CHOICES
 from apps.outline.models import Outline, OutlineChatHistory
 from apps.project.prompts import DESCRIPTION_ENHANCE_USER_PROMPT, DESCRIPTION_ENHANCE_SYSTEM_PROMPT
-from apps.volume.models import VolumeVersion, VolumeList
+from apps.volume.models import Volume
 from apps.chapter.models import ChapterList
 from apps.user.models import TokenUsageLog
 from apps.worldview.models import WorldView
@@ -309,7 +309,7 @@ class ApiProjectDetailView(BaseAPIView):
 
             outlines = project.outlines.filter(is_deleted=False).order_by('-created_at')
             deleted_outlines = project.outlines.filter(is_deleted=True).order_by('-created_at')
-            volume_versions = project.volume_versions.filter(is_deleted=False).order_by('-created_at')
+            volume_versions = Volume.objects.filter(project=project).order_by('-created_at')
 
             outline_data = [{
                 'pk': v.pk,
@@ -327,8 +327,9 @@ class ApiProjectDetailView(BaseAPIView):
 
             volume_data = [{
                 'pk': v.pk,
-                'version_number': v.version_number,
-                'is_finalized': v.is_finalized,
+                'version': v.version,
+                'volume_number': v.volume_number,
+                'is_locked': v.is_locked,
                 'updated_at': v.updated_at.strftime('%Y-%m-%d %H:%M')
             } for v in volume_versions]
 
@@ -344,16 +345,17 @@ class ApiProjectDetailView(BaseAPIView):
                     pass
             elif view_type == 'volume' and version_id:
                 try:
-                    selected_volume = VolumeVersion.objects.get(pk=version_id, project=project, is_deleted=False)
-                    chapters = ChapterList.objects.filter(volume__volume_version=selected_volume).order_by('chapter_number')
-                    chapter_versions = [{
-                        'pk': c.pk,
-                        'chapter_number': c.chapter_number,
-                        'title': c.title,
-                        'status': c.status,
-                        'updated_at': c.updated_at.strftime('%Y-%m-%d %H:%M')
-                    } for c in chapters]
-                except VolumeVersion.DoesNotExist:
+                    selected_volume = Volume.objects.filter(project=project, version=version_id).first()
+                    if selected_volume:
+                        chapters = ChapterList.objects.filter(volume__project=project, volume__version=version_id).order_by('chapter_number')
+                        chapter_versions = [{
+                            'pk': c.pk,
+                            'chapter_number': c.chapter_number,
+                            'title': c.title,
+                            'status': c.status,
+                            'updated_at': c.updated_at.strftime('%Y-%m-%d %H:%M')
+                        } for c in chapters]
+                except Exception:
                     pass
             elif view_type == 'chapter' and version_id:
                 try:
@@ -391,9 +393,9 @@ class ApiProjectDetailView(BaseAPIView):
                 } if selected_outline else None,
                 'selected_volume': {
                     'pk': selected_volume.pk,
-                    'version_number': selected_volume.version_number,
+                    'version': selected_volume.version,
                     'content': selected_volume.content,
-                    'is_finalized': selected_volume.is_finalized,
+                    'is_locked': selected_volume.is_locked,
                     'created_at': selected_volume.created_at.strftime('%Y-%m-%d %H:%M'),
                     'updated_at': selected_volume.updated_at.strftime('%Y-%m-%d %H:%M')
                 } if selected_volume else None,
@@ -530,20 +532,18 @@ class ApiProjectStatsView(BaseAPIView):
         try:
             project = get_object_or_404(ProjectList, pk=pk, user=request.user)
             
-            volume_count = VolumeList.objects.filter(
-                volume_version__project=project,
-                volume_version__is_deleted=False
+            volume_count = Volume.objects.filter(
+                project=project,
             ).count()
             
             chapters = ChapterList.objects.filter(
-                volume__volume_version__project=project,
-                volume__volume_version__is_deleted=False
+                volume__project=project,
             )
 
             chapter_count = chapters.count()
             chapter_with_summary = chapters.exclude(summary__isnull=True).exclude(summary='').count()
             chapter_with_content = chapters.exclude(content__isnull=True).exclude(content='').count()
-            chapter_finalized = chapters.filter(volume__volume_version__is_finalized=True).count()
+            chapter_finalized = chapters.filter(volume__is_locked=True).count()
             chapter_published = chapters.filter(status=ChapterList.STATUS_PUBLISHED).count()
             
             return JsonResponse({

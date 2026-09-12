@@ -27,6 +27,7 @@ from .prompts import (
     WORLDVIEW_BUILD_USER_PROMPT,
     WORLDVIEW_FACTION_EXTRACT_PROMPT,
     WORLDVIEW_GENRE_PROMPTS_DICT,
+    WORLDVIEW_JSON_REPAIR_PROMPT,
 )
 from apps.project.utils import (
     get_genre_guide, get_genre_label, run_retry_loop,
@@ -268,6 +269,7 @@ class ApiWorldviewStreamView(BaseWorldAPIView):
                     log_prefix='[WV_DOC]',
                     max_rounds=3,
                     get_stream_input=lambda ri: {"user_input": ri},
+                    json_repair_prompt=WORLDVIEW_JSON_REPAIR_PROMPT,
                 )
 
                 # 三轮均失败（run_retry_loop 已发送 error 事件）

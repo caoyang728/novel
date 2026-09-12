@@ -293,6 +293,7 @@ frontend/src/
 │   ├── useProjectId.js  # 从路由获取项目 ID
 │   ├── useVersions.js   # 版本管理
 │   ├── useAiAction.js   # AI 按钮 loading/防重入
+│   ├── useDiffBaseline.js # content/baseline 双状态（未保存变更高亮）
 │   └── useTokenUsage.js # Token 用量查询
 ├── layouts/        # 布局组件（AuthLayout / MainLayout / ProjectLayout）
 ├── router/         # Vue Router 路由配置
@@ -300,6 +301,7 @@ frontend/src/
 ├── styles/         # 全局 SCSS（variables / index / element-dark / transitions）
 ├── utils/          # 工具函数（按功能域分文件）
 │   ├── crypto.js   # RSA 加密（node-forge，密码加密）
+│   ├── diff.js     # 文本对比（jsdiff，Markdown 感知的 diff）
 │   ├── format.js   # 日期、Token 数量、HTML 转义、文本截断
 │   ├── json.js     # JSON 提取与安全解析
 │   ├── loading.js  # 全局 Loading（基于 ElLoading）
@@ -399,6 +401,54 @@ frontend/src/
 |------|------|
 | `safeMarkdownParse(text)` | 安全的 Markdown 解析（DOMPurify 过滤） |
 
+#### Diff 文本对比 (`diff` 库)
+
+项目使用 [jsdiff](https://github.com/kpdecker/jsdiff)（npm 包名 `diff`）实现文本对比，**所有需要 diff 功能的场景统一使用此库**。
+
+**核心方法**：
+
+| 方法 | 用途 | 说明 |
+|------|------|------|
+| `diffArrays(oldArr, newArr)` | 数组级 diff | 用于行级/词级 token 对比，返回 `{added, removed, value}` |
+| `diffWords(oldStr, newStr)` | 词级 diff | 用于计算两行相似度，自动处理中英文分词 |
+
+**统一封装模块 `utils/diff.js`**（禁止在组件内自行实现 diff）：
+
+| 方法 | 说明 |
+|------|------|
+| `computeMarkdownDiffGroups(oldText, newText)` | 主入口，按块分组返回 diff 结果，供渲染层直接消费 |
+| `computeLineDiff(oldText, newText)` | 行级 diff，返回扁平的 equal/added/removed/replaced 项 |
+| `computeWordDiff(oldLine, newLine)` | 行内词级 diff，返回 `{ oldPrefix, newPrefix, parts }` |
+| `tokenizeInline(line)` | 把一行拆成 token，内联 Markdown 结构保持完整 |
+| `lineSimilarity(a, b)` | 行级相似度（0~1），用于判定"替换"而非"新增+删除" |
+| `escapeHtml(str)` | HTML 转义 |
+| `SIMILARITY_THRESHOLD` | 相似度阈值常量（0.3） |
+
+**两层 diff 策略**：
+
+1. **行级**：`diffArrays` 按 `\n` 拆行对比，每行是一个原子；连续同类型行合并为一个 group，保证列表、段落等块级结构完整
+2. **替换检测**：相邻 removed-group + added-group 的行两两配对，`lineSimilarity` ≥ 0.3 视为 replaced，否则保留为独立的 removed / added
+3. **词级**：replaced 行调用 `computeWordDiff` 做行内高亮
+
+**关键设计 — 内联 Markdown 原子化**：
+
+词级 diff 前会先用 `tokenizeInline` 把行拆成 token，其中 `**粗体**`、`*斜体*`、`` `代码` ``、`~~删除~~` 整体作为一个原子 token，中文按单字、英文按单词切分。
+这样可避免 `**` 标记被 diff 拆到不同片段里，导致渲染出字面星号。渲染时每个片段先 `marked.parseInline()` 再包 `<span>`，因此 `<span class="dw-r"><strong>文本</strong></span>` 是合法结构。
+
+**块级前缀处理**：标题（`### `）、列表（`- `、`1. `）、引用（`> `）前缀由 `getLinePrefix` / `stripLinePrefix` 单独处理，不参与 diff，避免前缀变化被误标为内容变更。
+
+**MarkdownRenderer diff 方案**（`frontend/src/components/common/MarkdownRenderer.vue`）：
+
+- diff 计算全部委托给 `utils/diff.js`，组件只负责把 groups 渲染成 HTML
+- 连续 equal 行合并为一个 Markdown 块用 `marked.parse()` 渲染；removed/added 各自成块；replaced 的 old/new 上下排列在同一个 diff-block 中
+
+**样式 class**：
+- `.diff-block.diff-added` — 新增内容（绿色左边框）
+- `.diff-block.diff-removed` — 删除内容（红色左边框+删除线）
+- `.diff-block.diff-replaced` — 替换内容（黄色左边框，内含 `.dw-old` 和 `.dw-new`）
+- `.dw-a` — 行内新增词（绿色背景）
+- `.dw-r` — 行内删除词（红色删除线）
+
 #### 数据存储 (`utils/storage.js`)
 
 | 方法 | 说明 |
@@ -439,6 +489,22 @@ frontend/src/
 | 方法 | 说明 |
 |------|------|
 | `useTokenUsage()` | 返回 `{ loading, fetchTodayUsage }`，查询今日 Token 用量 |
+
+#### Diff 基线 Composable (`composables/useDiffBaseline.js`)
+
+管理 `content` / `baseline` 双状态，用于 Markdown 预览的未保存变更高亮（配合 `MarkdownRenderer` 的 `highlight-new` / `baseline` / `show-removed`）。
+
+| 方法/属性 | 说明 |
+|-----------|------|
+| `content` | ref，当前文档内容 |
+| `baseline` | ref，上次保存/加载时的快照 |
+| `hasUnsavedChanges()` | 是否存在未保存变更（`content !== baseline`） |
+| `reset()` | 清空两个状态（无版本 / 删除当前版本时） |
+| `loadSnapshot(value)` | 加载版本或初始化：两者同时设为已保存内容（diff 消失） |
+| `commit()` | 保存 / 另存后：baseline 追上 content（diff 消失） |
+| `revert()` | 回滚：content 恢复为 baseline（如流式生成失败时） |
+
+**baseline 同步规则**：仅在 `loadSnapshot` / `commit` 时同步；AI 流式返回和用户手动编辑**不同步**，因此 diff 会持续显示，直到保存。
 
 #### 加密工具 (`utils/crypto.js`)
 

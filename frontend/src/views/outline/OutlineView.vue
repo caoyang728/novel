@@ -1,4 +1,5 @@
 <template>
+<div class="outline-root">
   <div class="outline-view" v-loading="loading">
     <div class="outline-workspace">
       <!-- 左：大纲编辑/预览 -->
@@ -137,6 +138,7 @@
     source="outline"
     @created="onCandidatesCreated"
   />
+</div>
 </template>
 
 <script setup>
@@ -153,6 +155,7 @@ import { createSseController } from '@/api/sse'
 const sseController = createSseController()
 import { useProjectId } from '@/composables/useProjectId'
 import { useChat } from '@/composables/useChat'
+import { useDiffBaseline } from '@/composables/useDiffBaseline'
 import { showSuccess, showError, showWarning } from '@/utils/notify'
 import { showConfirmModal } from '@/utils/modal'
 
@@ -180,14 +183,14 @@ const loading = ref(false)
 const saving = ref(false)
 const versions = ref([])
 const currentVersion = ref(null)
-const content = ref('')
-const baseline = ref('') // 与数据库一致的内容基线，用于未保存检测和 diff 高亮
+// content / baseline / hasUnsavedChanges 由 useDiffBaseline 统一管理，
+// baseline 是"与数据库一致的内容基线"，用于未保存检测和 diff 高亮
+const { content, baseline, hasUnsavedChanges, reset, loadSnapshot, commit, revert } = useDiffBaseline()
 const mode = ref('preview') // edit | preview
 const chatVisible = ref(true)
 const contextCount = ref('all')
 
 const locked = computed(() => !!currentVersion.value?.is_finalized)
-const hasUnsavedChanges = () => content.value !== baseline.value
 
 // ---- 从大纲生成角色 ----
 const showCandidateModal = ref(false)
@@ -264,8 +267,7 @@ async function loadVersions(selectId = null) {
       await doLoadVersion(versions.value[0])
     } else {
       currentVersion.value = null
-      content.value = ''
-      baseline.value = ''
+      reset()
       await loadWelcome()
     }
   } catch {
@@ -285,8 +287,7 @@ async function doLoadVersion(version) {
       last_question: data.last_question || '',
       last_options: data.last_options || [],
     }
-    content.value = data.content || ''
-    baseline.value = data.content || ''
+    loadSnapshot(data.content)
     mode.value = 'preview'
     pendingQuestion.value = data.last_question || ''
     pendingOptions.value = data.last_options || []
@@ -395,8 +396,7 @@ function handleDeleteVersion(version) {
         const wasCurrent = currentVersion.value?.id === version.id
         if (wasCurrent) {
           currentVersion.value = null
-          content.value = ''
-          baseline.value = ''
+          reset()
           clearMessages()
         }
         await loadVersions(wasCurrent ? null : currentVersion.value?.id)
@@ -447,7 +447,7 @@ async function doSave(asNew) {
       last_question: pendingQuestion.value,
       last_options: pendingOptions.value,
     })
-    baseline.value = content.value
+    commit()
     showSuccess(`保存成功！版本号：v${data.version_number}`)
     await loadVersions()
     refreshHeader()
@@ -640,7 +640,7 @@ async function handleSend(message) {
       showError('生成失败：' + err.message)
       updateMsgById(msgId, { content: `生成失败：${err.message}`, thinking: '' })
     }
-    content.value = baseline.value
+    revert()
   } finally {
     isStreaming.value = false
     refreshHeader()
@@ -709,6 +709,9 @@ onBeforeUnmount(() => {
 </style>
 
 <style lang="scss" scoped>
+.outline-root {
+  height: 100%;
+}
 .outline-view {
   display: flex;
   flex-direction: column;

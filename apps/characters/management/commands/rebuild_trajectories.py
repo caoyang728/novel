@@ -26,8 +26,7 @@ class Command(BaseCommand):
 
         # 获取已完成的章节（按章节号排序）
         chapters = ChapterList.objects.filter(
-            volume__volume_version__project_id=project_id,
-            volume__volume_version__is_deleted=False,
+            volume__project_id=project_id,
         ).exclude(
             content=''
         ).order_by('chapter_number')

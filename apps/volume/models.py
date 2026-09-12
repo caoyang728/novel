@@ -3,46 +3,26 @@ from apps.project.models import ProjectList
 from apps.outline.models import Outline
 
 
-class VolumeVersion(models.Model):
-    """卷版本"""
-    project = models.ForeignKey(ProjectList, on_delete=models.CASCADE, related_name='volume_versions', verbose_name='项目')
-    outline = models.ForeignKey(Outline, on_delete=models.CASCADE, related_name='volume_versions', verbose_name='关联大纲')
-    version_number = models.IntegerField(default=1, verbose_name='版本号')
-    is_finalized = models.BooleanField(default=False, verbose_name='是否定稿')
-    is_deleted = models.BooleanField(default=False, verbose_name='是否删除')
-    is_current = models.BooleanField(default=False, verbose_name='是否为当前版本')
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-
-    class Meta:
-        db_table = 'volume_version'
-        verbose_name = '卷版本'
-        verbose_name_plural = '卷版本'
-        ordering = ['-version_number']
-
-    def __str__(self):
-        return f'{self.project.title} - 卷版本{self.version_number}'
-
-
-class VolumeList(models.Model):
-    """卷"""
-    volume_version = models.ForeignKey(VolumeVersion, on_delete=models.CASCADE, related_name='volumes', verbose_name='卷版本')
+class Volume(models.Model):
+    """卷 - 单表设计，version 控制版本"""
+    project = models.ForeignKey(ProjectList, on_delete=models.CASCADE, related_name='volumes', verbose_name='项目')
+    outline = models.ForeignKey(Outline, on_delete=models.PROTECT, related_name='volumes', verbose_name='关联大纲')
+    version = models.PositiveIntegerField(default=1, verbose_name='版本号')
     volume_number = models.IntegerField(verbose_name='卷号')
     title = models.CharField(max_length=255, verbose_name='卷标题')
     summary = models.TextField(blank=True, verbose_name='卷摘要')
     content = models.TextField(blank=True, default='', verbose_name='卷大纲')
     chapter_count = models.IntegerField(default=0, verbose_name='预估章节数')
-    chapters = models.JSONField(blank=True, default=list, verbose_name='章节列表')
-    is_locked = models.BooleanField(default=False, verbose_name='是否锁定')
+    is_locked = models.BooleanField(default=False, verbose_name='是否锁定（定稿）')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
     class Meta:
-        db_table = 'volume_list'
+        db_table = 'volume'
         verbose_name = '卷'
         verbose_name_plural = '卷'
-        ordering = ['volume_number']
-        unique_together = [('volume_version', 'volume_number')]
+        unique_together = [('project', 'version', 'volume_number')]
+        ordering = ['version', 'volume_number']
 
     def __str__(self):
-        return f'{self.volume_version.project.title} - {self.title}'
+        return f'{self.project.title} - V{self.version} 第{self.volume_number}卷 {self.title}'

@@ -10,9 +10,9 @@
       >
         <el-option
           v-for="v in volumeVersions"
-          :key="v.id"
-          :label="`版本 v${v.version_number}${v.is_finalized ? '（已定稿）' : ''}`"
-          :value="v.id"
+          :key="v.version"
+          :label="`版本 v${v.version}（${v.volume_count}卷）`"
+          :value="v.version"
         />
       </el-select>
       <el-select
@@ -285,11 +285,10 @@ async function loadVolumeVersions() {
     const data = await volumeApi.getVersions(projectId.value)
     if (data && data.success) {
       volumeVersions.value = data.versions || []
-      const finalized = volumeVersions.value.find((v) => v.is_finalized)
-      const target = finalized || volumeVersions.value[0]
-      if (target) {
-        currentVersionId.value = target.id
-        await loadVolumes(target.id)
+      if (volumeVersions.value.length > 0) {
+        const target = volumeVersions.value[0]
+        currentVersionId.value = target.version
+        await loadVolumes(target.version)
       }
     }
   } catch (e) {

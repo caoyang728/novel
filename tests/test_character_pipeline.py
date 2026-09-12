@@ -28,7 +28,7 @@ from apps.chapter.views import ApiChapterSaveView, BaseChapterAPIView
 from apps.timeline.models import TimelineEvent
 from apps.graph.models import GraphNode, GraphEdge
 from apps.graph.services import GraphService
-from apps.volume.models import VolumeVersion, VolumeList
+from apps.volume.models import Volume
 
 
 # ========================================================================
@@ -66,17 +66,14 @@ def _create_character(project, name='林风', role_type='主角', gender='男',
 
 
 def _create_volume_data(project, outline):
-    """创建卷版本和卷数据（跳过 LLM 生成流程）"""
-    volume_version = VolumeVersion.objects.create(
-        project=project, outline=outline, version_number=1, is_current=True,
-    )
-    volume = VolumeList.objects.create(
-        volume_version=volume_version, volume_number=1,
+    """创建卷数据（跳过 LLM 生成流程）"""
+    volume = Volume.objects.create(
+        project=project, outline=outline, version=1, volume_number=1,
         title='第一卷：启程', summary='测试卷摘要',
         content='## 第一章 诞生\n\n### 第二章 出发',
         chapter_count=2,
     )
-    return volume_version, volume
+    return volume
 
 
 def _create_chapter(volume, chapter_number=1, title='第一章', content=''):
@@ -262,7 +259,7 @@ class VolumeToCharacterPipelineTest(TestCase):
         self.factory = APIRequestFactory()
 
         self.outline = _create_outline(self.project, version=1, is_finalized=True)
-        self.volume_version, self.volume = _create_volume_data(self.project, self.outline)
+        self.volume = _create_volume_data(self.project, self.outline)
 
         # 已有角色（模拟从大纲提取阶段创建的角色）
         self.existing_char = _create_character(
@@ -346,7 +343,7 @@ class ChapterFinalizationPipelineTest(TestCase):
         self.factory = APIRequestFactory()
 
         self.outline = _create_outline(self.project, version=1, is_finalized=True)
-        self.volume_version, self.volume = _create_volume_data(self.project, self.outline)
+        self.volume = _create_volume_data(self.project, self.outline)
 
         self.character = _create_character(
             self.project, name='林风', role_type='主角',
@@ -699,7 +696,7 @@ class ChapterSavePipelineTest(TestCase):
         self.factory = APIRequestFactory()
 
         self.outline = _create_outline(self.project, version=1, is_finalized=True)
-        self.volume_version, self.volume = _create_volume_data(self.project, self.outline)
+        self.volume = _create_volume_data(self.project, self.outline)
 
     def test_create_new_chapter_via_save_api(self):
         """通过 save API 创建新章节"""
@@ -818,12 +815,9 @@ class FullCreationWorkflowTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(_parse_json_response(response)['created_count'], 2)
 
-        # --- 4. 创建卷版本和卷 ---
-        volume_version = VolumeVersion.objects.create(
-            project=self.project, outline=outline, version_number=1, is_current=True,
-        )
-        volume = VolumeList.objects.create(
-            volume_version=volume_version, volume_number=1,
+        # --- 4. 创建卷 ---
+        volume = Volume.objects.create(
+            project=self.project, outline=outline, version=1, volume_number=1,
             title='第一卷', summary='启程', chapter_count=2,
             content='## 第一章 入门\n\n### 第二章 修炼',
         )

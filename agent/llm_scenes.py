@@ -94,12 +94,26 @@ LLM_SCENES = {
         "default_max_tokens": 100000,
     },
     # ==================== 卷 ====================
-    "volume_batch_generate": {
-        "name": "卷批量生成",
+    "volume_structure_analyze": {
+        "name": "卷结构分析",
+        "group": "volume",
+        "group_name": "卷",
+        "default_temperature": 0.3,
+        "default_max_tokens": 16000,
+    },
+    "volume_detail_expand": {
+        "name": "卷详情扩展",
         "group": "volume",
         "group_name": "卷",
         "default_temperature": 0.7,
         "default_max_tokens": 128000,
+    },
+    "volume_quality_eval": {
+        "name": "卷质量评分",
+        "group": "volume",
+        "group_name": "卷",
+        "default_temperature": 0.3,
+        "default_max_tokens": 8000,
     },
     "volume_single_generate": {
         "name": "单卷生成",
@@ -117,6 +131,13 @@ LLM_SCENES = {
     },
     "volume_chat": {
         "name": "卷对话写作",
+        "group": "volume",
+        "group_name": "卷",
+        "default_temperature": 0.7,
+        "default_max_tokens": 20000,
+    },
+    "volume_chat_merge": {
+        "name": "卷对话合并",
         "group": "volume",
         "group_name": "卷",
         "default_temperature": 0.7,

@@ -28,7 +28,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import AppModal from './AppModal.vue'
 import AppButton from './AppButton.vue'
@@ -48,12 +48,21 @@ const confirmLoading = ref(false)
 
 const sanitizedMessage = computed(() => DOMPurify.sanitize(props.message))
 
+let _closing = false
 function handleCancel() {
+  if (_closing) return
+  _closing = true
   emit('update:visible', false)
   emit('cancel')
 }
 
+watch(() => props.visible, (val) => {
+  if (val) _closing = false
+})
+
 function handleConfirm() {
+  if (_closing) return
+  _closing = true
   emit('confirm', () => {
     // close 函数：供外部异步操作完成后手动关闭
     emit('update:visible', false)

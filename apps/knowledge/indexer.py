@@ -159,10 +159,10 @@ class KnowledgeIndexer:
         content = volume.content or volume.summary
         if not content:
             return 0
-        pk = f"{volume.volume_version.project_id}_volume_{volume.pk}"
+        pk = f"{volume.project_id}_volume_{volume.pk}"
         return self._upsert_doc(
             pk=pk,
-            project_id=volume.volume_version.project_id,
+            project_id=volume.project_id,
             doc_type="volume",
             content=content,
             metadata={
@@ -174,7 +174,7 @@ class KnowledgeIndexer:
         )
 
     def delete_volume(self, volume):
-        return self._delete_by_prefix(f"{volume.volume_version.project_id}_volume_{volume.pk}")
+        return self._delete_by_prefix(f"{volume.project_id}_volume_{volume.pk}")
 
     # ================================================================
     # 章节（按段落 chunk 拆分）
@@ -182,7 +182,7 @@ class KnowledgeIndexer:
     def index_chapter(self, chapter):
         """按段落拆分章节并索引"""
         # 先删除旧数据
-        project_id = chapter.volume.volume_version.project_id
+        project_id = chapter.volume.project_id
         # 先删旧的段落
         self._delete_by_prefix(f"{project_id}_chapter_{chapter.pk}")
 
@@ -223,7 +223,7 @@ class KnowledgeIndexer:
         return n
 
     def delete_chapter(self, chapter):
-        project_id = chapter.volume.volume_version.project_id
+        project_id = chapter.volume.project_id
         return self._delete_by_prefix(f"{project_id}_chapter_{chapter.pk}")
 
     # ================================================================
@@ -492,7 +492,7 @@ class KnowledgeIndexer:
         from apps.outline.models import Outline
         from apps.worldview.models import WorldView
         from apps.characters.models import Character
-        from apps.volume.models import VolumeList
+        from apps.volume.models import Volume
         from apps.chapter.models import ChapterList
         from apps.timeline.models import TimelineEvent
 
@@ -513,11 +513,11 @@ class KnowledgeIndexer:
         for c in characters:
             count += self.index_character(c) or 0
         logger.info(f"  角色已索引: {characters.count()} 条")
-        volumes = VolumeList.objects.filter(volume_version__project_id=project_id)
+        volumes = Volume.objects.filter(project_id=project_id)
         for v in volumes:
             count += self.index_volume(v) or 0
         logger.info(f"  卷大纲已索引: {volumes.count()} 条")
-        chapters = ChapterList.objects.filter(volume__volume_version__project_id=project_id)
+        chapters = ChapterList.objects.filter(volume__project_id=project_id)
         for ch in chapters:
             count += self.index_chapter(ch) or 0
         logger.info(f"  章节已索引: {chapters.count()} 条")

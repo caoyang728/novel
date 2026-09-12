@@ -1165,8 +1165,8 @@ class ApiCharacterGenerateFromVolumeView(BaseCharacterAPIView):
         if not volume_id:
             return Response({'success': False, 'error': '请提供卷 ID'}, status=400)
 
-        from apps.volume.models import VolumeList
-        volume = get_object_or_404(VolumeList, pk=volume_id, volume_version__project=project)
+        from apps.volume.models import Volume
+        volume = get_object_or_404(Volume, pk=volume_id, project=project)
 
         # 拼接卷内容：标题 + 摘要 + 大纲
         volume_content_parts = [f'卷标题：{volume.title}']

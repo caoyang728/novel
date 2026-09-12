@@ -119,11 +119,11 @@ def delete_character_task(self, character_id: int):  # noqa: ARG001
 # ================================================================
 @shared_task(bind=True, autoretry_for=(Exception,), max_retries=3, rate_limit='30/m', name='knowledge.index_volume')
 def index_volume_task(self, volume_id: int):  # noqa: ARG001
-    from apps.volume.models import VolumeList
+    from apps.volume.models import Volume
     from .indexer import KnowledgeIndexer
     try:
-        obj = VolumeList.objects.get(pk=volume_id)
-    except VolumeList.DoesNotExist:
+        obj = Volume.objects.get(pk=volume_id)
+    except Volume.DoesNotExist:
         logger.warning(f"index_volume: {volume_id} 不存在，跳过")
         return 0
     return KnowledgeIndexer().index_volume(obj)
@@ -131,11 +131,11 @@ def index_volume_task(self, volume_id: int):  # noqa: ARG001
 
 @shared_task(bind=True, autoretry_for=(Exception,), max_retries=2, name='knowledge.delete_volume')
 def delete_volume_task(self, volume_id: int):  # noqa: ARG001
-    from apps.volume.models import VolumeList
+    from apps.volume.models import Volume
     from .indexer import KnowledgeIndexer
     try:
-        obj = VolumeList.objects.get(pk=volume_id)
-    except VolumeList.DoesNotExist:
+        obj = Volume.objects.get(pk=volume_id)
+    except Volume.DoesNotExist:
         return 0
     return KnowledgeIndexer().delete_volume(obj)
 

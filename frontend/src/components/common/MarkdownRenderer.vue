@@ -5,6 +5,7 @@
 <script setup>
 import { computed } from 'vue'
 import { safeMarkdownParse } from '@/utils/markdown'
+import { computeMarkdownDiffGroups, computeWordDiff, escapeHtml } from '@/utils/diff'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -17,125 +18,81 @@ const props = defineProps({
 })
 
 /**
- * LCS 行级 diff：对比 baseline 和 content，返回 diff 结果数组
- * 每项: { type: 'equal' | 'added' | 'removed', text: string }
+ * 词级 diff 渲染：把 computeWordDiff 的结果转成带 <span> 标记的 HTML
+ * 每个片段先单独做行内 Markdown 渲染，再用 <span> 包裹。
+ * computeWordDiff 已保证 `**粗体**` 等结构是原子 token，不会出现标记被拆半的情况。
+ * @param {string} mode 'old' = 只标红删除词，'new' = 只标绿新增词
  */
-function computeLcsDiff(oldText, newText) {
-  const oldLines = oldText.split('\n')
-  const newLines = newText.split('\n')
-  const m = oldLines.length
-  const n = newLines.length
-
-  // LCS 动态规划
-  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = oldLines[i - 1] === newLines[j - 1]
-        ? dp[i - 1][j - 1] + 1
-        : Math.max(dp[i - 1][j], dp[i][j - 1])
-    }
-  }
-
-  // 回溯
-  const result = []
-  let i = m, j = n
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-      result.unshift({ type: 'equal', text: newLines[j - 1] })
-      i--; j--
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      result.unshift({ type: 'added', text: newLines[j - 1] })
-      j--
+function renderWordDiffHtml(oldLine, newLine, mode) {
+  const { oldPrefix, newPrefix, parts } = computeWordDiff(oldLine, newLine)
+  // 块级前缀（如 "### "、"- "）原样展示，旧视图用旧前缀，避免编号被误标为变更
+  let html = escapeHtml(mode === 'old' ? oldPrefix : newPrefix)
+  for (const part of parts) {
+    const text = marked.parseInline(escapeHtml(part.text))
+    if (part.type === 'added') {
+      if (mode === 'new') html += `<span class="dw-a">${text}</span>`
+    } else if (part.type === 'removed') {
+      if (mode === 'old') html += `<span class="dw-r">${text}</span>`
     } else {
-      result.unshift({ type: 'removed', text: oldLines[i - 1] })
-      i--
+      html += text
     }
   }
-  return result
+  return html
 }
 
 /**
- * 标记型 diff：将连续相同 diff 类型的行分组后逐组用 marked 解析，
- * 保留标题、列表等块级 Markdown 结构。
- * 流程：行级 LCS diff → 按类型分组 → 每组整体解析 → DOMPurify → 识别标记 → 包裹 diff class → 清除标记
+ * 渲染替换组中的单个 item（旧版本视图）
+ * replaced → 词级高亮；removed → 整体标红；added → 旧版本中不存在，留空
+ */
+function renderOldItem(it) {
+  if (it.oldText) return renderWordDiffHtml(it.oldText, it.text, 'old')
+  if (it.type === 'removed') return `<span class="dw-r">${marked.parseInline(escapeHtml(it.text))}</span>`
+  return ''
+}
+
+/**
+ * 渲染替换组中的单个 item（新版本视图）
+ * replaced → 词级高亮；added → 整体标绿；removed → 新版本中不存在，留空
+ */
+function renderNewItem(it) {
+  if (it.oldText) return renderWordDiffHtml(it.oldText, it.text, 'new')
+  if (it.type === 'added') return `<span class="dw-a">${marked.parseInline(escapeHtml(it.text))}</span>`
+  return ''
+}
+
+/**
+ * 主函数：Markdown 感知的 diff 渲染
+ * diff 计算由 utils/diff.js 负责，本组件只负责把分组结果渲染成 HTML
  */
 function renderMarkdownDiff(content, baseline, showRemoved) {
-  const MA = '%%DA%%'   // added marker
-  const MR = '%%DR%%'   // removed marker
-  const markerRe = /\*?%%D[AR]%%\*?\s*/
+  if (!baseline || !content) return safeMarkdownParse(content)
 
-  const diffResult = computeLcsDiff(baseline, content)
+  const groups = computeMarkdownDiffGroups(baseline, content)
 
-  // 将连续相同 diff 类型的行合并为组，避免逐行解析破坏块级 Markdown 结构
-  const groups = []
-  let currentGroup = null
-  for (const item of diffResult) {
-    const line = item.text || ''
-    if (currentGroup && currentGroup.type === item.type) {
-      currentGroup.lines.push(line)
+  const htmlParts = []
+  for (const g of groups) {
+    if (g.type === 'replaced') {
+      // 旧版本和新版本合并在同一个 diff-block 中，上下排列
+      const parts = []
+      if (showRemoved) {
+        parts.push(`<p class="dw-old">${g.items.map(renderOldItem).join('<br>')}</p>`)
+      }
+      parts.push(`<p class="dw-new">${g.items.map(renderNewItem).join('<br>')}</p>`)
+      htmlParts.push(`<div class="diff-block diff-replaced">${parts.join('')}</div>`)
     } else {
-      currentGroup = { type: item.type, lines: [line] }
-      groups.push(currentGroup)
+      const text = g.lines.join('\n')
+      if (!text.trim()) continue
+      if (g.type === 'added') {
+        htmlParts.push(`<div class="diff-block diff-added">${marked.parse(text)}</div>`)
+      } else if (g.type === 'removed' && showRemoved) {
+        htmlParts.push(`<div class="diff-block diff-removed">${marked.parse(text)}</div>`)
+      } else if (g.type === 'equal') {
+        htmlParts.push(marked.parse(text))
+      }
     }
   }
 
-  // 每组作为一个完整 Markdown 块解析
-  const rendered = groups.map(group => {
-    const fullText = group.lines.join('\n')
-    if (group.type === 'added') {
-      return { type: 'added', html: marked.parse(`*${MA}* ${fullText}`) }
-    }
-    if (group.type === 'removed' && showRemoved) {
-      return { type: 'removed', html: marked.parse(`*${MR}* ${fullText}`) }
-    }
-    return { type: 'equal', html: marked.parse(fullText) }
-  })
-
-  // DOMPurify 消毒并插入分隔符：<span class="ds"> 标记每个 added/removed 组的起始，
-  // DOMPurify 会保留 <span> 元素，遍历时用它追踪 diff 组边界
-  const SEP = 'ds'  // diff-separator class
-  const allParts = []
-  for (const r of rendered) {
-    const clean = DOMPurify.sanitize(r.html)
-    if (r.type === 'added') {
-      allParts.push(`<span class="${SEP}" data-diff="a"></span>${clean}`)
-    } else if (r.type === 'removed') {
-      allParts.push(`<span class="${SEP}" data-diff="r"></span>${clean}`)
-    } else {
-      allParts.push(clean)
-    }
-  }
-  const finalHtml = allParts.join('')
-
-  // 解析 DOM，识别分隔符 span，清除标记文本，包裹 diff class
-  const doc = new DOMParser().parseFromString(`<div id="dr">${finalHtml}</div>`, 'text/html')
-  const root = doc.getElementById('dr')
-  const output = []
-  let currentDiffType = null
-
-  for (const node of Array.from(root.childNodes)) {
-    // 分隔符 span：更新当前组类型并跳过
-    if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains(SEP)) {
-      const d = node.getAttribute('data-diff')
-      currentDiffType = d === 'a' ? 'added' : d === 'r' ? 'removed' : null
-      continue
-    }
-
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      output.push(node.textContent || '')
-      continue
-    }
-
-    if (currentDiffType) {
-      const cls = currentDiffType === 'added' ? 'diff-added' : 'diff-removed'
-      const cleaned = node.outerHTML.replace(markerRe, '')
-      output.push(`<div class="diff-block ${cls}">${cleaned}</div>`)
-    } else {
-      output.push(node.outerHTML)
-    }
-  }
-
-  return output.join('')
+  return DOMPurify.sanitize(htmlParts.join(''), { ADD_TAGS: ['span'], ADD_ATTR: ['class'] })
 }
 
 const parsedHtml = computed(() => {
@@ -246,19 +203,14 @@ const parsedHtml = computed(() => {
     border-radius: var(--radius-sm);
   }
 
-  // diff 分隔符（仅用于 DOM 追踪，不显示）
-  .ds {
-    display: none;
-  }
+  // ── Diff 样式 ──────────────────────────────────────────────
 
-  // Diff 区块样式（文字颜色模式）
   .diff-block {
     padding: 2px 8px;
     border-radius: 3px;
     margin: 2px 0;
     word-break: break-word;
 
-    // 保留内部块级元素的原有样式
     > h1, > h2, > h3, > h4, > h5, > h6 {
       margin: 0.3em 0;
     }
@@ -267,13 +219,11 @@ const parsedHtml = computed(() => {
     }
   }
 
-  // 新增内容：绿色文字 + 左边框
   .diff-added {
     color: #34d399;
     border-left: 3px solid #34d399;
   }
 
-  // 删除内容：红色文字 + 删除线 + 左边框
   .diff-removed {
     color: #f87171;
     text-decoration: line-through;
@@ -281,7 +231,41 @@ const parsedHtml = computed(() => {
     border-left: 3px solid #f87171;
   }
 
-  // 开启背景模式时，覆盖为带背景色的样式
+  .diff-replaced {
+    border-left: 3px solid #fbbf24;
+    padding: 4px 8px;
+
+    p.dw-old {
+      margin: 0 0 4px 0;
+      opacity: 0.75;
+      border-bottom: 1px dashed rgba(251, 191, 36, 0.3);
+      padding-bottom: 4px;
+    }
+
+    p.dw-new {
+      margin: 0;
+    }
+
+    // 行内新增词（jsdiff diffWords 标记）
+    .dw-a {
+      color: #34d399;
+      background: rgba(52, 211, 153, 0.12);
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+
+    // 行内删除词（jsdiff diffWords 标记）
+    .dw-r {
+      color: #f87171;
+      text-decoration: line-through;
+      opacity: 0.75;
+      background: rgba(248, 113, 113, 0.08);
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+  }
+
+  // 背景模式
   &.diff-show-background {
     .diff-added {
       background: rgba(16, 185, 129, 0.12);

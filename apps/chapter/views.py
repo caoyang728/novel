@@ -11,7 +11,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from apps.project.base import BaseAPIView
 from apps.chapter.models import ChapterList
-from apps.volume.models import VolumeList
+from apps.volume.models import Volume
 from apps.characters.models import Character
 from agent.llm import get_llm, call_llm_with_retry, log_token_usage
 from utils.constants import (
@@ -72,8 +72,8 @@ class BaseChapterAPIView(BaseAPIView):
         if not chapter_id:
             return None, JsonResponse({'success': False, 'message': '缺少chapter_id'}, status=400)
         try:
-            chapter = ChapterList.objects.select_related('volume', 'volume__volume_version', 'volume__volume_version__project').get(
-                pk=chapter_id, volume__volume_version__project__user=request.user
+            chapter = ChapterList.objects.select_related('volume', 'volume__project').get(
+                pk=chapter_id, volume__project__user=request.user
             )
             return chapter, None
         except ChapterList.DoesNotExist:
@@ -702,11 +702,11 @@ class ApiChapterGenerateView(BaseChapterAPIView):
         if not volume_id:
             return JsonResponse({'success': False, 'message': '缺少volume_id'}, status=400)
         volume = get_object_or_404(
-            VolumeList.objects.select_related('volume_version__project'),
+            Volume.objects.select_related('project'),
             pk=volume_id,
-            volume_version__project__user=request.user
+            project__user=request.user
         )
-        project = volume.volume_version.project
+        project = volume.project
 
         # 检查是否已有章节
         existing_chapters = list(ChapterList.objects.filter(volume=volume).order_by('chapter_number'))
@@ -958,7 +958,7 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                         })
                         yield self.sse_event('complete', {
                             'volume_id': volume.pk,
-                            'volume_version_id': volume.volume_version.pk,
+                            'version': volume.version,
                             'chapters_count': 0,
                         })
                         return
@@ -1141,7 +1141,7 @@ class ApiChapterGenerateView(BaseChapterAPIView):
                 # 完成
                 yield self.sse_event('complete', {
                     'volume_id': volume.pk,
-                    'volume_version_id': volume.volume_version.pk,
+                    'version': volume.version,
                     'chapters_count': total_chapters,
                 })
 
@@ -1180,8 +1180,8 @@ class ApiChapterBatchCheckView(BaseChapterAPIView):
             return JsonResponse({'success': False, 'message': '起始章节不能大于结束章节'}, status=400)
 
         try:
-            volume = VolumeList.objects.get(id=volume_id, volume_version__project_id=project_id)
-        except VolumeList.DoesNotExist:
+            volume = Volume.objects.get(id=volume_id, project_id=project_id)
+        except Volume.DoesNotExist:
             return JsonResponse({'success': False, 'message': '卷不存在'}, status=404)
 
         # 获取卷中所有有效章节
@@ -1241,7 +1241,7 @@ class ApiChapterBatchCheckView(BaseChapterAPIView):
                 result = call_llm_with_retry(
                     messages,
                     user=request.user, scene="chapter_scoring",
-                    project=volume.volume_version.project, task_type="batch_chapter_check",
+                    project=volume.project, task_type="batch_chapter_check",
                 )
                 text = result.content if hasattr(result, 'content') else str(result)
                 check_data = safe_parse_json(text)
@@ -1278,8 +1278,8 @@ class ApiChapterBatchFixView(BaseChapterAPIView):
             return JsonResponse({'success': False, 'message': '没有需要修复的问题'}, status=400)
 
         try:
-            volume = VolumeList.objects.get(id=volume_id, volume_version__project_id=project_id)
-        except VolumeList.DoesNotExist:
+            volume = Volume.objects.get(id=volume_id, project_id=project_id)
+        except Volume.DoesNotExist:
             return JsonResponse({'success': False, 'message': '卷不存在'}, status=404)
 
         # 收集涉及的所有章节号
@@ -1367,7 +1367,7 @@ class ApiChapterBatchFixView(BaseChapterAPIView):
                 result = call_llm_with_retry(
                     messages,
                     user=request.user, scene="chapter_scoring",
-                    project=volume.volume_version.project, task_type="batch_chapter_fix",
+                    project=volume.project, task_type="batch_chapter_fix",
                 )
                 text = result.content if hasattr(result, 'content') else str(result)
                 fix_data = safe_parse_json(text)
@@ -1747,7 +1747,7 @@ class ApiChapterBatchFixView(BaseChapterAPIView):
                 next_summary = batch_chapters[next_idx].get('summary', '') if next_idx >= 0 else ""
 
                 # 获取相关角色信息
-                project_obj = volume.volume_version.project
+                project_obj = volume.project
                 characters = Character.objects.filter(project=project_obj, is_deleted=False)
                 related_characters = "\n".join([
                     f"- {ch.name}: {ch.tagline or (ch.content[:100] if ch.content else '')}"
@@ -1912,15 +1912,15 @@ class ApiChapterContentView(BaseChapterAPIView):
         reference_chapter_id = request.data.get('reference_chapter_id')
 
         chapter = get_object_or_404(
-            ChapterList.objects.select_related('volume', 'volume__volume_version', 'volume__volume_version__project'),
-            pk=chapter_id, volume__volume_version__project__user=request.user
+            ChapterList.objects.select_related('volume', 'volume__project'),
+            pk=chapter_id, volume__project__user=request.user
         )
 
         # 内容长度校验
         if chapter.content and len(chapter.content) >= MAX_CONTENT_LENGTH:
             return JsonResponse({'success': False, 'message': f'章节内容已达上限{MAX_CONTENT_LENGTH}字'}, status=400)
 
-        project = chapter.volume.volume_version.project
+        project = chapter.volume.project
         volume = chapter.volume
 
         # 获取基石上下文（与批量生成一致）
@@ -1949,7 +1949,7 @@ class ApiChapterContentView(BaseChapterAPIView):
         # 上一章完整内容（reference）
         reference_context = ""
         if reference_chapter_id:
-            ref_chapter = get_object_or_404(ChapterList, pk=reference_chapter_id, volume__volume_version__project__user=request.user)
+            ref_chapter = get_object_or_404(ChapterList, pk=reference_chapter_id, volume__project__user=request.user)
             reference_context = ref_chapter.content or ""
         elif chapter.chapter_number > 1:
             prev_chapter = ChapterList.objects.filter(
@@ -2094,7 +2094,7 @@ class ApiChapterVerifyView(BaseChapterAPIView):
             chapter.content,
             prev_content,
             user=request.user,
-            project=volume.volume_version.project,
+            project=volume.project,
             stream=True
         )
 
@@ -2150,7 +2150,7 @@ class ApiChapterVerifyFixView(BaseChapterAPIView):
         result_generator = call_llm_with_retry(
             chain, input_vars=input_vars,
             user=request.user, scene="chapter_verify",
-            project=volume.volume_version.project,
+            project=volume.project,
             task_type='chapter_verify_fix', stream=True
         )
 
@@ -2217,7 +2217,7 @@ class ApiChapterSplitView(BaseChapterAPIView):
             in_content = False
             content_acc = ""  # 累积完整 JSON，不受 TAIL_RESERVE 影响
             split_chapters = []
-            CONTENT_START = "══CONTENT_START════"
+            CONTENT_START = "════CONTENT_START════"
             CONTENT_END = "════CONTENT_END════"
             # 保留结尾字符防止分片切除标记前缀
             TAIL_RESERVE = max(len(CONTENT_START), len(CONTENT_END)) - 1
@@ -2288,7 +2288,7 @@ class ApiChapterSplitView(BaseChapterAPIView):
                 })
 
                 # 记录 token 使用量
-                self.log_token_usage('chapter_split', result=last_chunk, usage_result=usage_chunk, user=request.user, project=volume.volume_version.project)
+                self.log_token_usage('chapter_split', result=last_chunk, usage_result=usage_chunk, user=request.user, project=volume.project)
             except Exception as e:
                 logger.error(f"流式拆分章节失败: {e}")
                 yield self.sse_event('error', {'message': str(e)})
@@ -2315,9 +2315,9 @@ class ApiChapterSaveView(BaseChapterAPIView):
                 return JsonResponse({'success': False, 'message': '缺少chapter_number'}, status=400)
 
             volume = get_object_or_404(
-                VolumeList.objects.select_related('volume_version__project'),
+                Volume.objects.select_related('project'),
                 pk=volume_id,
-                volume_version__project__user=request.user
+                project__user=request.user
             )
 
             # 后续章节序号后移
@@ -2471,7 +2471,7 @@ class ApiChapterLoadView(BaseChapterAPIView):
     """按卷加载章节列表（不含正文内容，减少传输量）"""
     def get(self, request, project_id, volume_id):
 
-        volume = get_object_or_404(VolumeList, pk=volume_id, volume_version__project__user=request.user)
+        volume = get_object_or_404(Volume, pk=volume_id, project__user=request.user)
 
         chapters = []
         for chap in volume.chapter_list.all().order_by('chapter_number'):
@@ -2612,7 +2612,7 @@ class ApiChapterChatView(BaseChapterAPIView):
                     yield self.sse_event('chunk', {'content': chunk_content})
 
                 # 记录 token 使用量
-                self.log_token_usage('chapter_chat', result=last_chunk, usage_result=usage_chunk, user=request.user, project=chapter.volume.volume_version.project)
+                self.log_token_usage('chapter_chat', result=last_chunk, usage_result=usage_chunk, user=request.user, project=chapter.volume.project)
 
                 # 尝试解析 JSON 响应（支持纯JSON或包裹在文本/markdown中）
                 try:
@@ -2682,9 +2682,9 @@ class ApiChapterReorderView(BaseChapterAPIView):
             return JsonResponse({'success': False, 'message': '缺少volume_id'}, status=400)
 
         volume = get_object_or_404(
-            VolumeList,
+            Volume,
             pk=volume_id,
-            volume_version__project__user=request.user
+            project__user=request.user
         )
 
         chapters = ChapterList.objects.filter(
@@ -2718,11 +2718,11 @@ class ApiReaderReviewView(BaseChapterAPIView):
             return JsonResponse({'success': False, 'message': '缺少 volume_id'}, status=400)
 
         try:
-            volume = Volume.objects.get(id=volume_id, volume_version__project_id=project_id)
+            volume = Volume.objects.get(id=volume_id, project_id=project_id)
         except Volume.DoesNotExist:
             return JsonResponse({'success': False, 'message': '卷不存在'}, status=404)
 
-        project = volume.volume_version.project
+        project = volume.project
 
         # 获取所有有内容的章节
         chapters = list(ChapterList.objects.filter(

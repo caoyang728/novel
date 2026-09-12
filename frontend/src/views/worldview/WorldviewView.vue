@@ -63,6 +63,15 @@
             />
             <div v-else class="wv-doc-preview">
               <template v-if="content.trim()">
+                <!--
+                  Diff 展示逻辑（由 MarkdownRenderer 内置 LCS diff 算法处理）：
+                  - highlightNew: content !== baseline 时为 true，触发 diff 模式
+                  - baseline: 上次保存时的文档快照
+                  - showRemoved: 是否显示被删除的内容（红色删除线）
+                  - 流式对话期间：content 持续更新，baseline 保持不变 → diff 实时展示变更
+                  - 保存/另存后：baseline 同步为 content → diff 消失
+                  - 设计规范：对话只返回内容不自动保存，diff 对比的是"保存前后"的差异
+                -->
                 <MarkdownRenderer
                   :content="content"
                   :highlight-new="!locked && hasUnsavedChanges()"
@@ -129,6 +138,7 @@ import { worldviewApi, worldviewUrls } from '@/api/worldview'
 import { createSseController } from '@/api/sse'
 import { useProjectId } from '@/composables/useProjectId'
 import { useChat } from '@/composables/useChat'
+import { useDiffBaseline } from '@/composables/useDiffBaseline'
 import { showSuccess, showError, showWarning } from '@/utils/notify'
 import { showConfirmModal } from '@/utils/modal'
 
@@ -150,8 +160,9 @@ const docLoading = ref(false)
 const saving = ref(false)
 const versions = ref([])
 const currentVersion = ref(null)
-const content = ref('')
-const baseline = ref('')
+// content / baseline / hasUnsavedChanges 由 useDiffBaseline 统一管理
+// （baseline 为上次保存时的快照，用于未保存检测与 diff 高亮）
+const { content, baseline, hasUnsavedChanges, reset, loadSnapshot, commit, revert } = useDiffBaseline()
 const mode = ref('preview')
 // 保存时才持久化的最后一条 AI 消息
 const pendingQuestion = ref('')
@@ -161,7 +172,6 @@ const streamingMsgId = ref(null) // 当前正在流式的消息 ID
 let typewriterTimer = null // 打字机效果定时器引用
 
 const locked = computed(() => !!currentVersion.value?.is_finalized)
-const hasUnsavedChanges = () => content.value !== baseline.value
 
 /** 滚动聊天面板到底部 */
 function scrollChatToBottom() {
@@ -173,7 +183,20 @@ function scrollChatToBottom() {
   })
 }
 
-// ---- Diff 预览：由 MarkdownRenderer 组件内置处理 ----
+// ---- Diff 预览（baseline 对比机制） ----
+// 核心设计：content.value 是当前文档内容，baseline.value 是上次保存时的快照。
+// 当 content !== baseline 时，MarkdownRenderer 以 LCS 行级 diff 高亮展示变更（绿色=新增，红色=删除）。
+//
+// baseline 同步时机（且仅在以下时机同步）：
+//   1. doLoadVersion()     — 加载历史版本 → baseline = 保存的内容
+//   2. handleSave()        — 保存当前版本 → baseline = content（diff 消失）
+//   3. handleSaveAs()      — 另存新版本   → baseline = content（diff 消失）
+//
+// baseline 不同步的时机：
+//   - handleSend() 流式完成后 → content 更新但 baseline 不变 → diff 持续显示
+//   - 用户手动编辑 textarea → content 更新但 baseline 不变 → diff 持续显示
+//
+// 这确保了：对话只展示变更 diff，不自动保存；用户手动保存/另存后变更被持久化，diff 清除。
 
 // ---- 快捷选项 ----
 const quickOptions = ref([])
@@ -234,8 +257,7 @@ async function loadVersions(selectId = null) {
       try {
         const docRes = await worldviewApi.get(projectId.value)
         const docData = docRes || {}
-        content.value = docData.content || ''
-        baseline.value = docData.content || ''
+        loadSnapshot(docData.content)
       } catch (e) { console.warn('加载文档内容失败:', e) }
     }
   } catch {
@@ -256,8 +278,7 @@ async function doLoadVersion(version, { reloadChat = false } = {}) {
       last_question: data.last_question || '',
       last_options: data.last_options || [],
     }
-    content.value = data.content || ''
-    baseline.value = data.content || ''
+    loadSnapshot(data.content)
     mode.value = 'preview'
     // 重置 pending 数据为版本中保存的值
     pendingQuestion.value = data.last_question || ''
@@ -351,6 +372,9 @@ watch(currentVersion, (newVal, oldVal) => {
 
 // ---- 版本操作 ----
 async function handleSave() {
+  // 保存按钮：将对话产生的内容变更持久化到当前版本。
+  // 保存后 baseline.value = content.value，diff 消失。
+  // 后续对话会再次产生 content !== baseline，diff 重新出现。
   if (!projectId.value) return
   if (!content.value.trim()) {
     showError('文档为空，无法保存')
@@ -371,7 +395,7 @@ async function handleSave() {
       await worldviewApi.saveVersion(projectId.value, saveData)
     }
     showSuccess('已保存')
-    baseline.value = content.value
+    commit()
     // 刷新版本列表，保持当前版本选中（刷新失败不影响保存结果）
     try {
       await refreshVersionList()
@@ -385,6 +409,7 @@ async function handleSave() {
 }
 
 async function handleSaveAs() {
+  // 另存按钮：将当前内容创建为新版本。保存后 baseline.value = content.value，diff 消失。
   if (!projectId.value) return
   if (!content.value.trim()) {
     showError('文档为空，无法保存')
@@ -406,7 +431,7 @@ async function handleSaveAs() {
         })
         const data = res || {}
         showSuccess(`已保存为 v${data.version_number || '?'} 版本`)
-        baseline.value = content.value
+        commit()
         // 刷新版本列表并切换到新版本（刷新失败不影响保存结果）
         try {
           await refreshVersionList(data.id)
@@ -583,7 +608,7 @@ async function handleNewChat() {
       confirmText: '继续',
       onConfirm: (close) => {
         close()
-        content.value = baseline.value
+        revert()
         pendingQuestion.value = ''
         pendingOptions.value = []
         clearMessages()
@@ -632,6 +657,7 @@ async function handleSend(rawText) {
     timestamp: new Date().toISOString(),
   })
 
+  // 保存流式开始前的 baseline 快照，用于失败时回滚
   const oldBaseline = content.value
   isStreaming.value = true
   streamingMsgId.value = msgId
@@ -652,11 +678,17 @@ async function handleSend(rawText) {
             streamReply += evt.chunk
             updateMsgById(msgId, { thinking: streamReply })
           } else if (evt.type === 'doc_chunk' && evt.chunk) {
+            // ---- 核心：流式更新文档内容 ----
+            // streamDoc 累积后端返回的补丁文档片段，赋值给 content.value 实时更新预览。
+            // baseline.value 保持不变，MarkdownRenderer 通过 content !== baseline 自动计算 diff。
+            // 设计规范：对话只返回内容，不自动保存。diff 对比的是 baseline（上次保存的状态）与当前 content。
             streamDoc += evt.chunk
             content.value = streamDoc
           } else if (evt.type === 'complete') {
             completed = true
-            if (evt.content) content.value = evt.content
+            // 使用前端累积的 streamDoc 作为最终内容，确保与流式过程中展示的内容一致。
+            // 若 streamDoc 为空（后端未返回 doc_chunk），则回退到 evt.content。
+            content.value = streamDoc || evt.content || content.value
             const reply = evt.reply || '世界观文档已更新，请查看左侧预览区'
             const opts = Array.isArray(evt.options) ? [...evt.options] : []
             updateMsgById(msgId, {
@@ -682,8 +714,13 @@ async function handleSend(rawText) {
       scrollChatToBottom()
     }
 
-    // 注意：不在这里同步 baseline，让 diff 持续显示修改内容
-    // baseline 仅在用户手动保存/另存时同步（见 handleSave）
+    // ---- Diff 基准同步策略 ----
+    // 这里不同步 baseline.value，让 diff 持续显示本次对话的修改内容。
+    // baseline 的唯一同步时机：
+    //   - handleSave():  保存当前版本 → baseline.value = content.value
+    //   - handleSaveAs(): 另存新版本   → baseline.value = content.value
+    //   - doLoadVersion(): 加载历史版本 → baseline.value = data.content
+    // 这确保了：对话只展示变更 diff，用户手动保存/另存后 diff 消失，后续对话再产生新 diff。
     // 只刷新版本列表，不加载版本内容（避免清空聊天）
     try {
       await refreshVersionList()
@@ -696,6 +733,7 @@ async function handleSend(rawText) {
       updateMsgById(msgId, { content: `抱歉，生成失败：${err.message || '请重试'}` })
       showError(err.message || '生成失败，请重试')
     }
+    // 流式失败：回滚 content 到流式前的状态（oldBaseline），diff 消失
     content.value = oldBaseline
   } finally {
     isStreaming.value = false

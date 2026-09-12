@@ -13,6 +13,7 @@ from apps.project.utils import (
 from .prompts import (
     OUTLINE_CONTEXT_TEMPLATE,
     OUTLINE_BUILD_USER_PROMPT,
+    OUTLINE_JSON_REPAIR_PROMPT,
     OUTLINE_GENRE_PROMPTS_DICT,
 )
 
@@ -185,6 +186,8 @@ class ApiChatOutlineView(BaseOutlineAPIView):
                     log_prefix='[OUTLINE]',
                     max_rounds=self.MAX_ROUNDS,
                     wrap_stream_fn=lambda s: make_thinking_handler()(s),
+                    get_stream_input=lambda ri: {"user_input": ri},
+                    json_repair_prompt=OUTLINE_JSON_REPAIR_PROMPT,
                 )
 
                 # 三轮均失败（run_retry_loop 已发送 error 事件）
